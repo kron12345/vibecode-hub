@@ -50,3 +50,42 @@ Dokumentation aller Prompts/Anforderungen die zur Entwicklung genutzt wurden.
 - 3 MCP-Server konfiguriert (Angular, Prisma, NestJS)
 - Arbeitsregeln festgelegt (MCP-First, Umsetzungsschleife, keine Halluzination)
 - Dokumentation: CLAUDE.md, SPEC.md, ARCHITECTURE.md, PROMPTS.md, DEVELOPMENT.md
+
+## Session 2 — 2026-02-28 — Phase 1 Endspurt (GitLab, Issues, Chat)
+
+### Prompt 1: "weiter"
+> weiter
+
+**Interpretation:** Phase 1 Foundation fortsetzen — die drei fehlenden Module bauen.
+
+### Ergebnis Session 2
+
+**GitLab-Integration:**
+- `GitlabService` — HTTP-Client für GitLab API v4 (Projekte, Issues, Webhooks)
+- `GitlabController` — Webhook-Endpunkt für Issue-Sync (Upsert bei Events)
+- `ProjectsService` integriert: automatische GitLab-Repo-Erstellung/Löschung
+- `GITLAB_WEBHOOK_SECRET` generiert und in `.env` eingetragen
+- `@nestjs/axios` installiert
+
+**Issues-API:**
+- `IssuesController` — 5 REST-Endpunkte (GET by project, GET/:id, POST, PUT/:id, DELETE/:id)
+- `IssuesService` — CRUD mit automatischem GitLab-Sync (Status close/reopen)
+- Sub-Issues über `parentId`, Agent-Assignment, Labels
+- `syncToGitlab` Flag beim Erstellen
+
+**Chat-Module (Backend):**
+- `ChatService` — Sessions + Messages CRUD
+- `ChatController` — REST-Endpunkte für Sessions und Messages
+- `ChatGateway` — WebSocket-Gateway auf `/chat` Namespace (Socket.IO)
+- Room-basierte Nachrichten (join/leave/send)
+
+**Chat-UI (Frontend):**
+- `ChatSocketService` — WebSocket-Client (socket.io-client)
+- `ApiService` erweitert um Issues + Chat Methoden
+- `ProjectPage` komplett umgebaut: 3-Spalten-Layout
+  - Links: Agenten-Status-Karten
+  - Mitte: Chat mit Session-Liste, Nachrichtenverlauf, Eingabefeld, Auto-Scroll
+  - Rechts: Issues-Liste mit Priority-Farben und Status-Badges
+
+**Commands:** `npm install @nestjs/axios axios`, `npm install socket.io-client`, `npx nest build`, `npx ng build`
+**Status:** Phase 1 Foundation — KOMPLETT ✅ (alle Checkboxen in SPEC.md abgehakt)

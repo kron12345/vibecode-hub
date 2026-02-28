@@ -38,7 +38,7 @@ VibCode Hub ist ein AI-Entwicklerteam-Portal. Der Nutzer agiert als "Chef" und s
 - [x] Datenmodell (Projects, Issues, Chat, Agents, Tasks, Logs)
 - [x] Projekt-CRUD API & Dashboard
 - [x] GitLab-Integration (Projekte erstellen, Issues sync)
-- [ ] Chat-Interface Grundgerüst
+- [x] Chat-Interface Grundgerüst
 
 ### Phase 2 — Agent-Orchestrierung
 - [ ] Agent-Framework (abstraktes Interface für alle LLM-Provider)
