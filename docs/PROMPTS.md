@@ -113,3 +113,47 @@ Dokumentation aller Prompts/Anforderungen die zur Entwicklung genutzt wurden.
 
 **Commands:** `npm install tailwindcss @tailwindcss/postcss postcss lucide`, `npx ng build`
 **Status:** Redesign komplett ✅
+
+### Prompt 3: Deployment
+> Okay jetzt will ich es sehen. Dazu musst du das alte HUB beenden und hub.example.com auf das neue in ngnix umbauen. Das alte wird auch automatisch gestartet bei Systemstart, kannst du es so machen das das neue gestartet wird. Das allte will ich nicht mehr verwenden und was nur ein lern-Projekt.
+
+**Interpretation:** Altes hub-codex-starter Projekt abschalten, VibCode Hub produktiv deployen.
+
+**Ergebnis:**
+
+**Altes Hub dekommissioniert:**
+- Alte systemd-Services gestoppt und deaktiviert: `hub-ui.service`, `hub-api.service`, `hub-project@timezone-clock.service`
+- Altes Projekt lag unter `/home/sebastian/Projects/hub-codex-starter/`
+
+**Neuer systemd-Service:**
+- `~/.config/systemd/user/vibcode-api.service` erstellt (NestJS als Node-Prozess)
+- EnvironmentFile für `.env` Variablen, NODE_ENV=production
+- `systemctl --user enable vibcode-api` — startet automatisch bei Login
+
+**Prisma 7 Fix:**
+- Prisma 7 "client" Engine braucht zwingend einen Adapter
+- `@prisma/adapter-pg` + `pg` installiert
+- `PrismaService` umgebaut: `new PrismaPg({ connectionString })` → `super({ adapter })`
+
+**Nginx-Konfiguration:**
+- `/etc/nginx/sites-available/hub` komplett umgeschrieben
+- Angular-Frontend als statische Dateien aus `frontend/dist/frontend/browser/`
+- `try_files $uri $uri/ /index.html` für SPA-Routing
+- `/api/` Proxy zu :3100 mit LAN-Bypass + oauth2-proxy Auth
+- `/socket.io/` WebSocket-Proxy zu :3100
+- `/api/gitlab/webhook` ohne Auth (Token-basiert auf App-Ebene)
+- Bestehende Blöcke erhalten: hub.example.com (OpenWebUI), Projekt-Subdomains, OpenClaw
+
+**Permission-Fix:**
+- `chmod o+x` auf Verzeichniskette für nginx (www-data)
+- `chmod -R o+r` auf Angular Build-Output
+
+**Commands:** `systemctl --user stop/disable/enable/start`, `sudo nginx -t && sudo systemctl reload nginx`, `npm install @prisma/adapter-pg pg`, `npx nest build`
+**Status:** Deployment komplett ✅ — hub.example.com liefert VibCode Hub Frontend (200), API antwortet auf :3100
+
+### Ergebnis Session 2 (Gesamt)
+- Phase 1 Foundation komplett: GitLab, Issues, Chat Module implementiert
+- UI-Redesign: Tailwind v4, Glass Morphism, Bento Grid, Agent Pipeline, Terminal Chat
+- Produktiv-Deployment: systemd-Service, Nginx, Prisma 7 Adapter-Fix
+- 9 Commits auf main, nach GitLab gepusht
+- Altes hub-codex-starter dekommissioniert
