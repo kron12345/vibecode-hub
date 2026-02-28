@@ -73,6 +73,12 @@ Siehe `docs/SPEC.md`. Aktuell: **Phase 1** (Foundation).
 | `prisma` | Schema-Analyse, Migration, Query-Hilfe |
 | `mcp-nest` | NestJS-Module, Decorator-Patterns |
 
+## Kommunikation (PFLICHT)
+
+- **Rückfragen bis 95% Klarheit** — Wenn unklar ist was der User meint: NACHFRAGEN, nicht interpretieren oder dazuerfinden.
+- **Nichts eigenmächtig hinzufügen** — Nur umsetzen was explizit gewünscht ist. Keine "Verbesserungen", Extra-Features oder Annahmen.
+- Im Zweifel lieber eine Frage zu viel als eine falsche Annahme.
+
 ## Arbeitsweise (PFLICHT)
 
 ### MCP-First — Nicht raten, nachschlagen
