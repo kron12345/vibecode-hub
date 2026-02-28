@@ -1,0 +1,231 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+// ─── Projekte ───────────────────────────────────────────────
+
+model Project {
+  id              String   @id @default(cuid())
+  name            String
+  slug            String   @unique
+  description     String?
+  gitlabProjectId Int?     @unique
+  gitlabUrl       String?
+  previewPort     Int?     @unique
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  issues          Issue[]
+  chats           ChatSession[]
+  agents          AgentInstance[]
+
+  @@map("projects")
+}
+
+// ─── Issues (gespiegelt von GitLab) ─────────────────────────
+
+model Issue {
+  id              String        @id @default(cuid())
+  projectId       String
+  project         Project       @relation(fields: [projectId], references: [id], onDelete: Cascade)
+
+  gitlabIssueId   Int?
+  gitlabIid       Int?
+  title           String
+  description     String?
+  status          IssueStatus   @default(OPEN)
+  priority        IssuePriority @default(MEDIUM)
+  labels          String[]
+
+  parentId        String?
+  parent          Issue?        @relation("SubIssues", fields: [parentId], references: [id])
+  subIssues       Issue[]       @relation("SubIssues")
+
+  assignedAgentId String?
+  assignedAgent   AgentInstance? @relation(fields: [assignedAgentId], references: [id])
+
+  chatMessages    ChatMessage[]
+  agentTasks      AgentTask[]
+
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  @@unique([projectId, gitlabIid])
+  @@map("issues")
+}
+
+enum IssueStatus {
+  OPEN
+  IN_PROGRESS
+  IN_REVIEW
+  TESTING
+  DONE
+  CLOSED
+}
+
+enum IssuePriority {
+  LOW
+  MEDIUM
+  HIGH
+  CRITICAL
+}
+
+// ─── Chat ───────────────────────────────────────────────────
+
+model ChatSession {
+  id        String   @id @default(cuid())
+  projectId String
+  project   Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  title     String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  messages  ChatMessage[]
+
+  @@map("chat_sessions")
+}
+
+model ChatMessage {
+  id            String      @id @default(cuid())
+  chatSessionId String
+  chatSession   ChatSession @relation(fields: [chatSessionId], references: [id], onDelete: Cascade)
+
+  role          MessageRole
+  content       String
+  metadata      Json?
+
+  issueId       String?
+  issue         Issue?      @relation(fields: [issueId], references: [id])
+
+  agentTaskId   String?
+  agentTask     AgentTask?  @relation(fields: [agentTaskId], references: [id])
+
+  createdAt     DateTime @default(now())
+
+  @@map("chat_messages")
+}
+
+enum MessageRole {
+  USER
+  ASSISTANT
+  SYSTEM
+  AGENT
+}
+
+// ─── Agenten ────────────────────────────────────────────────
+
+model AgentInstance {
+  id          String      @id @default(cuid())
+  projectId   String
+  project     Project     @relation(fields: [projectId], references: [id], onDelete: Cascade)
+
+  role        AgentRole
+  provider    LLMProvider
+  model       String
+  status      AgentStatus @default(IDLE)
+  config      Json?
+
+  assignedIssues Issue[]
+  tasks          AgentTask[]
+
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@map("agent_instances")
+}
+
+enum AgentRole {
+  TICKET_CREATOR
+  CODER
+  CODE_REVIEWER
+  UI_TESTER
+  PEN_TESTER
+  DOCUMENTER
+}
+
+enum AgentStatus {
+  IDLE
+  WORKING
+  WAITING
+  ERROR
+  OFFLINE
+}
+
+enum LLMProvider {
+  ANTHROPIC
+  OPENAI
+  GOOGLE
+  OLLAMA
+}
+
+// ─── Agent-Tasks (Arbeitsschritte) ──────────────────────────
+
+model AgentTask {
+  id            String          @id @default(cuid())
+  agentId       String
+  agent         AgentInstance   @relation(fields: [agentId], references: [id], onDelete: Cascade)
+
+  issueId       String?
+  issue         Issue?          @relation(fields: [issueId], references: [id])
+
+  type          AgentTaskType
+  status        AgentTaskStatus @default(PENDING)
+  input         Json?
+  output        Json?
+  logs          AgentLog[]
+  chatMessages  ChatMessage[]
+
+  gitlabMrIid   Int?
+
+  startedAt     DateTime?
+  completedAt   DateTime?
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  @@map("agent_tasks")
+}
+
+enum AgentTaskType {
+  CREATE_ISSUES
+  WRITE_CODE
+  REVIEW_CODE
+  TEST_UI
+  TEST_SECURITY
+  WRITE_DOCS
+  FIX_CODE
+}
+
+enum AgentTaskStatus {
+  PENDING
+  RUNNING
+  COMPLETED
+  FAILED
+  CANCELLED
+}
+
+// ─── Agent-Logs (Live-Ansicht) ──────────────────────────────
+
+model AgentLog {
+  id          String    @id @default(cuid())
+  agentTaskId String
+  agentTask   AgentTask @relation(fields: [agentTaskId], references: [id], onDelete: Cascade)
+
+  level       LogLevel  @default(INFO)
+  message     String
+  data        Json?
+  createdAt   DateTime  @default(now())
+
+  @@index([agentTaskId, createdAt])
+  @@map("agent_logs")
+}
+
+enum LogLevel {
+  DEBUG
+  INFO
+  WARN
+  ERROR
+}

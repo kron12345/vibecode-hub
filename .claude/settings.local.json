@@ -1,0 +1,33 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(*)",
+      "Read(*)",
+      "Write(*)",
+      "Edit(*)",
+      "Glob(*)",
+      "Grep(*)",
+      "WebFetch(*)",
+      "mcp__angular__*",
+      "mcp__prisma__*",
+      "mcp__mcp-nest__*"
+    ]
+  },
+  "mcpServers": {
+    "angular": {
+      "command": "angular-mcp-server",
+      "args": [],
+      "type": "stdio"
+    },
+    "prisma": {
+      "command": "npx",
+      "args": ["prisma", "mcp", "--schema", "./backend/prisma/schema.prisma"],
+      "type": "stdio"
+    },
+    "mcp-nest": {
+      "command": "npx",
+      "args": ["@rekog/mcp-nest"],
+      "type": "stdio"
+    }
+  }
+}
