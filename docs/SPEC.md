@@ -37,7 +37,7 @@ VibCode Hub ist ein AI-Entwicklerteam-Portal. Der Nutzer agiert als "Chef" und s
 - [x] Keycloak-Integration (Realm, Clients, User)
 - [x] Datenmodell (Projects, Issues, Chat, Agents, Tasks, Logs)
 - [x] Projekt-CRUD API & Dashboard
-- [ ] GitLab-Integration (Projekte erstellen, Issues sync)
+- [x] GitLab-Integration (Projekte erstellen, Issues sync)
 - [ ] Chat-Interface Grundgerüst
 
 ### Phase 2 — Agent-Orchestrierung

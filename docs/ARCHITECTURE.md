@@ -89,12 +89,19 @@ vibcode-hub/
 | sso.example.com | Keycloak (:8081) |
 | git.example.com | GitLab CE (:8929) |
 
+## GitLab-Integration
+
+- **GitlabService** (`backend/src/gitlab/gitlab.service.ts`) — HTTP-Client für GitLab API v4
+- **Automatisch**: Bei Projekt-Erstellung wird ein GitLab-Repo erstellt, bei Löschung gelöscht
+- **Webhook**: `POST /api/gitlab/webhook` — empfängt Issue-Events und synct sie lokal (Upsert)
+- **Intern**: Service wird von Agenten genutzt um Issues zu erstellen/updaten
+
 ## API-Design
 
 - REST unter `/api/`
 - Swagger/OpenAPI unter `/api/docs`
 - WebSocket für Live-Agent-Updates
-- GitLab Webhook unter `/api/gitlab/webhook` (ohne Auth, via Token)
+- GitLab Webhook unter `/api/gitlab/webhook` (ohne Auth, via X-Gitlab-Token)
 
 ## MCP-Server (Entwicklungs-Tooling)
 
@@ -104,7 +111,7 @@ Konfiguriert in `.claude/settings.local.json`:
 |---|---|---|
 | angular | `angular-mcp-server` | stdio |
 | prisma | `npx prisma mcp --schema ./backend/prisma/schema.prisma` | stdio |
-| mcp-nest | `npx @rekog/mcp-nest` | stdio |
+| context7 | `npx -y @upstash/context7-mcp@latest` | stdio |
 
 ## Entwicklungsrichtlinien
 
