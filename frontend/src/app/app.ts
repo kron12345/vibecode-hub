@@ -8,7 +8,7 @@ import { IconComponent } from './components/icon.component';
   template: `
     <!-- Sidebar -->
     <aside
-      class="fixed top-0 left-0 h-screen glass-heavy z-50 flex flex-col transition-all duration-300"
+      class="sticky top-0 h-screen glass-heavy z-50 flex flex-col shrink-0 transition-all duration-300"
       [class.w-56]="sidebarOpen()"
       [class.w-16]="!sidebarOpen()"
     >
@@ -80,11 +80,7 @@ import { IconComponent } from './components/icon.component';
     </aside>
 
     <!-- Main Content -->
-    <main
-      class="transition-all duration-300 min-h-screen"
-      [class.ml-56]="sidebarOpen()"
-      [class.ml-16]="!sidebarOpen()"
-    >
+    <main class="flex-1 min-h-screen min-w-0">
       <div class="p-6 max-w-7xl mx-auto">
         <router-outlet />
       </div>
