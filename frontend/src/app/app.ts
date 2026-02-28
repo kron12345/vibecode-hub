@@ -9,7 +9,8 @@ import { IconComponent } from './components/icon.component';
     <!-- Sidebar -->
     <aside
       class="fixed top-0 left-0 h-screen glass-heavy z-50 flex flex-col transition-all duration-300"
-      [class]="sidebarOpen() ? 'w-56' : 'w-16'"
+      [class.w-56]="sidebarOpen()"
+      [class.w-16]="!sidebarOpen()"
     >
       <!-- Logo -->
       <div class="flex items-center gap-3 px-4 h-16 border-b border-white/5">
@@ -81,7 +82,8 @@ import { IconComponent } from './components/icon.component';
     <!-- Main Content -->
     <main
       class="transition-all duration-300 min-h-screen"
-      [class]="sidebarOpen() ? 'ml-56' : 'ml-16'"
+      [class.ml-56]="sidebarOpen()"
+      [class.ml-16]="!sidebarOpen()"
     >
       <div class="p-6 max-w-7xl mx-auto">
         <router-outlet />
