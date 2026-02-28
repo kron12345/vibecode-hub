@@ -48,7 +48,45 @@
 
 ## Issues
 
-> Noch nicht implementiert — Phase 1
+| Method | Endpoint | Auth | Beschreibung |
+|---|---|---|---|
+| `GET` | `/api/issues?projectId=xxx` | Ja | Alle Top-Level Issues eines Projekts (inkl. Sub-Issues) |
+| `GET` | `/api/issues/:id` | Ja | Einzelnes Issue mit Sub-Issues, Agent, Projekt |
+| `POST` | `/api/issues` | Ja | Neues Issue erstellen (optional mit GitLab-Sync) |
+| `PUT` | `/api/issues/:id` | Ja | Issue aktualisieren (Status, Priorität, Labels, Agent) |
+| `DELETE` | `/api/issues/:id` | Ja | Issue löschen |
+
+### DTOs
+
+**CreateIssueDto**
+```typescript
+{
+  projectId: string;       // Pflicht
+  title: string;           // Pflicht
+  description?: string;
+  priority?: 'LOW' | 'MEDIUM' | 'HIGH' | 'CRITICAL';  // Default: MEDIUM
+  labels?: string[];
+  parentId?: string;       // Für Sub-Issues
+  syncToGitlab?: boolean;  // Erstellt das Issue auch in GitLab
+}
+```
+
+**UpdateIssueDto**
+```typescript
+{
+  title?: string;
+  description?: string;
+  status?: 'OPEN' | 'IN_PROGRESS' | 'IN_REVIEW' | 'TESTING' | 'DONE' | 'CLOSED';
+  priority?: 'LOW' | 'MEDIUM' | 'HIGH' | 'CRITICAL';
+  labels?: string[];
+  assignedAgentId?: string;
+}
+```
+
+### Verhalten
+- Status-Änderungen auf `CLOSED`/`DONE` werden automatisch an GitLab gesynct (close)
+- Status-Änderung auf `OPEN` reopened das GitLab-Issue
+- Sub-Issues über `parentId` — Top-Level Issues werden mit `parentId: null` gefiltert
 
 ---
 
@@ -107,5 +145,6 @@ Der `GitlabService` wird intern vom `ProjectsService` genutzt:
 
 | Datum | Änderung |
 |---|---|
+| 2026-02-28 | Issues CRUD: 5 Endpunkte mit GitLab-Sync, Sub-Issues, Agent-Assignment |
 | 2026-02-28 | GitLab-Integration: Service, Webhook-Controller, Projects-Integration |
 | 2026-02-28 | Initial: Projects CRUD (5 Endpunkte) |
