@@ -10,7 +10,8 @@
       "WebFetch(*)",
       "mcp__angular__*",
       "mcp__prisma__*",
-      "mcp__mcp-nest__*"
+      "mcp__context7__*",
+      "WebSearch"
     ]
   },
   "mcpServers": {
@@ -21,12 +22,20 @@
     },
     "prisma": {
       "command": "npx",
-      "args": ["prisma", "mcp", "--schema", "./backend/prisma/schema.prisma"],
+      "args": [
+        "prisma",
+        "mcp",
+        "--schema",
+        "./backend/prisma/schema.prisma"
+      ],
       "type": "stdio"
     },
-    "mcp-nest": {
+    "context7": {
       "command": "npx",
-      "args": ["@rekog/mcp-nest"],
+      "args": [
+        "-y",
+        "@upstash/context7-mcp"
+      ],
       "type": "stdio"
     }
   }

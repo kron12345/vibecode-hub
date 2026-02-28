@@ -78,7 +78,7 @@ Siehe `docs/SPEC.md`. Aktuell: **Phase 1** (Foundation).
 |---|---|
 | `angular` | Angular-Doku, Best Practices, Beispielsuche |
 | `prisma` | Schema-Analyse, Migration, Query-Hilfe |
-| `mcp-nest` | NestJS-Module, Decorator-Patterns |
+| `context7` | NestJS-Doku, allgemeine Framework-Doku (via @upstash/context7-mcp) |
 
 ## Kommunikation (PFLICHT)
 
@@ -100,6 +100,7 @@ Siehe `docs/SPEC.md`. Aktuell: **Phase 1** (Foundation).
 
 ### MCP-Prioritäten
 - **Angular**: `get_best_practices` → `find_examples` → `search_documentation`
+- **NestJS**: `context7` → `resolve_library_id` → `get_library_docs`
 - **Prisma**: Schema lesen → `migrate dev` → `generate` (NIEMALS `migrate reset` ohne Nachfrage)
 - **Projekt**: lint → test → build (devserver nur bei Bedarf)
 

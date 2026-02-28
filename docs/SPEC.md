@@ -69,7 +69,7 @@ VibCode Hub ist ein AI-Entwicklerteam-Portal. Der Nutzer agiert als "Chef" und s
 |---|---|---|
 | angular | `angular-mcp-server` | Angular-Doku, Best Practices, Beispielsuche |
 | prisma | `npx prisma mcp` (built-in) | Schema-Analyse, Migration, Query-Hilfe |
-| mcp-nest | `@rekog/mcp-nest` | NestJS-Module, Decorator-Patterns |
+| context7 | `@upstash/context7-mcp` | NestJS-Doku, allgemeine Framework-Doku |
 
 ### Arbeitsregeln
 Siehe `docs/DEVELOPMENT.md` — MCP-First-Ansatz, Umsetzungsschleife, Dokumentationspflicht.
