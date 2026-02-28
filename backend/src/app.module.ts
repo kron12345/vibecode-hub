@@ -7,6 +7,7 @@ import { AuthGuard } from './auth/auth.guard';
 import { ProjectsModule } from './projects/projects.module';
 import { GitlabModule } from './gitlab/gitlab.module';
 import { IssuesModule } from './issues/issues.module';
+import { ChatModule } from './chat/chat.module';
 
 @Module({
   imports: [
@@ -16,6 +17,7 @@ import { IssuesModule } from './issues/issues.module';
     ProjectsModule,
     GitlabModule,
     IssuesModule,
+    ChatModule,
   ],
   providers: [
     {

@@ -92,7 +92,51 @@
 
 ## Chat
 
-> Noch nicht implementiert — Phase 1
+### Sessions
+
+| Method | Endpoint | Auth | Beschreibung |
+|---|---|---|---|
+| `GET` | `/api/chat/sessions?projectId=xxx` | Ja | Chat-Sessions eines Projekts (inkl. letzter Nachricht) |
+| `GET` | `/api/chat/sessions/:id` | Ja | Session mit allen Nachrichten |
+| `POST` | `/api/chat/sessions` | Ja | Neue Chat-Session erstellen |
+| `DELETE` | `/api/chat/sessions/:id` | Ja | Chat-Session löschen |
+
+### Messages
+
+| Method | Endpoint | Auth | Beschreibung |
+|---|---|---|---|
+| `GET` | `/api/chat/sessions/:id/messages` | Ja | Alle Nachrichten einer Session |
+| `POST` | `/api/chat/messages` | Ja | Nachricht senden |
+
+### DTOs
+
+**CreateChatSessionDto**
+```typescript
+{
+  projectId: string;   // Pflicht
+  title?: string;      // Default: "New Chat"
+}
+```
+
+**SendMessageDto**
+```typescript
+{
+  chatSessionId: string;                              // Pflicht
+  role: 'USER' | 'ASSISTANT' | 'SYSTEM' | 'AGENT';   // Pflicht
+  content: string;                                     // Pflicht
+  issueId?: string;      // Optional: verlinkt mit Issue
+  agentTaskId?: string;  // Optional: verlinkt mit AgentTask
+}
+```
+
+### WebSocket
+
+- **Namespace**: `/chat`
+- **Events**:
+  - `joinSession` → Client joint einer Session-Room (`{ chatSessionId }`)
+  - `leaveSession` → Client verlässt Session-Room
+  - `sendMessage` → Nachricht senden (`{ chatSessionId, content }`)
+  - `newMessage` → Server broadcastet neue Nachricht an Room
 
 ---
 
@@ -145,6 +189,7 @@ Der `GitlabService` wird intern vom `ProjectsService` genutzt:
 
 | Datum | Änderung |
 |---|---|
+| 2026-02-28 | Chat: Sessions + Messages REST API, WebSocket Gateway (/chat namespace) |
 | 2026-02-28 | Issues CRUD: 5 Endpunkte mit GitLab-Sync, Sub-Issues, Agent-Assignment |
 | 2026-02-28 | GitLab-Integration: Service, Webhook-Controller, Projects-Integration |
 | 2026-02-28 | Initial: Projects CRUD (5 Endpunkte) |
