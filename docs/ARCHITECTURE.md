@@ -30,12 +30,24 @@
 | Layer | Technologie | Version |
 |---|---|---|
 | Frontend | Angular | 21.2.0 |
+| CSS | Tailwind CSS | 4.2.x |
+| Icons | Lucide | 0.575.x |
+| Fonts | Inter + Fira Code | Google Fonts |
 | Backend | NestJS | 11.x |
 | ORM | Prisma | 7.4.x |
 | Datenbank | PostgreSQL | 17.8 |
 | Auth | Keycloak | 26.1 |
 | Reverse Proxy | Nginx | - |
 | Container | Docker | 26.1.5 |
+
+## Design-System
+
+- **Theme**: Dark Slate (`#020617`), Glass Morphism (`backdrop-filter: blur`)
+- **Farben**: Indigo (Dev/Primary), Emerald (Test), Amber (Security), Violet (Review), Cyan (Docs), Rose (Critical)
+- **Typography**: Inter (UI), Fira Code (Terminal/Mono)
+- **Layout**: Sidebar-Navigation + Bento Grid Cards
+- **Agent Pipeline**: Horizontale Karten mit Pulse-Animation und Glow-States
+- **Chat**: Terminal-Style mit `>` Prompt, farbcodierte Rollen
 
 ## Projektstruktur
 

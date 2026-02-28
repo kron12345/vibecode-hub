@@ -89,3 +89,27 @@ Dokumentation aller Prompts/Anforderungen die zur Entwicklung genutzt wurden.
 
 **Commands:** `npm install @nestjs/axios axios`, `npm install socket.io-client`, `npx nest build`, `npx ng build`
 **Status:** Phase 1 Foundation — KOMPLETT ✅ (alle Checkboxen in SPEC.md abgehakt)
+
+### Prompt 2: UI-Redesign
+> bevor wir weiter machen, ich hatte schon mal ein mini UI gemacht. Da geht es nur um das Design. [HTML-Mockup mit Tailwind, Glass Morphism, Bento Grid, Agent Pipeline, Terminal]
+
+**Interpretation:** Komplettes Frontend-Redesign basierend auf dem Mockup-Design.
+
+**Verbesserungsvorschläge (von KobAIld):**
+1. Sidebar-Navigation (collapsible)
+2. Terminal-Style Chat statt Chat-Bubbles
+3. Issue-Progress-Dots (OPEN → DONE)
+4. Skeleton Loading States
+5. Agent Activity Ring (animierter Spinner)
+6. Farbcodierte Agenten (Indigo=Dev, Emerald=Test, Amber=Security, etc.)
+
+**Ergebnis:**
+- Tailwind CSS v4 + Lucide Icons + Inter/Fira Code Fonts installiert
+- Globales Design-System: Glass Morphism, Agent Glow, Pulse Pipeline, Skeleton, Progress Dots
+- App Root: Collapsible Sidebar mit Icon-Navigation
+- Dashboard: Hardware Stats Bar, Bento Project Grid, Glass Create-Modal
+- Project Page: Agent Pipeline (6 Rollen, Pulse-Animation), Terminal-Chat, Issue Cards
+- IconComponent: Lightweight Lucide SVG Renderer
+
+**Commands:** `npm install tailwindcss @tailwindcss/postcss postcss lucide`, `npx ng build`
+**Status:** Redesign komplett ✅
