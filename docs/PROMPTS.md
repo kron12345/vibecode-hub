@@ -157,3 +157,21 @@ Dokumentation aller Prompts/Anforderungen die zur Entwicklung genutzt wurden.
 - Produktiv-Deployment: systemd-Service, Nginx, Prisma 7 Adapter-Fix
 - 9 Commits auf main, nach GitLab gepusht
 - Altes hub-codex-starter dekommissioniert
+
+## Session 5 — 2026-03-01 — Settings-System
+
+### Prompt: Settings-System implementieren
+> Implement the following plan: Settings-System — Implementierungsplan (detaillierter 7-Schritte-Plan)
+
+**Ergebnis:**
+- Prisma: 2 neue Models (UserSetting, SystemSetting) mit Migration
+- Backend: SettingsModule (global) mit SettingsService, SystemSettingsService (In-Memory-Cache), Settings-Controller (6 Endpunkte)
+- Sicherheit: AES-256-GCM Verschlüsselung für Secrets, @Roles('admin') Decorator + RolesGuard, API-Key-Maskierung
+- Refactoring: GitLab-Service + Controller nutzen jetzt SystemSettingsService statt ConfigService/process.env
+- Dynamisches CORS in main.ts über SystemSettingsService
+- Seed-Script: 15 .env-Werte in DB migriert (GitLab, LLM, CORS, Agents, App)
+- Frontend: Settings-Page mit User-Tab (Sprache, Theme, Sidebar) und System-Tab (GitLab, LLM, Agents, CORS, App)
+- AuthInfoService für Keycloak-Rollenprüfung
+- Route `/settings` + Sidebar-Link aktiviert
+- API.md, ARCHITECTURE.md aktualisiert
+- Backend + Frontend deployed, API läuft mit 15 gecachten Settings
