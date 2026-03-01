@@ -83,6 +83,8 @@ vibcode-hub/
 - **AgentInstance** → konfigurierter Agent pro Projekt (Rolle + Provider + Model)
 - **AgentTask** → einzelner Arbeitsschritt eines Agenten
 - **AgentLog** → Echtzeit-Logs für Live-Dashboard
+- **UserSetting** → Pro-User Key-Value Settings (Sprache, Theme, UI-Präferenzen)
+- **SystemSetting** → Globale Konfiguration (GitLab, LLM-Provider, CORS, Agent-Defaults), Secrets AES-256-GCM verschlüsselt
 
 ## Auth-Flow
 

@@ -140,6 +140,78 @@
 
 ---
 
+## Settings
+
+### User Settings
+
+| Method | Endpoint | Auth | Beschreibung |
+|---|---|---|---|
+| `GET` | `/api/settings/user` | Ja | Eigene User-Settings als Key-Value-Map |
+| `PUT` | `/api/settings/user` | Ja | Bulk-Upsert eigener Settings |
+| `PUT` | `/api/settings/user/:key` | Ja | Einzelnes User-Setting setzen |
+
+### System Settings (Admin only)
+
+| Method | Endpoint | Auth | Beschreibung |
+|---|---|---|---|
+| `GET` | `/api/settings/system` | Admin | Alle System-Settings (API-Keys maskiert) |
+| `GET` | `/api/settings/system/:category` | Admin | Settings nach Kategorie filtern |
+| `PUT` | `/api/settings/system` | Admin | Bulk-Upsert + Cache-Refresh |
+
+### DTOs
+
+**UpsertUserSettingDto**
+```typescript
+{
+  key: string;    // z.B. "locale", "theme"
+  value: string;  // JSON-encoded
+}
+```
+
+**BulkUpsertUserSettingsDto**
+```typescript
+{
+  settings: UpsertUserSettingDto[];
+}
+```
+
+**UpsertSystemSettingDto**
+```typescript
+{
+  key: string;          // z.B. "gitlab.url", "llm.ollama.url"
+  value: string;        // JSON-encoded oder plain
+  category?: string;    // z.B. "gitlab", "llm", "cors", "agents", "app"
+  encrypted?: boolean;  // true für API-Keys/Secrets
+  description?: string;
+}
+```
+
+**BulkUpsertSystemSettingsDto**
+```typescript
+{
+  settings: UpsertSystemSettingDto[];
+}
+```
+
+### Verhalten
+- **Verschlüsselung**: Secrets (API-Keys, Tokens) werden AES-256-GCM verschlüsselt in der DB gespeichert
+- **Maskierung**: GET-Responses zeigen encrypted Fields als `****xxxx` (letzte 4 Zeichen)
+- **Cache**: SystemSettings werden beim Start in einen In-Memory-Cache geladen, PUT aktualisiert den Cache
+- **RBAC**: System-Endpunkte erfordern Keycloak `admin`-Rolle
+- **Fallback**: DB → process.env → Hardcoded-Default
+
+### System-Setting-Kategorien
+
+| Kategorie | Keys | Verschlüsselt |
+|---|---|---|
+| `gitlab` | `gitlab.url`, `gitlab.api_token`, `gitlab.webhook_secret` | token, secret: ja |
+| `llm` | `llm.ollama.url`, `llm.anthropic.api_key`, `llm.openai.api_key`, `llm.google.api_key` | api_keys: ja |
+| `cors` | `cors.origins` | nein |
+| `agents` | `agents.defaults.{ROLE}` (6x) | nein |
+| `app` | `app.name` | nein |
+
+---
+
 ## Agents
 
 > Noch nicht implementiert — Phase 2
@@ -159,7 +231,7 @@
 | `issue` (open/update/close) | Upsert lokales Issue (Titel, Beschreibung, Status, Labels) |
 
 **Setup**: Webhook-URL in GitLab-Projekt konfigurieren: `https://hub.example.com/api/gitlab/webhook`
-Secret Token: Wert von `GITLAB_WEBHOOK_SECRET` aus `.env`
+Secret Token: Konfiguriert via Settings (Kategorie `gitlab`, Key `gitlab.webhook_secret`)
 
 ---
 
@@ -189,6 +261,7 @@ Der `GitlabService` wird intern vom `ProjectsService` genutzt:
 
 | Datum | Änderung |
 |---|---|
+| 2026-03-01 | Settings: User + System Settings API (6 Endpunkte), AES-256-GCM Encryption, RBAC Admin Guard |
 | 2026-02-28 | Chat: Sessions + Messages REST API, WebSocket Gateway (/chat namespace) |
 | 2026-02-28 | Issues CRUD: 5 Endpunkte mit GitLab-Sync, Sub-Issues, Agent-Assignment |
 | 2026-02-28 | GitLab-Integration: Service, Webhook-Controller, Projects-Integration |

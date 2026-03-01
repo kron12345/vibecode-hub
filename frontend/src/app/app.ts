@@ -69,6 +69,7 @@ import { IconComponent } from './components/icon.component';
       <!-- Bottom -->
       <div class="px-2 py-4 border-t border-white/5">
         <a
+          routerLink="/settings"
           class="flex items-center gap-3 px-3 py-2.5 rounded-xl text-slate-400 hover:text-white hover:bg-white/5 transition-all cursor-pointer"
         >
           <app-icon name="settings" [size]="18" />

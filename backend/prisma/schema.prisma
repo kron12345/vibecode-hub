@@ -229,3 +229,32 @@ enum LogLevel {
   WARN
   ERROR
 }
+
+// ─── Settings ──────────────────────────────────────────────
+
+model UserSetting {
+  id        String   @id @default(cuid())
+  userId    String
+  key       String
+  value     String
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([userId, key])
+  @@index([userId])
+  @@map("user_settings")
+}
+
+model SystemSetting {
+  id          String   @id @default(cuid())
+  category    String
+  key         String   @unique
+  value       String
+  encrypted   Boolean  @default(false)
+  description String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@index([category])
+  @@map("system_settings")
+}

@@ -1,7 +1,7 @@
-import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
-import { ConfigService } from '@nestjs/config';
+import { Injectable, Logger } from '@nestjs/common';
 import { HttpService } from '@nestjs/axios';
 import { firstValueFrom } from 'rxjs';
+import { SystemSettingsService } from '../settings/system-settings.service';
 
 export interface GitLabProject {
   id: number;
@@ -45,28 +45,20 @@ interface UpdateIssueOptions {
 }
 
 @Injectable()
-export class GitlabService implements OnModuleInit {
+export class GitlabService {
   private readonly logger = new Logger(GitlabService.name);
-  private apiUrl: string;
-  private token: string;
 
   constructor(
     private readonly httpService: HttpService,
-    private readonly config: ConfigService,
+    private readonly systemSettings: SystemSettingsService,
   ) {}
 
-  onModuleInit() {
-    const baseUrl = this.config.get<string>('GITLAB_URL');
-    this.token = this.config.get<string>('GITLAB_API_TOKEN', '');
-    this.apiUrl = `${baseUrl}/api/v4`;
-
-    if (!this.token) {
-      this.logger.warn('GITLAB_API_TOKEN is not set — GitLab integration disabled');
-    }
+  private get apiUrl(): string {
+    return `${this.systemSettings.gitlabUrl}/api/v4`;
   }
 
   private get headers() {
-    return { 'PRIVATE-TOKEN': this.token };
+    return { 'PRIVATE-TOKEN': this.systemSettings.gitlabToken };
   }
 
   // ─── Projects ────────────────────────────────────────────────

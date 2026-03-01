@@ -58,6 +58,16 @@ export interface AgentInstance {
   status: string;
 }
 
+export interface SystemSetting {
+  key: string;
+  value: string;
+  category: string;
+  encrypted: boolean;
+  description: string | null;
+}
+
+export type UserSettings = Record<string, unknown>;
+
 @Injectable({ providedIn: 'root' })
 export class ApiService {
   private http = inject(HttpClient);
@@ -145,5 +155,35 @@ export class ApiService {
     content: string;
   }) {
     return this.http.post<ChatMessage>(`${this.baseUrl}/chat/messages`, data);
+  }
+
+  // ─── Settings ────────────────────────────────────────────
+
+  getUserSettings() {
+    return this.http.get<UserSettings>(`${this.baseUrl}/settings/user`);
+  }
+
+  updateUserSettings(settings: { key: string; value: string }[]) {
+    return this.http.put<UserSettings>(`${this.baseUrl}/settings/user`, {
+      settings,
+    });
+  }
+
+  getSystemSettings() {
+    return this.http.get<SystemSetting[]>(`${this.baseUrl}/settings/system`);
+  }
+
+  updateSystemSettings(
+    settings: {
+      key: string;
+      value: string;
+      category?: string;
+      encrypted?: boolean;
+      description?: string;
+    }[],
+  ) {
+    return this.http.put<SystemSetting[]>(`${this.baseUrl}/settings/system`, {
+      settings,
+    });
   }
 }

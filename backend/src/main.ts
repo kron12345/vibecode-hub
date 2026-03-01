@@ -2,16 +2,22 @@ import { NestFactory } from '@nestjs/core';
 import { ValidationPipe } from '@nestjs/common';
 import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger';
 import { AppModule } from './app.module';
+import { SystemSettingsService } from './settings/system-settings.service';
 
 async function bootstrap() {
   const app = await NestFactory.create(AppModule);
+  const systemSettings = app.get(SystemSettingsService);
 
   app.setGlobalPrefix('api');
   app.enableCors({
-    origin: [
-      'https://hub.example.com',
-      'http://localhost:4200',
-    ],
+    origin: (origin: string | undefined, callback: (err: Error | null, allow?: boolean) => void) => {
+      const allowed = systemSettings.corsOrigins;
+      if (!origin || allowed.includes(origin)) {
+        callback(null, true);
+      } else {
+        callback(new Error('Not allowed by CORS'));
+      }
+    },
     credentials: true,
   });
   app.useGlobalPipes(new ValidationPipe({ whitelist: true, transform: true }));

@@ -8,8 +8,8 @@ import {
   Logger,
 } from '@nestjs/common';
 import { ApiTags, ApiExcludeEndpoint } from '@nestjs/swagger';
-import { ConfigService } from '@nestjs/config';
 import { PrismaService } from '../prisma/prisma.service';
+import { SystemSettingsService } from '../settings/system-settings.service';
 import { Public } from '../common/decorators/public.decorator';
 import { IssueStatus } from '@prisma/client';
 
@@ -29,14 +29,11 @@ function mapGitLabState(state: string): IssueStatus {
 @Controller('gitlab')
 export class GitlabController {
   private readonly logger = new Logger(GitlabController.name);
-  private webhookSecret: string;
 
   constructor(
     private readonly prisma: PrismaService,
-    private readonly config: ConfigService,
-  ) {
-    this.webhookSecret = this.config.get<string>('GITLAB_WEBHOOK_SECRET', '');
-  }
+    private readonly systemSettings: SystemSettingsService,
+  ) {}
 
   @Public()
   @Post('webhook')
@@ -47,7 +44,8 @@ export class GitlabController {
     @Body() payload: any,
   ) {
     // Validate webhook token
-    if (!this.webhookSecret || token !== this.webhookSecret) {
+    const webhookSecret = this.systemSettings.gitlabWebhookSecret;
+    if (!webhookSecret || token !== webhookSecret) {
       throw new ForbiddenException('Invalid webhook token');
     }
 

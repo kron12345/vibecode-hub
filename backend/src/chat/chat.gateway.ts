@@ -12,6 +12,8 @@ import { Server, Socket } from 'socket.io';
 import { ChatService } from './chat.service';
 import { MessageRole } from '@prisma/client';
 
+// Note: WebSocket CORS is set via decorator at startup.
+// Changes to CORS origins in settings require an API restart.
 @WebSocketGateway({
   cors: {
     origin: ['https://hub.example.com', 'http://localhost:4200'],
