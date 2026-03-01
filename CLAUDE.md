@@ -104,7 +104,16 @@ Siehe `docs/SPEC.md`. Aktuell: **Phase 1** (Foundation).
 - **Prisma**: Schema lesen → `migrate dev` → `generate` (NIEMALS `migrate reset` ohne Nachfrage)
 - **Projekt**: lint → test → build (devserver nur bei Bedarf)
 
-### Sicherheit
+### Sicherheit (HÖCHSTE PRIORITÄT)
+
+Security ist kein Nice-to-have, sondern Pflicht bei JEDER Änderung:
+
+- **Security-by-Default**: Jeder neue Endpunkt, jedes Feature, jede Konfiguration muss von Anfang an sicher sein. Nicht "erst funktional, dann sicher" — beides gleichzeitig.
+- **Proaktiv warnen**: Wenn dir ein Sicherheitsrisiko auffällt (fehlende Validierung, offene Endpunkte, unsichere Defaults, fehlende Rate-Limits, CORS-Lücken, Injection-Risiken etc.) — **sofort ansprechen**, auch wenn es nicht zum aktuellen Task gehört.
+- **OWASP Top 10 im Kopf behalten**: Injection, Broken Auth, Sensitive Data Exposure, XXE, Broken Access Control, Security Misconfiguration, XSS, Insecure Deserialization, Vulnerable Components, Insufficient Logging.
+- **Input-Validierung**: Alle externen Eingaben (User-Input, API-Requests, Webhook-Payloads) validieren und sanitizen. DTOs mit class-validator nutzen.
+- **Keine Secrets im Code**: Credentials, Tokens, Keys gehören in `.env` — niemals hardcoded, niemals committet.
+- **Prinzip der minimalen Rechte**: Nur so viel Zugriff wie nötig. `@Public()` nur wenn es wirklich öffentlich sein muss.
 - KEINE destruktiven DB-Operationen (`migrate reset`, `drop`) ohne explizite User-Bestätigung
 - Nur freigegebene Tools nutzen
 
