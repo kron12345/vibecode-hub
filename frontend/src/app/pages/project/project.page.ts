@@ -26,12 +26,16 @@ import { TranslateService } from '../../services/translate.service';
 
 /** Agent role config — icon, color, i18n key */
 const AGENT_CONFIG: Record<string, { icon: string; color: string; labelKey: string }> = {
-  TICKET_CREATOR: { icon: 'ticket', color: 'indigo', labelKey: 'agents.ticketCreator' },
-  CODER:          { icon: 'code-2', color: 'indigo', labelKey: 'agents.developer' },
-  CODE_REVIEWER:  { icon: 'eye', color: 'violet', labelKey: 'agents.reviewer' },
-  UI_TESTER:      { icon: 'check-circle', color: 'emerald', labelKey: 'agents.qaTester' },
-  PEN_TESTER:     { icon: 'shield-alert', color: 'amber', labelKey: 'agents.pentester' },
-  DOCUMENTER:     { icon: 'file-text', color: 'cyan', labelKey: 'agents.docs' },
+  INTERVIEWER:       { icon: 'message-circle', color: 'sky', labelKey: 'agents.interviewer' },
+  ARCHITECT:         { icon: 'pen-tool', color: 'violet', labelKey: 'agents.architect' },
+  ISSUE_COMPILER:    { icon: 'list-checks', color: 'amber', labelKey: 'agents.issueCompiler' },
+  CODER:             { icon: 'code-2', color: 'indigo', labelKey: 'agents.developer' },
+  CODE_REVIEWER:     { icon: 'search-check', color: 'emerald', labelKey: 'agents.reviewer' },
+  UI_TESTER:         { icon: 'monitor-check', color: 'pink', labelKey: 'agents.uiTester' },
+  FUNCTIONAL_TESTER: { icon: 'test-tubes', color: 'teal', labelKey: 'agents.functionalTester' },
+  PEN_TESTER:        { icon: 'shield-alert', color: 'red', labelKey: 'agents.pentester' },
+  DOCUMENTER:        { icon: 'file-text', color: 'cyan', labelKey: 'agents.docs' },
+  DEVOPS:            { icon: 'rocket', color: 'orange', labelKey: 'agents.devops' },
 };
 
 /** Issue status steps for progress dots */
@@ -281,7 +285,7 @@ const ISSUE_STEPS = ['OPEN', 'IN_PROGRESS', 'IN_REVIEW', 'TESTING', 'DONE', 'CLO
         <div class="skeleton h-5 w-1/2"></div>
         <div class="glass rounded-[2rem] p-6">
           <div class="flex gap-4">
-            @for (i of [1, 2, 3, 4, 5, 6]; track i) {
+            @for (i of [1, 2, 3, 4, 5, 6, 7, 8, 9, 10]; track i) {
               <div class="flex-1 skeleton h-28 rounded-2xl"></div>
             }
           </div>

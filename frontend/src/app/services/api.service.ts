@@ -68,6 +68,52 @@ export interface SystemSetting {
 
 export type UserSettings = Record<string, unknown>;
 
+export interface AgentRoleConfig {
+  provider: string;
+  model: string;
+  systemPrompt: string;
+  parameters: {
+    temperature: number;
+    maxTokens: number;
+    topP?: number;
+  };
+  permissions: {
+    fileRead: boolean;
+    fileWrite: boolean;
+    terminal: boolean;
+    installPackages: boolean;
+    http: boolean;
+    gitOperations: boolean;
+  };
+  pipelinePosition: number;
+  description: string;
+  color: string;
+  icon: string;
+}
+
+export interface PipelineConfig {
+  enabled: boolean;
+  autoStart: boolean;
+  requireApproval: boolean;
+  maxConcurrentAgents: number;
+  timeoutMinutes: number;
+}
+
+export interface OllamaModel {
+  name: string;
+  size: number;
+  modifiedAt: string;
+  parameterSize?: string;
+  quantization?: string;
+}
+
+export interface CliToolStatus {
+  name: string;
+  command: string;
+  installed: boolean;
+  version?: string;
+}
+
 @Injectable({ providedIn: 'root' })
 export class ApiService {
   private http = inject(HttpClient);
@@ -185,5 +231,39 @@ export class ApiService {
     return this.http.put<SystemSetting[]>(`${this.baseUrl}/settings/system`, {
       settings,
     });
+  }
+
+  // ─── Agent Roles ──────────────────────────────────────────
+
+  getAgentRoleConfigs() {
+    return this.http.get<Record<string, AgentRoleConfig>>(
+      `${this.baseUrl}/settings/agents/roles`,
+    );
+  }
+
+  getPipelineConfig() {
+    return this.http.get<PipelineConfig>(
+      `${this.baseUrl}/settings/agents/pipeline`,
+    );
+  }
+
+  // ─── Provider Discovery ───────────────────────────────────
+
+  getOllamaModels() {
+    return this.http.get<OllamaModel[]>(
+      `${this.baseUrl}/settings/providers/ollama/models`,
+    );
+  }
+
+  checkOllamaHealth() {
+    return this.http.get<{ healthy: boolean; url: string }>(
+      `${this.baseUrl}/settings/providers/ollama/health`,
+    );
+  }
+
+  getCliToolStatus() {
+    return this.http.get<CliToolStatus[]>(
+      `${this.baseUrl}/settings/providers/cli/status`,
+    );
   }
 }

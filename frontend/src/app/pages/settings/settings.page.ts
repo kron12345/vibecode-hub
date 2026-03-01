@@ -1,6 +1,13 @@
 import { Component, inject, OnInit, signal } from '@angular/core';
 import { FormsModule } from '@angular/forms';
-import { ApiService, SystemSetting } from '../../services/api.service';
+import {
+  ApiService,
+  SystemSetting,
+  AgentRoleConfig,
+  PipelineConfig,
+  OllamaModel,
+  CliToolStatus,
+} from '../../services/api.service';
 import { AuthInfoService } from '../../services/auth-info.service';
 import { IconComponent } from '../../components/icon.component';
 import { TranslatePipe } from '../../pipes/translate.pipe';
@@ -10,31 +17,64 @@ import {
   Locale,
 } from '../../services/translate.service';
 
-type Tab = 'user' | 'system';
+type Tab = 'user' | 'system' | 'agents';
 
 const AGENT_ROLES = [
-  'TICKET_CREATOR',
+  'INTERVIEWER',
+  'ARCHITECT',
+  'ISSUE_COMPILER',
   'CODER',
   'CODE_REVIEWER',
   'UI_TESTER',
+  'FUNCTIONAL_TESTER',
   'PEN_TESTER',
   'DOCUMENTER',
+  'DEVOPS',
 ] as const;
 
 const AGENT_ROLE_LABEL_KEYS: Record<string, string> = {
-  TICKET_CREATOR: 'agents.ticketCreator',
+  INTERVIEWER: 'agents.interviewer',
+  ARCHITECT: 'agents.architect',
+  ISSUE_COMPILER: 'agents.issueCompiler',
   CODER: 'agents.developer',
   CODE_REVIEWER: 'agents.reviewer',
-  UI_TESTER: 'agents.qaTester',
+  UI_TESTER: 'agents.uiTester',
+  FUNCTIONAL_TESTER: 'agents.functionalTester',
   PEN_TESTER: 'agents.pentester',
   DOCUMENTER: 'agents.docs',
+  DEVOPS: 'agents.devops',
 };
 
-const LLM_PROVIDERS = [
-  { value: 'OLLAMA', label: 'Ollama' },
-  { value: 'ANTHROPIC', label: 'Anthropic' },
-  { value: 'OPENAI', label: 'OpenAI' },
-  { value: 'GOOGLE', label: 'Google AI' },
+const AGENT_ROLE_COLORS: Record<string, string> = {
+  INTERVIEWER: 'sky',
+  ARCHITECT: 'violet',
+  ISSUE_COMPILER: 'amber',
+  CODER: 'indigo',
+  CODE_REVIEWER: 'emerald',
+  UI_TESTER: 'pink',
+  FUNCTIONAL_TESTER: 'teal',
+  PEN_TESTER: 'red',
+  DOCUMENTER: 'cyan',
+  DEVOPS: 'orange',
+};
+
+const PROVIDER_TYPES = [
+  { value: 'OLLAMA', label: 'Ollama (Local)', category: 'local' },
+  { value: 'CLAUDE_CODE', label: 'Claude Code (CLI)', category: 'cli' },
+  { value: 'CODEX_CLI', label: 'Codex CLI', category: 'cli' },
+  { value: 'QWEN3_CODER', label: 'Qwen3 Coder (CLI)', category: 'cli' },
+  { value: 'ANTHROPIC', label: 'Anthropic API', category: 'api' },
+  { value: 'OPENAI', label: 'OpenAI API', category: 'api' },
+  { value: 'GOOGLE', label: 'Google AI API', category: 'api' },
+];
+
+const PERMISSION_KEYS: { key: keyof AgentRoleConfig['permissions']; labelKey: string; icon: string }[] = [
+  { key: 'fileRead', labelKey: 'settings.permFileRead', icon: 'file-search' },
+  { key: 'fileWrite', labelKey: 'settings.permFileWrite', icon: 'file-edit' },
+  { key: 'terminal', labelKey: 'settings.permTerminal', icon: 'terminal' },
+  { key: 'installPackages', labelKey: 'settings.permInstall', icon: 'package' },
+  { key: 'http', labelKey: 'settings.permHttp', icon: 'globe' },
+  { key: 'gitOperations', labelKey: 'settings.permGit', icon: 'git-branch' },
 ];
 
 @Component({
@@ -79,6 +119,18 @@ const LLM_PROVIDERS = [
         >
           <app-icon name="shield" [size]="16" class="inline mr-2" />
           {{ 'settings.tabSystem' | translate }}
+        </button>
+        <button
+          (click)="activeTab.set('agents'); loadAgentData()"
+          class="px-4 py-2 rounded-xl text-sm font-medium transition-all"
+          [class]="
+            activeTab() === 'agents'
+              ? 'bg-indigo-600 text-white'
+              : 'text-slate-400 hover:text-white hover:bg-white/5'
+          "
+        >
+          <app-icon name="bot" [size]="16" class="inline mr-2" />
+          {{ 'settings.tabAgents' | translate }}
         </button>
       }
     </div>
@@ -286,37 +338,6 @@ const LLM_PROVIDERS = [
           </div>
         </div>
 
-        <!-- Agent Defaults -->
-        <div class="glass rounded-3xl p-6">
-          <h2 class="text-lg font-semibold text-white mb-6 flex items-center gap-2">
-            <app-icon name="bot" [size]="20" class="text-cyan-400" />
-            {{ 'settings.agentDefaults' | translate }}
-          </h2>
-          <div class="space-y-4">
-            @for (role of agentRoles; track role) {
-              <div class="grid grid-cols-3 gap-4 items-center">
-                <label class="text-sm font-medium text-slate-400">
-                  {{ agentRoleLabelKeys[role] | translate }}
-                </label>
-                <select
-                  [(ngModel)]="agentDefaults[role].provider"
-                  class="bg-slate-900/50 border border-white/10 rounded-xl px-4 py-3 text-white focus:outline-none focus:border-indigo-500/50 transition-colors"
-                >
-                  @for (p of llmProviders; track p.value) {
-                    <option [value]="p.value">{{ p.label }}</option>
-                  }
-                </select>
-                <input
-                  type="text"
-                  [(ngModel)]="agentDefaults[role].model"
-                  class="bg-slate-900/50 border border-white/10 rounded-xl px-4 py-3 text-white focus:outline-none focus:border-indigo-500/50 transition-colors"
-                  placeholder="Model name"
-                />
-              </div>
-            }
-          </div>
-        </div>
-
         <!-- CORS / Security -->
         <div class="glass rounded-3xl p-6">
           <h2 class="text-lg font-semibold text-white mb-6 flex items-center gap-2">
@@ -371,6 +392,351 @@ const LLM_PROVIDERS = [
         </div>
       </div>
     }
+
+    <!-- Agent Roles Tab (Admin only) -->
+    @if (activeTab() === 'agents' && authInfo.isAdmin) {
+      <div class="space-y-6">
+
+        <!-- Provider Status Bar -->
+        <div class="glass rounded-3xl p-6">
+          <h2 class="text-lg font-semibold text-white mb-4 flex items-center gap-2">
+            <app-icon name="activity" [size]="20" class="text-emerald-400" />
+            {{ 'settings.providerStatus' | translate }}
+          </h2>
+          <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <!-- Ollama Status -->
+            <div class="bg-slate-900/50 border border-white/10 rounded-xl p-4">
+              <div class="flex items-center justify-between mb-2">
+                <span class="text-sm font-medium text-slate-300">Ollama</span>
+                <div class="flex items-center gap-2">
+                  @if (ollamaHealthy() === true) {
+                    <span class="w-2 h-2 rounded-full bg-emerald-400 animate-pulse"></span>
+                    <span class="text-xs text-emerald-400">{{ 'common.online' | translate }}</span>
+                  } @else if (ollamaHealthy() === false) {
+                    <span class="w-2 h-2 rounded-full bg-red-400"></span>
+                    <span class="text-xs text-red-400">{{ 'common.offline' | translate }}</span>
+                  } @else {
+                    <span class="w-2 h-2 rounded-full bg-slate-500 animate-pulse"></span>
+                    <span class="text-xs text-slate-500">...</span>
+                  }
+                </div>
+              </div>
+              @if (ollamaModels().length > 0) {
+                <p class="text-xs text-slate-500">
+                  {{ ollamaModels().length }} {{ 'settings.modelsAvailable' | translate }}
+                </p>
+              }
+              <button
+                (click)="refreshOllamaModels()"
+                class="mt-2 text-xs text-indigo-400 hover:text-indigo-300 transition-colors flex items-center gap-1"
+              >
+                <app-icon name="refresh-cw" [size]="12" />
+                {{ 'settings.refreshModels' | translate }}
+              </button>
+            </div>
+
+            <!-- CLI Tools Status -->
+            <div class="bg-slate-900/50 border border-white/10 rounded-xl p-4">
+              <div class="flex items-center justify-between mb-2">
+                <span class="text-sm font-medium text-slate-300">{{ 'settings.cliTools' | translate }}</span>
+                <button
+                  (click)="refreshCliTools()"
+                  class="text-xs text-indigo-400 hover:text-indigo-300 transition-colors flex items-center gap-1"
+                >
+                  <app-icon name="refresh-cw" [size]="12" />
+                  {{ 'settings.refresh' | translate }}
+                </button>
+              </div>
+              @for (tool of cliTools(); track tool.command) {
+                <div class="flex items-center gap-2 mt-1">
+                  @if (tool.installed) {
+                    <span class="w-2 h-2 rounded-full bg-emerald-400"></span>
+                  } @else {
+                    <span class="w-2 h-2 rounded-full bg-slate-600"></span>
+                  }
+                  <span class="text-xs" [class]="tool.installed ? 'text-slate-300' : 'text-slate-600'">
+                    {{ tool.name }}
+                    @if (tool.version && tool.version !== 'unknown') {
+                      <span class="text-slate-500">({{ tool.version }})</span>
+                    }
+                  </span>
+                </div>
+              }
+            </div>
+          </div>
+        </div>
+
+        <!-- Pipeline Config -->
+        <div class="glass rounded-3xl p-6">
+          <h2 class="text-lg font-semibold text-white mb-4 flex items-center gap-2">
+            <app-icon name="git-pull-request" [size]="20" class="text-violet-400" />
+            {{ 'settings.pipelineConfig' | translate }}
+          </h2>
+          <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+            <div class="flex items-center justify-between">
+              <div>
+                <label class="block text-sm font-medium text-slate-400">
+                  {{ 'settings.pipelineEnabled' | translate }}
+                </label>
+                <p class="text-xs text-slate-600 mt-0.5">
+                  {{ 'settings.pipelineEnabledHint' | translate }}
+                </p>
+              </div>
+              <button
+                (click)="pipelineConfig.enabled = !pipelineConfig.enabled"
+                class="relative w-12 h-6 rounded-full transition-colors"
+                [class]="pipelineConfig.enabled ? 'bg-indigo-600' : 'bg-slate-700'"
+              >
+                <div
+                  class="absolute top-0.5 w-5 h-5 bg-white rounded-full transition-transform"
+                  [class]="pipelineConfig.enabled ? 'translate-x-6' : 'translate-x-0.5'"
+                ></div>
+              </button>
+            </div>
+            <div class="flex items-center justify-between">
+              <div>
+                <label class="block text-sm font-medium text-slate-400">
+                  {{ 'settings.requireApproval' | translate }}
+                </label>
+                <p class="text-xs text-slate-600 mt-0.5">
+                  {{ 'settings.requireApprovalHint' | translate }}
+                </p>
+              </div>
+              <button
+                (click)="pipelineConfig.requireApproval = !pipelineConfig.requireApproval"
+                class="relative w-12 h-6 rounded-full transition-colors"
+                [class]="pipelineConfig.requireApproval ? 'bg-indigo-600' : 'bg-slate-700'"
+              >
+                <div
+                  class="absolute top-0.5 w-5 h-5 bg-white rounded-full transition-transform"
+                  [class]="pipelineConfig.requireApproval ? 'translate-x-6' : 'translate-x-0.5'"
+                ></div>
+              </button>
+            </div>
+            <div>
+              <label class="block text-sm font-medium text-slate-400 mb-2">
+                {{ 'settings.maxConcurrent' | translate }}
+              </label>
+              <input
+                type="number"
+                [(ngModel)]="pipelineConfig.maxConcurrentAgents"
+                min="1"
+                max="10"
+                class="w-full bg-slate-900/50 border border-white/10 rounded-xl px-4 py-3 text-white focus:outline-none focus:border-indigo-500/50 transition-colors"
+              />
+            </div>
+            <div>
+              <label class="block text-sm font-medium text-slate-400 mb-2">
+                {{ 'settings.timeoutMinutes' | translate }}
+              </label>
+              <input
+                type="number"
+                [(ngModel)]="pipelineConfig.timeoutMinutes"
+                min="5"
+                max="120"
+                class="w-full bg-slate-900/50 border border-white/10 rounded-xl px-4 py-3 text-white focus:outline-none focus:border-indigo-500/50 transition-colors"
+              />
+            </div>
+          </div>
+        </div>
+
+        <!-- Agent Role Cards -->
+        @for (role of agentRoles; track role) {
+          <div class="glass rounded-3xl overflow-hidden">
+            <!-- Role Header (clickable to expand) -->
+            <button
+              (click)="toggleRoleExpanded(role)"
+              class="w-full px-6 py-4 flex items-center justify-between hover:bg-white/5 transition-colors"
+            >
+              <div class="flex items-center gap-3">
+                <div
+                  class="w-10 h-10 rounded-xl flex items-center justify-center"
+                  [class]="getAgentColorClass(role)"
+                >
+                  <app-icon [name]="getRoleIcon(role)" [size]="20" />
+                </div>
+                <div class="text-left">
+                  <h3 class="text-white font-semibold">
+                    {{ agentRoleLabelKeys[role] | translate }}
+                  </h3>
+                  <p class="text-xs text-slate-500">
+                    {{ getRoleDescription(role) }}
+                    <span class="text-slate-600 ml-2">
+                      #{{ getRolePipelinePosition(role) }} &middot;
+                      {{ getRoleProvider(role) }} / {{ getRoleModel(role) }}
+                    </span>
+                  </p>
+                </div>
+              </div>
+              <app-icon
+                [name]="expandedRoles[role] ? 'chevron-up' : 'chevron-down'"
+                [size]="20"
+                class="text-slate-500"
+              />
+            </button>
+
+            <!-- Expanded Content -->
+            @if (expandedRoles[role]) {
+              <div class="px-6 pb-6 border-t border-white/5 pt-4 space-y-6">
+                <!-- Row 1: Provider + Model -->
+                <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <div>
+                    <label class="block text-sm font-medium text-slate-400 mb-2">
+                      {{ 'settings.provider' | translate }}
+                    </label>
+                    <select
+                      [(ngModel)]="agentRoleConfigs[role].provider"
+                      class="w-full bg-slate-900/50 border border-white/10 rounded-xl px-4 py-3 text-white focus:outline-none focus:border-indigo-500/50 transition-colors"
+                    >
+                      <optgroup label="Local">
+                        @for (p of getProvidersByCategory('local'); track p.value) {
+                          <option [value]="p.value">{{ p.label }}</option>
+                        }
+                      </optgroup>
+                      <optgroup label="CLI">
+                        @for (p of getProvidersByCategory('cli'); track p.value) {
+                          <option [value]="p.value">{{ p.label }}</option>
+                        }
+                      </optgroup>
+                      <optgroup label="API">
+                        @for (p of getProvidersByCategory('api'); track p.value) {
+                          <option [value]="p.value">{{ p.label }}</option>
+                        }
+                      </optgroup>
+                    </select>
+                  </div>
+                  <div>
+                    <label class="block text-sm font-medium text-slate-400 mb-2">
+                      {{ 'settings.model' | translate }}
+                    </label>
+                    @if (agentRoleConfigs[role].provider === 'OLLAMA' && ollamaModels().length > 0) {
+                      <select
+                        [(ngModel)]="agentRoleConfigs[role].model"
+                        class="w-full bg-slate-900/50 border border-white/10 rounded-xl px-4 py-3 text-white focus:outline-none focus:border-indigo-500/50 transition-colors"
+                      >
+                        @for (m of ollamaModels(); track m.name) {
+                          <option [value]="m.name">
+                            {{ m.name }}
+                            @if (m.parameterSize) {
+                              ({{ m.parameterSize }})
+                            }
+                          </option>
+                        }
+                      </select>
+                    } @else {
+                      <input
+                        type="text"
+                        [(ngModel)]="agentRoleConfigs[role].model"
+                        class="w-full bg-slate-900/50 border border-white/10 rounded-xl px-4 py-3 text-white focus:outline-none focus:border-indigo-500/50 transition-colors"
+                        placeholder="llama3.1, claude-sonnet-4-6, gpt-4o, ..."
+                      />
+                    }
+                  </div>
+                </div>
+
+                <!-- Row 2: Parameters -->
+                <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
+                  <div>
+                    <label class="block text-sm font-medium text-slate-400 mb-2">
+                      {{ 'settings.temperature' | translate }}
+                      <span class="text-indigo-400 ml-1">{{ agentRoleConfigs[role].parameters.temperature }}</span>
+                    </label>
+                    <input
+                      type="range"
+                      [(ngModel)]="agentRoleConfigs[role].parameters.temperature"
+                      min="0"
+                      max="1"
+                      step="0.1"
+                      class="w-full accent-indigo-500"
+                    />
+                    <div class="flex justify-between text-xs text-slate-600 mt-1">
+                      <span>{{ 'settings.precise' | translate }}</span>
+                      <span>{{ 'settings.creative' | translate }}</span>
+                    </div>
+                  </div>
+                  <div>
+                    <label class="block text-sm font-medium text-slate-400 mb-2">
+                      {{ 'settings.maxTokens' | translate }}
+                    </label>
+                    <input
+                      type="number"
+                      [(ngModel)]="agentRoleConfigs[role].parameters.maxTokens"
+                      min="256"
+                      max="32768"
+                      step="256"
+                      class="w-full bg-slate-900/50 border border-white/10 rounded-xl px-4 py-3 text-white focus:outline-none focus:border-indigo-500/50 transition-colors"
+                    />
+                  </div>
+                  <div>
+                    <label class="block text-sm font-medium text-slate-400 mb-2">
+                      {{ 'settings.pipelinePos' | translate }}
+                    </label>
+                    <input
+                      type="number"
+                      [(ngModel)]="agentRoleConfigs[role].pipelinePosition"
+                      min="1"
+                      max="20"
+                      class="w-full bg-slate-900/50 border border-white/10 rounded-xl px-4 py-3 text-white focus:outline-none focus:border-indigo-500/50 transition-colors"
+                    />
+                  </div>
+                </div>
+
+                <!-- Row 3: Permissions -->
+                <div>
+                  <label class="block text-sm font-medium text-slate-400 mb-3">
+                    {{ 'settings.permissions' | translate }}
+                  </label>
+                  <div class="grid grid-cols-2 md:grid-cols-3 gap-3">
+                    @for (perm of permissionKeys; track perm.key) {
+                      <button
+                        (click)="togglePermission(role, perm.key)"
+                        class="flex items-center gap-2 px-3 py-2 rounded-xl border transition-all text-sm"
+                        [class]="
+                          agentRoleConfigs[role].permissions[perm.key]
+                            ? 'border-emerald-500/30 bg-emerald-500/10 text-emerald-400'
+                            : 'border-white/10 bg-slate-900/50 text-slate-500 hover:text-slate-300'
+                        "
+                      >
+                        <app-icon [name]="perm.icon" [size]="14" />
+                        {{ perm.labelKey | translate }}
+                      </button>
+                    }
+                  </div>
+                </div>
+
+                <!-- Row 4: System Prompt -->
+                <div>
+                  <label class="block text-sm font-medium text-slate-400 mb-2">
+                    {{ 'settings.systemPrompt' | translate }}
+                  </label>
+                  <textarea
+                    [(ngModel)]="agentRoleConfigs[role].systemPrompt"
+                    rows="8"
+                    class="w-full bg-slate-900/50 border border-white/10 rounded-xl px-4 py-3 text-white font-mono text-xs leading-relaxed focus:outline-none focus:border-indigo-500/50 transition-colors resize-y"
+                    [placeholder]="'settings.systemPromptPlaceholder' | translate"
+                  ></textarea>
+                  <p class="text-xs text-slate-600 mt-1">
+                    {{ 'settings.systemPromptHint' | translate }}
+                  </p>
+                </div>
+              </div>
+            }
+          </div>
+        }
+
+        <!-- Save Button -->
+        <div class="flex justify-end">
+          <button
+            (click)="saveAgentSettings()"
+            [disabled]="saving()"
+            class="bg-indigo-600 hover:bg-indigo-500 disabled:opacity-50 text-white px-6 py-3 rounded-full font-bold transition-all flex items-center gap-2"
+          >
+            <app-icon name="save" [size]="16" />
+            {{ (saving() ? 'common.saving' : 'settings.saveAgents') | translate }}
+          </button>
+        </div>
+      </div>
+    }
   `,
 })
 export class SettingsPage implements OnInit {
@@ -392,12 +758,27 @@ export class SettingsPage implements OnInit {
   sysValues: Record<string, string> = {};
   showSecrets: Record<string, boolean> = {};
   corsOriginsText = '';
+  private originalMaskedValues: Record<string, string> = {};
+
+  // Agent role settings
   agentRoles = [...AGENT_ROLES];
   agentRoleLabelKeys = AGENT_ROLE_LABEL_KEYS;
-  llmProviders = LLM_PROVIDERS;
-  agentDefaults: Record<string, { provider: string; model: string }> = {};
+  providerTypes = PROVIDER_TYPES;
+  permissionKeys = PERMISSION_KEYS;
+  agentRoleConfigs: Record<string, AgentRoleConfig> = {};
+  pipelineConfig: PipelineConfig = {
+    enabled: false,
+    autoStart: false,
+    requireApproval: true,
+    maxConcurrentAgents: 2,
+    timeoutMinutes: 30,
+  };
+  expandedRoles: Record<string, boolean> = {};
 
-  private originalMaskedValues: Record<string, string> = {};
+  // Provider discovery
+  ollamaHealthy = signal<boolean | null>(null);
+  ollamaModels = signal<OllamaModel[]>([]);
+  cliTools = signal<CliToolStatus[]>([]);
 
   ngOnInit() {
     this.loadUserSettings();
@@ -405,9 +786,71 @@ export class SettingsPage implements OnInit {
       this.loadSystemSettings();
     }
 
+    // Initialize empty configs for all roles
     for (const role of AGENT_ROLES) {
-      this.agentDefaults[role] = { provider: 'OLLAMA', model: 'llama3.1' };
+      this.agentRoleConfigs[role] = {
+        provider: 'OLLAMA',
+        model: 'llama3.1',
+        systemPrompt: '',
+        parameters: { temperature: 0.3, maxTokens: 4096 },
+        permissions: {
+          fileRead: true,
+          fileWrite: false,
+          terminal: false,
+          installPackages: false,
+          http: false,
+          gitOperations: false,
+        },
+        pipelinePosition: 0,
+        description: '',
+        color: 'slate',
+        icon: 'bot',
+      };
     }
+  }
+
+  loadAgentData() {
+    if (Object.keys(this.agentRoleConfigs).length > 0 && this.agentRoleConfigs['INTERVIEWER']?.systemPrompt) {
+      return; // Already loaded
+    }
+
+    this.api.getAgentRoleConfigs().subscribe({
+      next: (configs) => {
+        for (const [role, config] of Object.entries(configs)) {
+          this.agentRoleConfigs[role] = { ...config };
+        }
+      },
+    });
+
+    this.api.getPipelineConfig().subscribe({
+      next: (config) => {
+        this.pipelineConfig = { ...config };
+      },
+    });
+
+    this.refreshOllamaModels();
+    this.refreshCliTools();
+  }
+
+  refreshOllamaModels() {
+    this.ollamaHealthy.set(null);
+    this.api.checkOllamaHealth().subscribe({
+      next: (result) => {
+        this.ollamaHealthy.set(result.healthy);
+        if (result.healthy) {
+          this.api.getOllamaModels().subscribe({
+            next: (models) => this.ollamaModels.set(models),
+          });
+        }
+      },
+      error: () => this.ollamaHealthy.set(false),
+    });
+  }
+
+  refreshCliTools() {
+    this.api.getCliToolStatus().subscribe({
+      next: (tools) => this.cliTools.set(tools),
+    });
   }
 
   private loadUserSettings() {
@@ -438,18 +881,6 @@ export class SettingsPage implements OnInit {
           this.corsOriginsText = this.sysValues['cors.origins'] ?? '';
         }
 
-        for (const role of AGENT_ROLES) {
-          const key = `agents.defaults.${role}`;
-          const raw = this.sysValues[key];
-          if (raw) {
-            try {
-              this.agentDefaults[role] = JSON.parse(raw);
-            } catch {
-              /* keep default */
-            }
-          }
-        }
-
         try {
           const name = JSON.parse(this.sysValues['app.name'] ?? '""');
           this.sysValues['app.name'] = name;
@@ -462,8 +893,6 @@ export class SettingsPage implements OnInit {
 
   saveUserSettings() {
     this.saving.set(true);
-
-    // Apply locale change immediately
     this.i18n.use(this.userLocale);
 
     this.api
@@ -530,14 +959,6 @@ export class SettingsPage implements OnInit {
       category: 'app',
     });
 
-    for (const role of AGENT_ROLES) {
-      settings.push({
-        key: `agents.defaults.${role}`,
-        value: JSON.stringify(this.agentDefaults[role]),
-        category: 'agents',
-      });
-    }
-
     this.api.updateSystemSettings(settings).subscribe({
       next: (updated) => {
         for (const s of updated) {
@@ -555,6 +976,85 @@ export class SettingsPage implements OnInit {
       },
     });
   }
+
+  saveAgentSettings() {
+    this.saving.set(true);
+
+    const settings: {
+      key: string;
+      value: string;
+      category?: string;
+    }[] = [];
+
+    // Save each role config
+    for (const role of AGENT_ROLES) {
+      settings.push({
+        key: `agents.roles.${role}`,
+        value: JSON.stringify(this.agentRoleConfigs[role]),
+        category: 'agents',
+      });
+    }
+
+    // Save pipeline config
+    settings.push({
+      key: 'agents.pipeline',
+      value: JSON.stringify(this.pipelineConfig),
+      category: 'agents',
+    });
+
+    this.api.updateSystemSettings(settings).subscribe({
+      next: () => {
+        this.saving.set(false);
+        this.showToast('success', this.i18n.t('settings.agentsSaved'));
+      },
+      error: () => {
+        this.saving.set(false);
+        this.showToast('error', this.i18n.t('settings.savedError'));
+      },
+    });
+  }
+
+  // ─── Agent Role Helpers ─────────────────────────────────────
+
+  toggleRoleExpanded(role: string) {
+    this.expandedRoles[role] = !this.expandedRoles[role];
+  }
+
+  togglePermission(role: string, key: keyof AgentRoleConfig['permissions']) {
+    this.agentRoleConfigs[role].permissions[key] =
+      !this.agentRoleConfigs[role].permissions[key];
+  }
+
+  getProvidersByCategory(category: string) {
+    return PROVIDER_TYPES.filter((p) => p.category === category);
+  }
+
+  getAgentColorClass(role: string): string {
+    const color = AGENT_ROLE_COLORS[role] ?? 'slate';
+    return `bg-${color}-500/20 text-${color}-400`;
+  }
+
+  getRoleIcon(role: string): string {
+    return this.agentRoleConfigs[role]?.icon ?? 'bot';
+  }
+
+  getRoleDescription(role: string): string {
+    return this.agentRoleConfigs[role]?.description ?? '';
+  }
+
+  getRolePipelinePosition(role: string): number {
+    return this.agentRoleConfigs[role]?.pipelinePosition ?? 0;
+  }
+
+  getRoleProvider(role: string): string {
+    return this.agentRoleConfigs[role]?.provider ?? 'OLLAMA';
+  }
+
+  getRoleModel(role: string): string {
+    return this.agentRoleConfigs[role]?.model ?? 'llama3.1';
+  }
+
+  // ─── Private ─────────────────────────────────────────────────
 
   private pushSecretSetting(
     settings: { key: string; value: string; category?: string; encrypted?: boolean }[],

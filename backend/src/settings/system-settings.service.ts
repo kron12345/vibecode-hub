@@ -3,6 +3,37 @@ import { ConfigService } from '@nestjs/config';
 import { PrismaService } from '../prisma/prisma.service';
 import { decrypt } from './crypto.util';
 
+export interface AgentRoleConfig {
+  provider: string;
+  model: string;
+  systemPrompt: string;
+  parameters: {
+    temperature: number;
+    maxTokens: number;
+    topP?: number;
+  };
+  permissions: {
+    fileRead: boolean;
+    fileWrite: boolean;
+    terminal: boolean;
+    installPackages: boolean;
+    http: boolean;
+    gitOperations: boolean;
+  };
+  pipelinePosition: number;
+  description: string;
+  color: string;
+  icon: string;
+}
+
+export interface PipelineConfig {
+  enabled: boolean;
+  autoStart: boolean;
+  requireApproval: boolean;
+  maxConcurrentAgents: number;
+  timeoutMinutes: number;
+}
+
 /**
  * Cached config provider that replaces process.env for all configurable values.
  * Fallback chain: DB Cache → process.env → hardcoded default
@@ -100,8 +131,9 @@ export class SystemSettingsService implements OnModuleInit {
     return this.get('app.name', undefined, 'VibCode Hub');
   }
 
-  getAgentDefault(role: string): { provider: string; model: string } {
-    const raw = this.get(`agents.defaults.${role}`, undefined, '');
+  /** Get full agent role config (provider, model, systemPrompt, parameters, permissions, etc.) */
+  getAgentRoleConfig(role: string): AgentRoleConfig {
+    const raw = this.get(`agents.roles.${role}`, undefined, '');
     if (raw) {
       try {
         return JSON.parse(raw);
@@ -109,7 +141,61 @@ export class SystemSettingsService implements OnModuleInit {
         /* fall through */
       }
     }
-    return { provider: 'OLLAMA', model: 'llama3.1' };
+    return {
+      provider: 'OLLAMA',
+      model: 'llama3.1',
+      systemPrompt: '',
+      parameters: { temperature: 0.3, maxTokens: 4096 },
+      permissions: {
+        fileRead: true,
+        fileWrite: false,
+        terminal: false,
+        installPackages: false,
+        http: false,
+        gitOperations: false,
+      },
+      pipelinePosition: 0,
+      description: role,
+      color: 'slate',
+      icon: 'bot',
+    };
+  }
+
+  /** Get all agent role configs as a map */
+  getAllAgentRoleConfigs(): Record<string, AgentRoleConfig> {
+    const roles: Record<string, AgentRoleConfig> = {};
+    for (const [key] of this.cache) {
+      if (key.startsWith('agents.roles.')) {
+        const role = key.replace('agents.roles.', '');
+        roles[role] = this.getAgentRoleConfig(role);
+      }
+    }
+    return roles;
+  }
+
+  /** Get pipeline config */
+  getPipelineConfig(): PipelineConfig {
+    const raw = this.get('agents.pipeline', undefined, '');
+    if (raw) {
+      try {
+        return JSON.parse(raw);
+      } catch {
+        /* fall through */
+      }
+    }
+    return {
+      enabled: false,
+      autoStart: false,
+      requireApproval: true,
+      maxConcurrentAgents: 2,
+      timeoutMinutes: 30,
+    };
+  }
+
+  /** Backwards-compatible: get simple provider+model for a role */
+  getAgentDefault(role: string): { provider: string; model: string } {
+    const config = this.getAgentRoleConfig(role);
+    return { provider: config.provider, model: config.model };
   }
 
   // ─── Private ─────────────────────────────────────────────────

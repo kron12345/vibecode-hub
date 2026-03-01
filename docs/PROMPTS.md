@@ -188,3 +188,58 @@ Dokumentation aller Prompts/Anforderungen die zur Entwicklung genutzt wurden.
 - README.md (EN): Features, Tech Stack, Installation, Security Notice, i18n-Erweiterung
 - CLAUDE.md: i18n-Pattern + README.md Pflicht dokumentiert
 - angular.json: assets-Konfiguration für i18n-Dateien im Build
+
+## Session 6 — 2026-03-01 — Agent Roles System
+
+### Prompt 1: Rollen-Design
+> Lass uns Rollen ausdenken. Interviewer (proaktiv, 95% Klarheit), Issue-Kompilierung, Coder, Code Reviewer, UI Tester, Funktions-Tester, Pentester (darf Tools installieren), Dokumentierer + Commit + Übergabe.
+
+**Ergebnis (Diskussion):**
+- 10 Rollen definiert: Interviewer, Architect, Issue Compiler, Coder, Code Reviewer, UI Tester, Functional Tester, Pentester, Documenter, DevOps
+- KobAIld hat Architect, Integration Tester und DevOps als zusätzliche Rollen vorgeschlagen
+
+### Prompt 2: Settings-Integration
+> Erst Rollen in Settings hinterlegen, dann Workflow. Ollama (installiert), CLI-Tools (Claude Code, Codex, Qwen3-Coder), API. Jede Rolle braucht Verhaltensprofil (CLAUDE.md/agents.md).
+
+**Ergebnis:**
+- Plan für umfassende Agent-Konfiguration in SystemSettings
+- 3 Provider-Typen: Local (Ollama), CLI (Claude/Codex/Qwen3), API (Anthropic/OpenAI/Google)
+- Pro Rolle: Provider, Model, System Prompt, LLM-Parameter, Permissions, Pipeline-Position
+
+### Prompt 3: Umsetzung
+> Das hört sich nach einem guten Plan an, setze sie um. Systemsettings, nur Admin, für alle Projekte.
+
+**Ergebnis:**
+
+**Prisma Schema:**
+- AgentRole Enum erweitert: +INTERVIEWER, +ARCHITECT, +ISSUE_COMPILER, +FUNCTIONAL_TESTER, +DEVOPS (10 Rollen)
+- LLMProvider Enum erweitert: +CLAUDE_CODE, +CODEX_CLI, +QWEN3_CODER (7 Provider)
+- AgentTaskType Enum erweitert: +INTERVIEW, +DESIGN_ARCHITECTURE, +TEST_FUNCTIONAL, +DEPLOY (11 Task-Typen)
+- Migration: `20260301120000_expand_agent_roles_providers`
+
+**Backend:**
+- `ProviderDiscoveryService` — Ollama Model Discovery (/api/tags) + CLI Tool Detection (claude/codex/qwen3-coder)
+- `SystemSettingsService` erweitert: `getAgentRoleConfig(role)`, `getAllAgentRoleConfigs()`, `getPipelineConfig()`
+- Neue Interfaces: `AgentRoleConfig`, `PipelineConfig`
+- Controller: 5 neue Endpunkte (agents/roles, agents/pipeline, providers/ollama/models, providers/ollama/health, providers/cli/status)
+- Seed-Script: `seed-agent-roles.ts` — 10 Rollen mit vollständigen Behavior Profiles (System Prompts)
+
+**Frontend:**
+- Settings Page: Neuer Tab "Agent Roles" mit expandierbaren Rollenkarten
+  - Provider-Status-Bar (Ollama Health + CLI-Tool-Erkennung)
+  - Pipeline-Konfiguration (enabled, approval, concurrent, timeout)
+  - Pro Rolle: Provider (grouped: Local/CLI/API), Model (Ollama-Dropdown), Temperatur-Slider, Max Tokens, Pipeline-Position, Permissions-Toggles, System Prompt Editor
+- API Service: 6 neue Methoden (getAgentRoleConfigs, getPipelineConfig, getOllamaModels, checkOllamaHealth, getCliToolStatus)
+- Project Page: AGENT_CONFIG auf 10 Rollen aktualisiert
+- i18n: ~30 neue Keys in allen 4 Sprachen (de, en, it, fr)
+
+**Commands:** `npx prisma migrate deploy`, `npx prisma generate`, `npx ts-node prisma/seed-agent-roles.ts`, `npx nest build`, `npx ng build`
+**Status:** Agent Roles System komplett ✅
+
+### Ergebnis Session 6 (Gesamt)
+- 10 Agent-Rollen mit Behavior Profiles in DB hinterlegt
+- 7 LLM-Provider-Typen (Ollama + 3 CLI + 3 API)
+- Ollama Model Discovery + CLI Health Check
+- Pipeline-Konfiguration (enabled, approval, concurrent, timeout)
+- Settings UI mit expandierbaren Rollenkarten
+- Alle Docs aktualisiert (API.md, ARCHITECTURE.md, PROMPTS.md)

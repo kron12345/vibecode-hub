@@ -207,14 +207,97 @@
 | `gitlab` | `gitlab.url`, `gitlab.api_token`, `gitlab.webhook_secret` | token, secret: ja |
 | `llm` | `llm.ollama.url`, `llm.anthropic.api_key`, `llm.openai.api_key`, `llm.google.api_key` | api_keys: ja |
 | `cors` | `cors.origins` | nein |
-| `agents` | `agents.defaults.{ROLE}` (6x) | nein |
+| `agents` | `agents.roles.{ROLE}` (10x), `agents.pipeline` | nein |
 | `app` | `app.name` | nein |
 
 ---
 
-## Agents
+## Agent Roles & Providers (Admin only)
 
-> Noch nicht implementiert — Phase 2
+### Agent Role Configs
+
+| Method | Endpoint | Auth | Beschreibung |
+|---|---|---|---|
+| `GET` | `/api/settings/agents/roles` | Admin | Alle 10 Agent-Rollen-Konfigurationen |
+| `GET` | `/api/settings/agents/pipeline` | Admin | Pipeline-Konfiguration |
+
+### Provider Discovery
+
+| Method | Endpoint | Auth | Beschreibung |
+|---|---|---|---|
+| `GET` | `/api/settings/providers/ollama/models` | Admin | Verfügbare Ollama-Modelle (via /api/tags) |
+| `GET` | `/api/settings/providers/ollama/health` | Admin | Ollama Health Check |
+| `GET` | `/api/settings/providers/cli/status` | Admin | CLI-Tools Status (claude, codex, qwen3-coder) |
+
+### Agent Roles (10)
+
+| Rolle | Pipeline # | Beschreibung |
+|---|---|---|
+| `INTERVIEWER` | 1 | Feature-Interviews, fragt bis 95% Klarheit |
+| `ARCHITECT` | 2 | Technisches Design, Architektur-Entscheidungen |
+| `ISSUE_COMPILER` | 3 | Kompiliert Interview → GitLab Issues + Sub-Issues |
+| `CODER` | 4 | Implementiert Code nach Issue-Spezifikation |
+| `CODE_REVIEWER` | 5 | Code-Review: Qualität, Security, Patterns |
+| `UI_TESTER` | 6 | UI-Tests: Layout, Responsivität, Accessibility |
+| `FUNCTIONAL_TESTER` | 7 | Funktions-Tests: Acceptance Criteria, Integration |
+| `PEN_TESTER` | 8 | Security-Tests: OWASP Top 10, Dependency Audit |
+| `DOCUMENTER` | 9 | Dokumentation: API.md, README, i18n, JSDoc |
+| `DEVOPS` | 10 | Deployment, Build, Git-Commits, Health Checks |
+
+### LLM Provider Types (7)
+
+| Provider | Typ | Beschreibung |
+|---|---|---|
+| `OLLAMA` | Local | Lokale Inferenz via Ollama API |
+| `CLAUDE_CODE` | CLI | Claude Code CLI (subprocess) |
+| `CODEX_CLI` | CLI | OpenAI Codex CLI (subprocess) |
+| `QWEN3_CODER` | CLI | Qwen3 Coder CLI (subprocess) |
+| `ANTHROPIC` | API | Anthropic Claude API |
+| `OPENAI` | API | OpenAI GPT/Codex API |
+| `GOOGLE` | API | Google Gemini API |
+
+### Agent Role Config Format
+
+Gespeichert als `agents.roles.{ROLE}` (JSON) in SystemSettings:
+
+```typescript
+{
+  provider: string;       // LLMProvider enum
+  model: string;          // Modellname
+  systemPrompt: string;   // Behavior Profile (Markdown)
+  parameters: {
+    temperature: number;  // 0.0 - 1.0
+    maxTokens: number;    // 256 - 32768
+    topP?: number;
+  };
+  permissions: {
+    fileRead: boolean;
+    fileWrite: boolean;
+    terminal: boolean;
+    installPackages: boolean;
+    http: boolean;
+    gitOperations: boolean;
+  };
+  pipelinePosition: number;
+  description: string;
+  color: string;          // Tailwind-Farbname für UI
+  icon: string;           // Lucide-Icon-Name
+}
+```
+
+### Pipeline Config Format
+
+Gespeichert als `agents.pipeline` (JSON):
+
+```typescript
+{
+  enabled: boolean;            // Pipeline aktiv
+  autoStart: boolean;          // Auto-Start nach Issue-Erstellung
+  requireApproval: boolean;    // Mensch muss jeden Schritt genehmigen
+  maxConcurrentAgents: number; // Max gleichzeitige Agenten
+  timeoutMinutes: number;      // Timeout pro Agent-Schritt
+}
+```
 
 ---
 
@@ -261,6 +344,7 @@ Der `GitlabService` wird intern vom `ProjectsService` genutzt:
 
 | Datum | Änderung |
 |---|---|
+| 2026-03-01 | Agents: 10 Rollen (Interviewer→DevOps), 7 LLM-Provider, Ollama Discovery, CLI Health Check, Pipeline Config |
 | 2026-03-01 | Settings: User + System Settings API (6 Endpunkte), AES-256-GCM Encryption, RBAC Admin Guard |
 | 2026-02-28 | Chat: Sessions + Messages REST API, WebSocket Gateway (/chat namespace) |
 | 2026-02-28 | Issues CRUD: 5 Endpunkte mit GitLab-Sync, Sub-Issues, Agent-Assignment |

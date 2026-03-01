@@ -139,12 +139,16 @@ model AgentInstance {
 }
 
 enum AgentRole {
-  TICKET_CREATOR
+  INTERVIEWER
+  ARCHITECT
+  ISSUE_COMPILER
   CODER
   CODE_REVIEWER
   UI_TESTER
+  FUNCTIONAL_TESTER
   PEN_TESTER
   DOCUMENTER
+  DEVOPS
 }
 
 enum AgentStatus {
@@ -156,10 +160,13 @@ enum AgentStatus {
 }
 
 enum LLMProvider {
+  OLLAMA
+  CLAUDE_CODE
+  CODEX_CLI
+  QWEN3_CODER
   ANTHROPIC
   OPENAI
   GOOGLE
-  OLLAMA
 }
 
 // ─── Agent-Tasks (Arbeitsschritte) ──────────────────────────
@@ -190,13 +197,17 @@ model AgentTask {
 }
 
 enum AgentTaskType {
+  INTERVIEW
+  DESIGN_ARCHITECTURE
   CREATE_ISSUES
   WRITE_CODE
   REVIEW_CODE
   TEST_UI
+  TEST_FUNCTIONAL
   TEST_SECURITY
   WRITE_DOCS
   FIX_CODE
+  DEPLOY
 }
 
 enum AgentTaskStatus {

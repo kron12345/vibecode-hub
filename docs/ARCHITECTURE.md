@@ -81,10 +81,39 @@ vibcode-hub/
 - **Issue** → hierarchisch (parent/sub-issues), gespiegelt von GitLab
 - **ChatSession** → pro Projekt, enthält ChatMessages
 - **AgentInstance** → konfigurierter Agent pro Projekt (Rolle + Provider + Model)
-- **AgentTask** → einzelner Arbeitsschritt eines Agenten
+- **AgentTask** → einzelner Arbeitsschritt eines Agenten (11 Task-Typen)
 - **AgentLog** → Echtzeit-Logs für Live-Dashboard
 - **UserSetting** → Pro-User Key-Value Settings (Sprache, Theme, UI-Präferenzen)
-- **SystemSetting** → Globale Konfiguration (GitLab, LLM-Provider, CORS, Agent-Defaults), Secrets AES-256-GCM verschlüsselt
+- **SystemSetting** → Globale Konfiguration (GitLab, LLM-Provider, CORS, Agent-Rollen, Pipeline), Secrets AES-256-GCM verschlüsselt
+
+## Agent-Rollen (10)
+
+| # | Rolle | Aufgabe | Farbe |
+|---|---|---|---|
+| 1 | Interviewer | Feature-Interviews, fragt bis 95% Klarheit | Sky |
+| 2 | Architect | Technisches Design, Architektur-Entscheidungen | Violet |
+| 3 | Issue Compiler | Interview → GitLab Issues + Sub-Issues | Amber |
+| 4 | Coder | Implementiert Code nach Issue-Spezifikation | Indigo |
+| 5 | Code Reviewer | Code-Review: Qualität, Security, Patterns | Emerald |
+| 6 | UI Tester | UI-Tests: Layout, Responsivität, Accessibility | Pink |
+| 7 | Functional Tester | Funktionale Tests, Acceptance Criteria | Teal |
+| 8 | Pentester | Security-Tests: OWASP Top 10, Dependency Audit | Red |
+| 9 | Documenter | Dokumentation: API.md, README, i18n, JSDoc | Cyan |
+| 10 | DevOps | Deployment, Build, Git-Commits, Health Checks | Orange |
+
+Jede Rolle hat ein vollständiges Behavior Profile (System Prompt) mit: Verantwortlichkeiten, Verhaltensregeln, Output-Format, Quality Gate.
+
+## LLM Provider Types (7)
+
+| Provider | Typ | Beschreibung |
+|---|---|---|
+| OLLAMA | Local | Lokale Inferenz via Ollama API (2x RTX 3090) |
+| CLAUDE_CODE | CLI | Claude Code als Subprocess |
+| CODEX_CLI | CLI | OpenAI Codex CLI als Subprocess |
+| QWEN3_CODER | CLI | Qwen3 Coder CLI als Subprocess |
+| ANTHROPIC | API | Anthropic Claude API |
+| OPENAI | API | OpenAI GPT API |
+| GOOGLE | API | Google Gemini API |
 
 ## Auth-Flow
 
