@@ -854,10 +854,14 @@ export class SettingsPage implements OnInit {
     // Fetch all provider models in one call
     this.api.getProviderModels().subscribe({
       next: (results) => {
+        console.log('[Settings] Provider models loaded:', Object.keys(results).map(k => `${k}: ${results[k]?.models?.length ?? 0} models`));
         this.providerResults.set(results);
         this.modelsLoading.set(false);
       },
-      error: () => this.modelsLoading.set(false),
+      error: (err) => {
+        console.error('[Settings] Failed to load provider models:', err?.status, err?.message || err);
+        this.modelsLoading.set(false);
+      },
     });
 
     // CLI tools are a separate endpoint (detects local binaries)

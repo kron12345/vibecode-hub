@@ -36,7 +36,7 @@ export const appConfig: ApplicationConfig = {
     }),
     {
       provide: INCLUDE_BEARER_TOKEN_INTERCEPTOR_CONFIG,
-      useValue: [/\/api\//],
+      useValue: [{ urlPattern: /\/api\//, httpMethods: [] }],
     },
   ],
 };

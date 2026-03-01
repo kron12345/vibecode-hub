@@ -185,12 +185,19 @@ export class ProviderDiscoveryService {
 
   /** Get models for all providers at once */
   async discoverAllModels(): Promise<Record<string, ProviderModelsResult>> {
+    this.logger.log('discoverAllModels() called — fetching from all providers...');
+
     const [ollama, anthropic, openai, google] = await Promise.allSettled([
       this.discoverOllamaModels(),
       this.discoverAnthropicModels(),
       this.discoverOpenAIModels(),
       this.discoverGoogleModels(),
     ]);
+
+    this.logger.log(
+      `Discovery results — Ollama: ${ollama.status}${ollama.status === 'fulfilled' ? ` (${ollama.value.length} models)` : ''}, ` +
+      `Anthropic: ${anthropic.status}, OpenAI: ${openai.status}, Google: ${google.status}`,
+    );
 
     return {
       OLLAMA: {
