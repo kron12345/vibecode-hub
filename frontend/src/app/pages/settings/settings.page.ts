@@ -600,51 +600,57 @@ const PERMISSION_KEYS: { key: keyof AgentRoleConfig['permissions']; labelKey: st
                     <label class="block text-sm font-medium text-slate-400 mb-2">
                       {{ 'settings.provider' | translate }}
                     </label>
-                    <select
-                      [(ngModel)]="agentRoleConfigs[role].provider"
-                      class="w-full bg-slate-900/50 border border-white/10 rounded-xl px-4 py-3 text-white focus:outline-none focus:border-indigo-500/50 transition-colors"
-                    >
-                      <optgroup label="Local">
-                        @for (p of getProvidersByCategory('local'); track p.value) {
-                          <option [value]="p.value">{{ p.label }}</option>
-                        }
-                      </optgroup>
-                      <optgroup label="CLI">
-                        @for (p of getProvidersByCategory('cli'); track p.value) {
-                          <option [value]="p.value">{{ p.label }}</option>
-                        }
-                      </optgroup>
-                      <optgroup label="API">
-                        @for (p of getProvidersByCategory('api'); track p.value) {
-                          <option [value]="p.value">{{ p.label }}</option>
-                        }
-                      </optgroup>
-                    </select>
+                    <div class="relative">
+                      <select
+                        [(ngModel)]="agentRoleConfigs[role].provider"
+                        class="w-full appearance-none bg-slate-900/50 border border-white/10 rounded-xl pl-4 pr-10 py-3 text-white focus:outline-none focus:border-indigo-500/50 transition-colors cursor-pointer"
+                      >
+                        <optgroup label="Local">
+                          @for (p of getProvidersByCategory('local'); track p.value) {
+                            <option [value]="p.value">{{ p.label }}</option>
+                          }
+                        </optgroup>
+                        <optgroup label="CLI">
+                          @for (p of getProvidersByCategory('cli'); track p.value) {
+                            <option [value]="p.value">{{ p.label }}</option>
+                          }
+                        </optgroup>
+                        <optgroup label="API">
+                          @for (p of getProvidersByCategory('api'); track p.value) {
+                            <option [value]="p.value">{{ p.label }}</option>
+                          }
+                        </optgroup>
+                      </select>
+                      <app-icon name="chevron-down" [size]="16" class="absolute right-3 top-1/2 -translate-y-1/2 text-slate-500 pointer-events-none" />
+                    </div>
                   </div>
                   <div>
                     <label class="block text-sm font-medium text-slate-400 mb-2">
                       {{ 'settings.model' | translate }}
                     </label>
                     @if (getModelsForProvider(agentRoleConfigs[role].provider).length > 0) {
-                      <select
-                        [(ngModel)]="agentRoleConfigs[role].model"
-                        class="w-full bg-slate-900/50 border border-white/10 rounded-xl px-4 py-3 text-white focus:outline-none focus:border-indigo-500/50 transition-colors"
-                      >
-                        @if (agentRoleConfigs[role].model && !isModelInList(agentRoleConfigs[role].model, agentRoleConfigs[role].provider)) {
-                          <option [value]="agentRoleConfigs[role].model">
-                            {{ agentRoleConfigs[role].model }} ({{ 'settings.modelNotFound' | translate }})
-                          </option>
-                        }
-                        @for (m of getModelsForProvider(agentRoleConfigs[role].provider); track m.name) {
-                          <option [value]="m.name">
-                            {{ m.displayName || m.name }}
-                            @if (m.parameterSize) {
-                              ({{ m.parameterSize }})
-                            }
-                          </option>
-                        }
-                      </select>
-                      <p class="text-xs text-slate-600 mt-1">
+                      <div class="relative">
+                        <select
+                          [(ngModel)]="agentRoleConfigs[role].model"
+                          class="w-full appearance-none bg-slate-900/50 border border-indigo-500/30 rounded-xl pl-4 pr-10 py-3 text-white focus:outline-none focus:border-indigo-500/50 transition-colors cursor-pointer"
+                        >
+                          @if (agentRoleConfigs[role].model && !isModelInList(agentRoleConfigs[role].model, agentRoleConfigs[role].provider)) {
+                            <option [value]="agentRoleConfigs[role].model">
+                              {{ agentRoleConfigs[role].model }} ({{ 'settings.modelNotFound' | translate }})
+                            </option>
+                          }
+                          @for (m of getModelsForProvider(agentRoleConfigs[role].provider); track m.name) {
+                            <option [value]="m.name">
+                              {{ m.displayName || m.name }}
+                              @if (m.parameterSize) {
+                                ({{ m.parameterSize }})
+                              }
+                            </option>
+                          }
+                        </select>
+                        <app-icon name="chevron-down" [size]="16" class="absolute right-3 top-1/2 -translate-y-1/2 text-indigo-400 pointer-events-none" />
+                      </div>
+                      <p class="text-xs text-indigo-400/60 mt-1">
                         {{ getModelsForProvider(agentRoleConfigs[role].provider).length }}
                         {{ 'settings.modelsAvailable' | translate }}
                       </p>

@@ -225,6 +225,7 @@
 
 | Method | Endpoint | Auth | Beschreibung |
 |---|---|---|---|
+| `GET` | `/api/settings/providers/models` | Admin | Modelle aller Provider (Ollama, Anthropic, OpenAI, Google, CLI) parallel |
 | `GET` | `/api/settings/providers/ollama/models` | Admin | Verfügbare Ollama-Modelle (via /api/tags) |
 | `GET` | `/api/settings/providers/ollama/health` | Admin | Ollama Health Check |
 | `GET` | `/api/settings/providers/cli/status` | Admin | CLI-Tools Status (claude, codex, qwen3-coder) |
