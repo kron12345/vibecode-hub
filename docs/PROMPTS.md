@@ -243,3 +243,23 @@ Dokumentation aller Prompts/Anforderungen die zur Entwicklung genutzt wurden.
 - Pipeline-Konfiguration (enabled, approval, concurrent, timeout)
 - Settings UI mit expandierbaren Rollenkarten
 - Alle Docs aktualisiert (API.md, ARCHITECTURE.md, PROMPTS.md)
+
+## Session 5 — 2026-03-01 — Phase 2: Interview-basierte Projekterstellung
+
+### Prompt: Phase 2 Start — Agent-Orchestrierung
+> Detaillierter Plan für interview-basierte Projekterstellung: Prisma Schema (ProjectStatus), LLM Abstraction Layer (7 Provider), Event-basierte Agent-Architektur, Interviewer Agent, Quick-Create Flow, Frontend-Anpassungen.
+
+**Ergebnis:**
+- ProjectStatus Enum (`INTERVIEWING`, `SETTING_UP`, `READY`, `ARCHIVED`) + `techStack` JSON-Feld
+- LLM Abstraction Layer: Interfaces, LlmService Fassade, 7 Provider (Ollama, Anthropic, OpenAI, Google, Claude Code, Codex CLI, Qwen Code)
+- Event-basierte Agent-Architektur mit `@nestjs/event-emitter`
+- BaseAgent abstrakte Klasse mit LLM-Calls, Messaging, Status-Updates
+- InterviewerAgent: System-Prompt → Konversation → `:::INTERVIEW_COMPLETE:::` → JSON-Ergebnis → Project-Update
+- AgentOrchestratorService: `@OnEvent('chat.userMessage')` für automatisches Routing
+- Quick-Create: `POST /projects/quick` → Projekt + Interview in einem Schritt
+- ChatGateway EventEmitter-Integration
+- Dashboard: Vereinfachtes Modal (nur Name, "Interview starten")
+- ProjectPage: Auto-Start Interview bei Status INTERVIEWING
+- WebSocket: `agentStatus` + `projectUpdated` Events
+- i18n: Neue Keys in DE/EN/IT/FR
+- Alle Docs aktualisiert

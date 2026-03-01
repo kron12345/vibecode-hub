@@ -8,6 +8,7 @@ import {
   ConnectedSocket,
 } from '@nestjs/websockets';
 import { Logger } from '@nestjs/common';
+import { EventEmitter2 } from '@nestjs/event-emitter';
 import { Server, Socket } from 'socket.io';
 import { ChatService } from './chat.service';
 import { MessageRole } from '@prisma/client';
@@ -27,7 +28,10 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
 
   private readonly logger = new Logger(ChatGateway.name);
 
-  constructor(private readonly chatService: ChatService) {}
+  constructor(
+    private readonly chatService: ChatService,
+    private readonly eventEmitter: EventEmitter2,
+  ) {}
 
   handleConnection(client: Socket) {
     this.logger.log(`Client connected: ${client.id}`);
@@ -69,6 +73,12 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
     this.server
       .to(`session:${data.chatSessionId}`)
       .emit('newMessage', message);
+
+    // Emit event for agent orchestration (non-blocking)
+    this.eventEmitter.emit('chat.userMessage', {
+      chatSessionId: data.chatSessionId,
+      content: data.content,
+    });
 
     return message;
   }

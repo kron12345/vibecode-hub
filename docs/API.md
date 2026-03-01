@@ -18,10 +18,30 @@
 | `GET` | `/api/projects` | Ja | Alle Projekte auflisten |
 | `GET` | `/api/projects/:slug` | Ja | Projekt nach Slug laden (inkl. Issues, Agents) |
 | `POST` | `/api/projects` | Ja | Neues Projekt erstellen |
+| `POST` | `/api/projects/quick` | Ja | Quick-Create: Name → Interview starten |
 | `PUT` | `/api/projects/:id` | Ja | Projekt aktualisieren |
 | `DELETE` | `/api/projects/:id` | Ja | Projekt löschen |
 
 ### DTOs
+
+**CreateMinimalProjectDto** (für Quick-Create)
+```typescript
+{
+  name: string;  // Pflicht, 2-100 Zeichen. Slug wird auto-generiert.
+}
+```
+
+**Response** (Quick-Create)
+```typescript
+{
+  project: Project;          // Status: INTERVIEWING
+  interview: {
+    agentInstanceId: string;
+    agentTaskId: string;
+    chatSessionId: string;
+  }
+}
+```
 
 **CreateProjectDto**
 ```typescript
@@ -302,6 +322,31 @@ Gespeichert als `agents.pipeline` (JSON):
 
 ---
 
+## Agents
+
+| Method | Endpoint | Auth | Beschreibung |
+|---|---|---|---|
+| `POST` | `/api/agents/interview/start` | Ja | Interview für ein Projekt starten |
+| `GET` | `/api/agents/status/:projectId` | Ja | Agent-Status für ein Projekt |
+
+### DTOs
+
+**StartInterviewDto**
+```typescript
+{
+  projectId: string;  // Pflicht, 1-100 Zeichen
+}
+```
+
+### WebSocket Events (neu)
+
+| Event | Richtung | Beschreibung |
+|---|---|---|
+| `agentStatus` | Server → Client | Agent-Status-Änderung (role, status, projectId) |
+| `projectUpdated` | Server → Client | Projekt wurde aktualisiert (z.B. Interview abgeschlossen) |
+
+---
+
 ## GitLab Webhook
 
 | Method | Endpoint | Auth | Beschreibung |
@@ -345,6 +390,7 @@ Der `GitlabService` wird intern vom `ProjectsService` genutzt:
 
 | Datum | Änderung |
 |---|---|
+| 2026-03-01 | Phase 2: LLM Abstraction Layer (7 Provider), Agent-Orchestrierung, Interviewer Agent, Quick-Create Flow, Event-System |
 | 2026-03-01 | Agents: 10 Rollen (Interviewer→DevOps), 7 LLM-Provider, Ollama Discovery, CLI Health Check, Pipeline Config |
 | 2026-03-01 | Settings: User + System Settings API (6 Endpunkte), AES-256-GCM Encryption, RBAC Admin Guard |
 | 2026-02-28 | Chat: Sessions + Messages REST API, WebSocket Gateway (/chat namespace) |

@@ -8,16 +8,25 @@ datasource db {
 
 // ─── Projekte ───────────────────────────────────────────────
 
+enum ProjectStatus {
+  INTERVIEWING
+  SETTING_UP
+  READY
+  ARCHIVED
+}
+
 model Project {
-  id              String   @id @default(cuid())
+  id              String        @id @default(cuid())
   name            String
-  slug            String   @unique
+  slug            String        @unique
   description     String?
-  gitlabProjectId Int?     @unique
+  status          ProjectStatus @default(READY)
+  techStack       Json?
+  gitlabProjectId Int?          @unique
   gitlabUrl       String?
-  previewPort     Int?     @unique
-  createdAt       DateTime @default(now())
-  updatedAt       DateTime @updatedAt
+  previewPort     Int?          @unique
+  createdAt       DateTime      @default(now())
+  updatedAt       DateTime      @updatedAt
 
   issues          Issue[]
   chats           ChatSession[]

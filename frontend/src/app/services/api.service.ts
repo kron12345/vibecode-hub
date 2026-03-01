@@ -2,17 +2,30 @@ import { Injectable, inject } from '@angular/core';
 import { HttpClient } from '@angular/common/http';
 import { environment } from '../../environments/environment';
 
+export type ProjectStatus = 'INTERVIEWING' | 'SETTING_UP' | 'READY' | 'ARCHIVED';
+
 export interface Project {
   id: string;
   name: string;
   slug: string;
   description?: string;
+  status?: ProjectStatus;
+  techStack?: Record<string, unknown>;
   gitlabProjectId?: number;
   gitlabUrl?: string;
   createdAt: string;
   updatedAt: string;
   issues?: Issue[];
   agents?: AgentInstance[];
+}
+
+export interface QuickCreateResult {
+  project: Project;
+  interview: {
+    agentInstanceId: string;
+    agentTaskId: string;
+    chatSessionId: string;
+  };
 }
 
 export interface Issue {
@@ -138,6 +151,13 @@ export class ApiService {
 
   createProject(data: Partial<Project>) {
     return this.http.post<Project>(`${this.baseUrl}/projects`, data);
+  }
+
+  quickCreateProject(name: string) {
+    return this.http.post<QuickCreateResult>(
+      `${this.baseUrl}/projects/quick`,
+      { name },
+    );
   }
 
   deleteProject(id: string) {

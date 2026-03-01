@@ -65,8 +65,9 @@ vibcode-hub/
 │   │   ├── prisma/    # DB Service (global)
 │   │   ├── projects/  # Projekt-CRUD
 │   │   ├── issues/    # Issue-Verwaltung
-│   │   ├── chat/      # Chat-Sessions & Messages
-│   │   ├── agents/    # Agent-Orchestrierung
+│   │   ├── chat/      # Chat-Sessions & Messages + EventEmitter
+│   │   ├── llm/       # LLM Abstraction Layer (7 Provider)
+│   │   ├── agents/    # Agent-Orchestrierung + Interviewer
 │   │   ├── gitlab/    # GitLab API Integration
 │   │   └── common/    # Decorators, Guards, Filters
 │   └── prisma/
@@ -77,7 +78,7 @@ vibcode-hub/
 
 ## Datenmodell
 
-- **Project** → hat Issues, ChatSessions, AgentInstances
+- **Project** → hat Issues, ChatSessions, AgentInstances. Status: `INTERVIEWING` | `SETTING_UP` | `READY` | `ARCHIVED`. Optional: `techStack` (JSON, Interview-Ergebnis)
 - **Issue** → hierarchisch (parent/sub-issues), gespiegelt von GitLab
 - **ChatSession** → pro Projekt, enthält ChatMessages
 - **AgentInstance** → konfigurierter Agent pro Projekt (Rolle + Provider + Model)

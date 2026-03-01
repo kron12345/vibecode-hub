@@ -1,5 +1,5 @@
 import { Component, inject, OnInit, signal } from '@angular/core';
-import { RouterLink } from '@angular/router';
+import { Router, RouterLink } from '@angular/router';
 import { FormsModule } from '@angular/forms';
 import { ApiService, Project } from '../../services/api.service';
 import { IconComponent } from '../../components/icon.component';
@@ -82,9 +82,17 @@ import { TranslateService } from '../../services/translate.service';
           </p>
           <div class="flex items-center justify-between">
             <span class="font-mono text-xs text-indigo-400/70">/{{ project.slug }}</span>
-            <span class="text-[10px] text-slate-600 uppercase tracking-widest">
-              {{ formatDate(project.updatedAt) }}
-            </span>
+            <div class="flex items-center gap-2">
+              @if (project.status === 'INTERVIEWING') {
+                <span class="text-[10px] font-mono text-sky-400 animate-pulse uppercase tracking-widest">{{ 'project.interviewRunning' | translate }}</span>
+              } @else if (project.status === 'SETTING_UP') {
+                <span class="text-[10px] font-mono text-amber-400 animate-pulse uppercase tracking-widest">{{ 'project.settingUp' | translate }}</span>
+              } @else {
+                <span class="text-[10px] text-slate-600 uppercase tracking-widest">
+                  {{ formatDate(project.updatedAt) }}
+                </span>
+              }
+            </div>
           </div>
         </a>
       }
@@ -111,35 +119,17 @@ import { TranslateService } from '../../services/translate.service';
           class="glass-heavy rounded-3xl p-8 w-full max-w-md shadow-2xl"
           (click)="$event.stopPropagation()"
         >
-          <h2 class="text-xl font-bold text-white mb-6">{{ 'dashboard.newProjectTitle' | translate }}</h2>
+          <h2 class="text-xl font-bold text-white mb-2">{{ 'dashboard.newProjectTitle' | translate }}</h2>
+          <p class="text-sm text-slate-500 mb-6">{{ 'dashboard.interviewHint' | translate }}</p>
 
-          <div class="space-y-4">
-            <div>
-              <label class="text-xs text-slate-500 uppercase tracking-widest font-bold block mb-1.5">{{ 'common.name' | translate }}</label>
-              <input
-                [(ngModel)]="newProject.name"
-                (ngModelChange)="autoSlug()"
-                class="w-full bg-slate-900/50 border border-white/10 rounded-xl px-4 py-3 text-white placeholder-slate-600 focus:outline-none focus:border-indigo-500 transition-colors"
-                [placeholder]="'dashboard.namePlaceholder' | translate"
-              />
-            </div>
-            <div>
-              <label class="text-xs text-slate-500 uppercase tracking-widest font-bold block mb-1.5">{{ 'common.slug' | translate }}</label>
-              <input
-                [(ngModel)]="newProject.slug"
-                class="w-full bg-slate-900/50 border border-white/10 rounded-xl px-4 py-3 text-white font-mono text-sm placeholder-slate-600 focus:outline-none focus:border-indigo-500 transition-colors"
-                [placeholder]="'dashboard.slugPlaceholder' | translate"
-              />
-            </div>
-            <div>
-              <label class="text-xs text-slate-500 uppercase tracking-widest font-bold block mb-1.5">{{ 'common.description' | translate }}</label>
-              <textarea
-                [(ngModel)]="newProject.description"
-                rows="3"
-                class="w-full bg-slate-900/50 border border-white/10 rounded-xl px-4 py-3 text-white placeholder-slate-600 focus:outline-none focus:border-indigo-500 transition-colors resize-none"
-                [placeholder]="'dashboard.descriptionPlaceholder' | translate"
-              ></textarea>
-            </div>
+          <div>
+            <label class="text-xs text-slate-500 uppercase tracking-widest font-bold block mb-1.5">{{ 'common.name' | translate }}</label>
+            <input
+              [(ngModel)]="newProjectName"
+              (keydown.enter)="quickCreate()"
+              class="w-full bg-slate-900/50 border border-white/10 rounded-xl px-4 py-3 text-white placeholder-slate-600 focus:outline-none focus:border-indigo-500 transition-colors"
+              [placeholder]="'dashboard.namePlaceholder' | translate"
+            />
           </div>
 
           <div class="flex gap-3 justify-end mt-6">
@@ -150,10 +140,12 @@ import { TranslateService } from '../../services/translate.service';
               {{ 'common.cancel' | translate }}
             </button>
             <button
-              (click)="createProject()"
-              class="px-5 py-2.5 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white font-semibold transition-all"
+              (click)="quickCreate()"
+              [disabled]="!newProjectName.trim()"
+              class="px-5 py-2.5 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white font-semibold transition-all disabled:opacity-40 disabled:cursor-not-allowed flex items-center gap-2"
             >
-              {{ 'common.create' | translate }}
+              <app-icon name="message-circle" [size]="16" />
+              {{ 'dashboard.startInterview' | translate }}
             </button>
           </div>
         </div>
@@ -163,10 +155,11 @@ import { TranslateService } from '../../services/translate.service';
 })
 export class DashboardPage implements OnInit {
   private api = inject(ApiService);
+  private router = inject(Router);
   i18n = inject(TranslateService);
   projects = signal<Project[]>([]);
   showCreate = false;
-  newProject = { name: '', slug: '', description: '' };
+  newProjectName = '';
 
   ngOnInit() {
     this.loadProjects();
@@ -176,18 +169,14 @@ export class DashboardPage implements OnInit {
     this.api.getProjects().subscribe((p) => this.projects.set(p));
   }
 
-  autoSlug() {
-    this.newProject.slug = this.newProject.name
-      .toLowerCase()
-      .replace(/[^a-z0-9]+/g, '-')
-      .replace(/^-|-$/g, '');
-  }
+  quickCreate() {
+    const name = this.newProjectName.trim();
+    if (!name) return;
 
-  createProject() {
-    this.api.createProject(this.newProject).subscribe(() => {
+    this.api.quickCreateProject(name).subscribe((result) => {
       this.showCreate = false;
-      this.newProject = { name: '', slug: '', description: '' };
-      this.loadProjects();
+      this.newProjectName = '';
+      this.router.navigate(['/projects', result.project.slug]);
     });
   }
 

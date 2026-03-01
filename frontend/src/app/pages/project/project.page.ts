@@ -314,6 +314,8 @@ export class ProjectPage implements OnInit, OnDestroy {
 
   private messageContainer = viewChild<ElementRef>('messageContainer');
   private socketSub: Subscription | null = null;
+  private agentStatusSub: Subscription | null = null;
+  private projectUpdatedSub: Subscription | null = null;
 
   /** Build agent entries from the 6 roles, filling in instance data if available */
   agentEntries = computed(() => {
@@ -343,17 +345,54 @@ export class ProjectPage implements OnInit, OnDestroy {
         this.project.set(p);
         this.loadIssues(p.id);
         this.loadSessions(p.id);
+
+        // Auto-open interview session if project is in INTERVIEWING state
+        if (p.status === 'INTERVIEWING') {
+          this.api.getChatSessions(p.id).subscribe((sessions) => {
+            const interviewSession = sessions.find(
+              (s) => s.title === 'Project Interview',
+            );
+            if (interviewSession) {
+              this.openSession(interviewSession);
+            }
+          });
+        }
       });
     }
 
     this.socketSub = this.chatSocket.newMessage$.subscribe((msg) => {
       this.messages.update((msgs) => [...msgs, msg]);
     });
+
+    // Listen for agent status changes to update pipeline visualization
+    this.agentStatusSub = this.chatSocket.agentStatus$.subscribe((event) => {
+      const p = this.project();
+      if (p && event.projectId === p.id) {
+        // Reload project to get updated agent statuses
+        this.api.getProject(p.slug).subscribe((updated) => {
+          this.project.set(updated);
+        });
+      }
+    });
+
+    // Listen for project updates (e.g., interview complete)
+    this.projectUpdatedSub = this.chatSocket.projectUpdated$.subscribe(
+      (event) => {
+        const p = this.project();
+        if (p && event.projectId === p.id) {
+          this.api.getProject(p.slug).subscribe((updated) => {
+            this.project.set(updated);
+          });
+        }
+      },
+    );
   }
 
   ngOnDestroy() {
     this.chatSocket.leaveSession();
     this.socketSub?.unsubscribe();
+    this.agentStatusSub?.unsubscribe();
+    this.projectUpdatedSub?.unsubscribe();
   }
 
   loadIssues(projectId: string) {

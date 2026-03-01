@@ -1,4 +1,4 @@
-import { IsString, IsOptional, IsInt, Matches } from 'class-validator';
+import { IsString, IsOptional, IsInt, Matches, MinLength, MaxLength } from 'class-validator';
 import { ApiProperty } from '@nestjs/swagger';
 
 export class CreateProjectDto {
@@ -25,6 +25,14 @@ export class CreateProjectDto {
   @IsOptional()
   @IsString()
   gitlabUrl?: string;
+}
+
+export class CreateMinimalProjectDto {
+  @ApiProperty({ description: 'Project name — slug is auto-generated' })
+  @IsString()
+  @MinLength(2)
+  @MaxLength(100)
+  name: string;
 }
 
 export class UpdateProjectDto {

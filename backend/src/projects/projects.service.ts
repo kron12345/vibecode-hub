@@ -1,7 +1,8 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { Injectable, Logger, ConflictException } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { GitlabService } from '../gitlab/gitlab.service';
 import { CreateProjectDto, UpdateProjectDto } from './projects.dto';
+import { ProjectStatus } from '@prisma/client';
 
 @Injectable()
 export class ProjectsService {
@@ -58,6 +59,36 @@ export class ProjectsService {
 
   update(id: string, dto: UpdateProjectDto) {
     return this.prisma.project.update({ where: { id }, data: dto });
+  }
+
+  /** Create a minimal project (name only) for the interview flow */
+  async createMinimal(name: string) {
+    // Generate slug from name
+    let slug = name
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, '-')
+      .replace(/^-|-$/g, '');
+
+    // Ensure slug is at least 2 chars
+    if (slug.length < 2) {
+      slug = `project-${slug || Date.now()}`;
+    }
+
+    // Check for slug collision and append suffix if needed
+    const existing = await this.prisma.project.findUnique({
+      where: { slug },
+    });
+    if (existing) {
+      slug = `${slug}-${Date.now().toString(36).slice(-4)}`;
+    }
+
+    return this.prisma.project.create({
+      data: {
+        name,
+        slug,
+        status: ProjectStatus.INTERVIEWING,
+      },
+    });
   }
 
   async delete(id: string) {

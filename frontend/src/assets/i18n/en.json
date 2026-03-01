@@ -32,7 +32,9 @@
     "newProjectTitle": "New Project",
     "namePlaceholder": "My Project",
     "slugPlaceholder": "my-project",
-    "descriptionPlaceholder": "What are you building?"
+    "descriptionPlaceholder": "What are you building?",
+    "startInterview": "Start Interview",
+    "interviewHint": "An AI interviewer will gather the requirements for your project."
   },
   "project": {
     "backToDashboard": "Dashboard",
@@ -48,7 +50,9 @@
     "newChat": "New Chat",
     "systemReady": "System ready. Waiting for input...",
     "chatPlaceholder": "Describe what you want to build...",
-    "startNewChat": "Start a new chat"
+    "startNewChat": "Start a new chat",
+    "interviewRunning": "Interviewing...",
+    "settingUp": "Setting up..."
   },
   "agents": {
     "interviewer": "Interviewer",

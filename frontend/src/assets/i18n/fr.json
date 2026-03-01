@@ -32,7 +32,9 @@
     "newProjectTitle": "Nouveau projet",
     "namePlaceholder": "Mon projet",
     "slugPlaceholder": "mon-projet",
-    "descriptionPlaceholder": "Que construisez-vous ?"
+    "descriptionPlaceholder": "Que construisez-vous ?",
+    "startInterview": "Lancer l'interview",
+    "interviewHint": "Un intervieweur IA recueillera les exigences de votre projet."
   },
   "project": {
     "backToDashboard": "Tableau de bord",
@@ -48,7 +50,9 @@
     "newChat": "Nouveau chat",
     "systemReady": "Système prêt. En attente d'entrée...",
     "chatPlaceholder": "Décrivez ce que vous voulez construire...",
-    "startNewChat": "Démarrer un nouveau chat"
+    "startNewChat": "Démarrer un nouveau chat",
+    "interviewRunning": "Interview...",
+    "settingUp": "Configuration..."
   },
   "agents": {
     "interviewer": "Intervieweur",

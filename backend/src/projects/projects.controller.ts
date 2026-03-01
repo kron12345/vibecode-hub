@@ -10,12 +10,16 @@ import {
 } from '@nestjs/common';
 import { ApiTags } from '@nestjs/swagger';
 import { ProjectsService } from './projects.service';
-import { CreateProjectDto, UpdateProjectDto } from './projects.dto';
+import { CreateProjectDto, CreateMinimalProjectDto, UpdateProjectDto } from './projects.dto';
+import { AgentOrchestratorService } from '../agents/agent-orchestrator.service';
 
 @ApiTags('projects')
 @Controller('projects')
 export class ProjectsController {
-  constructor(private readonly projectsService: ProjectsService) {}
+  constructor(
+    private readonly projectsService: ProjectsService,
+    private readonly orchestrator: AgentOrchestratorService,
+  ) {}
 
   @Get()
   findAll() {
@@ -32,6 +36,14 @@ export class ProjectsController {
   @Post()
   create(@Body() dto: CreateProjectDto) {
     return this.projectsService.create(dto);
+  }
+
+  /** Quick-create: name only → auto interview */
+  @Post('quick')
+  async quickCreate(@Body() dto: CreateMinimalProjectDto) {
+    const project = await this.projectsService.createMinimal(dto.name);
+    const interview = await this.orchestrator.startInterview(project.id);
+    return { project, interview };
   }
 
   @Put(':id')

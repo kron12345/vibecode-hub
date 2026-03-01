@@ -41,10 +41,14 @@ VibCode Hub ist ein AI-Entwicklerteam-Portal. Der Nutzer agiert als "Chef" und s
 - [x] Chat-Interface Grundgerüst
 
 ### Phase 2 — Agent-Orchestrierung
-- [ ] Agent-Framework (abstraktes Interface für alle LLM-Provider)
-- [ ] Erster Agent: Ticket Creator (Chat → Issues)
+- [x] LLM Abstraction Layer (7 Provider: Ollama, Anthropic, OpenAI, Google, Claude Code, Codex CLI, Qwen Code)
+- [x] Event-basierte Agent-Architektur (@nestjs/event-emitter)
+- [x] Interviewer Agent (KI-Interview → Projekt-Requirements)
+- [x] Quick-Create Flow (Name → Interview → Tech-Stack)
+- [x] WebSocket-basierte Live-Updates (agentStatus, projectUpdated)
+- [ ] DevOps-Agent (Projekt einrichten: Repo, Framework, .mcp.json)
 - [ ] Zweiter Agent: Coder (Issue → Branch → MR)
-- [ ] WebSocket-basierte Live-Updates
+- [ ] Streaming (Token-für-Token im Chat)
 
 ### Phase 3 — Erweiterung
 - [ ] Code Reviewer Agent
