@@ -175,3 +175,16 @@ Dokumentation aller Prompts/Anforderungen die zur Entwicklung genutzt wurden.
 - Route `/settings` + Sidebar-Link aktiviert
 - API.md, ARCHITECTURE.md aktualisiert
 - Backend + Frontend deployed, API läuft mit 15 gecachten Settings
+
+### Prompt: i18n, .env Cleanup, README
+> Passe die optionalen .env-Werte an, bereite i18n vor (DE, EN, IT, FR), erstelle README.md mit Sicherheitshinweis
+
+**Ergebnis:**
+- i18n-System: TranslateService (signal-basiert, JSON-Dateien), TranslatePipe (impure), 4 Sprachdateien
+- Alle Frontend-Texte (App-Shell, Dashboard, Project, Settings) mit translate-Pipe übersetzt
+- Sprachauswahl im Settings mit sofortiger Anwendung, User-Präferenz beim App-Start geladen
+- .env bereinigt: nur noch DB, Keycloak, Port — Rest als Kommentare für Fallback-Doku
+- .env.example für neue Installationen erstellt
+- README.md (EN): Features, Tech Stack, Installation, Security Notice, i18n-Erweiterung
+- CLAUDE.md: i18n-Pattern + README.md Pflicht dokumentiert
+- angular.json: assets-Konfiguration für i18n-Dateien im Build
