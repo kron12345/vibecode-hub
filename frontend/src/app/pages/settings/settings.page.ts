@@ -630,6 +630,11 @@ const PERMISSION_KEYS: { key: keyof AgentRoleConfig['permissions']; labelKey: st
                         [(ngModel)]="agentRoleConfigs[role].model"
                         class="w-full bg-slate-900/50 border border-white/10 rounded-xl px-4 py-3 text-white focus:outline-none focus:border-indigo-500/50 transition-colors"
                       >
+                        @if (agentRoleConfigs[role].model && !isModelInList(agentRoleConfigs[role].model, agentRoleConfigs[role].provider)) {
+                          <option [value]="agentRoleConfigs[role].model">
+                            {{ agentRoleConfigs[role].model }} ({{ 'settings.modelNotFound' | translate }})
+                          </option>
+                        }
                         @for (m of getModelsForProvider(agentRoleConfigs[role].provider); track m.name) {
                           <option [value]="m.name">
                             {{ m.displayName || m.name }}
@@ -639,6 +644,10 @@ const PERMISSION_KEYS: { key: keyof AgentRoleConfig['permissions']; labelKey: st
                           </option>
                         }
                       </select>
+                      <p class="text-xs text-slate-600 mt-1">
+                        {{ getModelsForProvider(agentRoleConfigs[role].provider).length }}
+                        {{ 'settings.modelsAvailable' | translate }}
+                      </p>
                     } @else {
                       <input
                         type="text"
@@ -646,6 +655,9 @@ const PERMISSION_KEYS: { key: keyof AgentRoleConfig['permissions']; labelKey: st
                         class="w-full bg-slate-900/50 border border-white/10 rounded-xl px-4 py-3 text-white focus:outline-none focus:border-indigo-500/50 transition-colors"
                         placeholder="llama3.1, claude-sonnet-4-6, gpt-4o, ..."
                       />
+                      <p class="text-xs text-slate-600 mt-1">
+                        {{ 'settings.modelManualHint' | translate }}
+                      </p>
                     }
                   </div>
                 </div>
@@ -872,6 +884,10 @@ export class SettingsPage implements OnInit {
 
   getModelsForProvider(provider: string): ProviderModel[] {
     return this.providerResults()[provider]?.models ?? [];
+  }
+
+  isModelInList(model: string, provider: string): boolean {
+    return this.getModelsForProvider(provider).some((m) => m.name === model);
   }
 
   getProviderLabel(provider: string): string {

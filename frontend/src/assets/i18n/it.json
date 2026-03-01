@@ -101,6 +101,8 @@
     "modelsAvailable": "modelli disponibili",
     "modelsShort": "modelli",
     "noApiKey": "Nessuna chiave API",
+    "modelNotFound": "non installato",
+    "modelManualHint": "Inserire il nome del modello manualmente",
     "refreshModels": "Aggiorna tutti i provider",
     "cliTools": "Strumenti CLI",
     "refresh": "Aggiorna",

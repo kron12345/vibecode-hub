@@ -101,6 +101,8 @@
     "modelsAvailable": "models available",
     "modelsShort": "models",
     "noApiKey": "No API key",
+    "modelNotFound": "not installed",
+    "modelManualHint": "Enter model name manually",
     "refreshModels": "Refresh all providers",
     "cliTools": "CLI Tools",
     "refresh": "Refresh",
