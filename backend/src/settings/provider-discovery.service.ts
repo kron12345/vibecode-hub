@@ -259,7 +259,7 @@ export class ProviderDiscoveryService {
     const tools = [
       { name: 'Claude Code', command: 'claude' },
       { name: 'Codex CLI', command: 'codex' },
-      { name: 'Qwen3 Coder', command: 'qwen3-coder' },
+      { name: 'Qwen Code', command: 'qwen' },
     ];
 
     const results: CliToolStatus[] = [];
