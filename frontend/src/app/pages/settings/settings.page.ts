@@ -3,18 +3,14 @@ import { FormsModule } from '@angular/forms';
 import { ApiService, SystemSetting } from '../../services/api.service';
 import { AuthInfoService } from '../../services/auth-info.service';
 import { IconComponent } from '../../components/icon.component';
+import { TranslatePipe } from '../../pipes/translate.pipe';
+import {
+  TranslateService,
+  SUPPORTED_LOCALES,
+  Locale,
+} from '../../services/translate.service';
 
 type Tab = 'user' | 'system';
-
-interface SystemField {
-  key: string;
-  label: string;
-  category: string;
-  encrypted: boolean;
-  description: string;
-  type: 'text' | 'secret' | 'textarea' | 'select';
-  options?: { value: string; label: string }[];
-}
 
 const AGENT_ROLES = [
   'TICKET_CREATOR',
@@ -25,13 +21,13 @@ const AGENT_ROLES = [
   'DOCUMENTER',
 ] as const;
 
-const AGENT_ROLE_LABELS: Record<string, string> = {
-  TICKET_CREATOR: 'Ticket Creator',
-  CODER: 'Coder',
-  CODE_REVIEWER: 'Code Reviewer',
-  UI_TESTER: 'UI Tester',
-  PEN_TESTER: 'Pen Tester',
-  DOCUMENTER: 'Documenter',
+const AGENT_ROLE_LABEL_KEYS: Record<string, string> = {
+  TICKET_CREATOR: 'agents.ticketCreator',
+  CODER: 'agents.developer',
+  CODE_REVIEWER: 'agents.reviewer',
+  UI_TESTER: 'agents.qaTester',
+  PEN_TESTER: 'agents.pentester',
+  DOCUMENTER: 'agents.docs',
 };
 
 const LLM_PROVIDERS = [
@@ -43,17 +39,17 @@ const LLM_PROVIDERS = [
 
 @Component({
   selector: 'app-settings',
-  imports: [FormsModule, IconComponent],
+  imports: [FormsModule, IconComponent, TranslatePipe],
   template: `
     <!-- Header -->
     <div class="mb-8">
       <h1
         class="text-3xl font-bold tracking-tight bg-gradient-to-r from-white to-slate-500 bg-clip-text text-transparent"
       >
-        Settings
+        {{ 'settings.title' | translate }}
       </h1>
       <p class="text-slate-500 mt-1">
-        Konfiguration und Einstellungen verwalten
+        {{ 'settings.subtitle' | translate }}
       </p>
     </div>
 
@@ -69,7 +65,7 @@ const LLM_PROVIDERS = [
         "
       >
         <app-icon name="user" [size]="16" class="inline mr-2" />
-        Benutzer
+        {{ 'settings.tabUser' | translate }}
       </button>
       @if (authInfo.isAdmin) {
         <button
@@ -82,7 +78,7 @@ const LLM_PROVIDERS = [
           "
         >
           <app-icon name="shield" [size]="16" class="inline mr-2" />
-          System
+          {{ 'settings.tabSystem' | translate }}
         </button>
       }
     </div>
@@ -106,46 +102,47 @@ const LLM_PROVIDERS = [
       <div class="glass rounded-3xl p-6">
         <h2 class="text-lg font-semibold text-white mb-6 flex items-center gap-2">
           <app-icon name="user" [size]="20" class="text-indigo-400" />
-          Benutzer-Einstellungen
+          {{ 'settings.userSettings' | translate }}
         </h2>
 
         <div class="space-y-6">
           <!-- Locale -->
           <div>
-            <label class="block text-sm font-medium text-slate-400 mb-2"
-              >Sprache</label
-            >
+            <label class="block text-sm font-medium text-slate-400 mb-2">
+              {{ 'settings.locale' | translate }}
+            </label>
             <select
               [(ngModel)]="userLocale"
               class="w-full bg-slate-900/50 border border-white/10 rounded-xl px-4 py-3 text-white focus:outline-none focus:border-indigo-500/50 transition-colors"
             >
-              <option value="de">Deutsch</option>
-              <option value="en">English</option>
+              @for (loc of supportedLocales; track loc) {
+                <option [value]="loc">{{ 'languages.' + loc | translate }}</option>
+              }
             </select>
           </div>
 
           <!-- Theme -->
           <div>
-            <label class="block text-sm font-medium text-slate-400 mb-2"
-              >Theme</label
-            >
+            <label class="block text-sm font-medium text-slate-400 mb-2">
+              {{ 'settings.theme' | translate }}
+            </label>
             <select
               [(ngModel)]="userTheme"
               class="w-full bg-slate-900/50 border border-white/10 rounded-xl px-4 py-3 text-white focus:outline-none focus:border-indigo-500/50 transition-colors"
             >
-              <option value="dark">Dark</option>
-              <option value="light" disabled>Light (bald verfügbar)</option>
+              <option value="dark">{{ 'settings.themeDark' | translate }}</option>
+              <option value="light" disabled>{{ 'settings.themeLight' | translate }}</option>
             </select>
           </div>
 
           <!-- Sidebar default -->
           <div class="flex items-center justify-between">
             <div>
-              <label class="block text-sm font-medium text-slate-400"
-                >Sidebar standardmäßig eingeklappt</label
-              >
+              <label class="block text-sm font-medium text-slate-400">
+                {{ 'settings.sidebarCollapsed' | translate }}
+              </label>
               <p class="text-xs text-slate-600 mt-0.5">
-                Sidebar beim Start minimieren
+                {{ 'settings.sidebarCollapsedHint' | translate }}
               </p>
             </div>
             <button
@@ -172,7 +169,7 @@ const LLM_PROVIDERS = [
             class="bg-indigo-600 hover:bg-indigo-500 disabled:opacity-50 text-white px-6 py-3 rounded-full font-bold transition-all flex items-center gap-2"
           >
             <app-icon name="save" [size]="16" />
-            {{ saving() ? 'Speichern...' : 'Speichern' }}
+            {{ (saving() ? 'common.saving' : 'common.save') | translate }}
           </button>
         </div>
       </div>
@@ -183,17 +180,15 @@ const LLM_PROVIDERS = [
       <div class="space-y-6">
         <!-- GitLab -->
         <div class="glass rounded-3xl p-6">
-          <h2
-            class="text-lg font-semibold text-white mb-6 flex items-center gap-2"
-          >
+          <h2 class="text-lg font-semibold text-white mb-6 flex items-center gap-2">
             <app-icon name="git-branch" [size]="20" class="text-orange-400" />
-            GitLab
+            {{ 'settings.gitlab' | translate }}
           </h2>
           <div class="space-y-4">
             <div>
-              <label class="block text-sm font-medium text-slate-400 mb-2"
-                >URL</label
-              >
+              <label class="block text-sm font-medium text-slate-400 mb-2">
+                {{ 'settings.gitlabUrl' | translate }}
+              </label>
               <input
                 type="text"
                 [(ngModel)]="sysValues['gitlab.url']"
@@ -202,9 +197,9 @@ const LLM_PROVIDERS = [
               />
             </div>
             <div>
-              <label class="block text-sm font-medium text-slate-400 mb-2"
-                >API Token</label
-              >
+              <label class="block text-sm font-medium text-slate-400 mb-2">
+                {{ 'settings.gitlabToken' | translate }}
+              </label>
               <div class="relative">
                 <input
                   [type]="showSecrets['gitlab.api_token'] ? 'text' : 'password'"
@@ -213,47 +208,29 @@ const LLM_PROVIDERS = [
                   placeholder="glpat-****"
                 />
                 <button
-                  (click)="
-                    showSecrets['gitlab.api_token'] =
-                      !showSecrets['gitlab.api_token']
-                  "
+                  (click)="showSecrets['gitlab.api_token'] = !showSecrets['gitlab.api_token']"
                   class="absolute right-3 top-3 text-slate-500 hover:text-white transition-colors"
                 >
-                  <app-icon
-                    [name]="
-                      showSecrets['gitlab.api_token'] ? 'eye-off' : 'eye'
-                    "
-                    [size]="18"
-                  />
+                  <app-icon [name]="showSecrets['gitlab.api_token'] ? 'eye-off' : 'eye'" [size]="18" />
                 </button>
               </div>
             </div>
             <div>
-              <label class="block text-sm font-medium text-slate-400 mb-2"
-                >Webhook Secret</label
-              >
+              <label class="block text-sm font-medium text-slate-400 mb-2">
+                {{ 'settings.gitlabWebhook' | translate }}
+              </label>
               <div class="relative">
                 <input
-                  [type]="
-                    showSecrets['gitlab.webhook_secret'] ? 'text' : 'password'
-                  "
+                  [type]="showSecrets['gitlab.webhook_secret'] ? 'text' : 'password'"
                   [(ngModel)]="sysValues['gitlab.webhook_secret']"
                   class="w-full bg-slate-900/50 border border-white/10 rounded-xl px-4 py-3 pr-12 text-white font-mono focus:outline-none focus:border-indigo-500/50 transition-colors"
                   placeholder="****"
                 />
                 <button
-                  (click)="
-                    showSecrets['gitlab.webhook_secret'] =
-                      !showSecrets['gitlab.webhook_secret']
-                  "
+                  (click)="showSecrets['gitlab.webhook_secret'] = !showSecrets['gitlab.webhook_secret']"
                   class="absolute right-3 top-3 text-slate-500 hover:text-white transition-colors"
                 >
-                  <app-icon
-                    [name]="
-                      showSecrets['gitlab.webhook_secret'] ? 'eye-off' : 'eye'
-                    "
-                    [size]="18"
-                  />
+                  <app-icon [name]="showSecrets['gitlab.webhook_secret'] ? 'eye-off' : 'eye'" [size]="18" />
                 </button>
               </div>
             </div>
@@ -262,17 +239,15 @@ const LLM_PROVIDERS = [
 
         <!-- LLM Providers -->
         <div class="glass rounded-3xl p-6">
-          <h2
-            class="text-lg font-semibold text-white mb-6 flex items-center gap-2"
-          >
+          <h2 class="text-lg font-semibold text-white mb-6 flex items-center gap-2">
             <app-icon name="brain" [size]="20" class="text-violet-400" />
-            LLM Provider
+            {{ 'settings.llmProviders' | translate }}
           </h2>
           <div class="space-y-4">
             <div>
-              <label class="block text-sm font-medium text-slate-400 mb-2"
-                >Ollama URL</label
-              >
+              <label class="block text-sm font-medium text-slate-400 mb-2">
+                {{ 'settings.ollamaUrl' | translate }}
+              </label>
               <input
                 type="text"
                 [(ngModel)]="sysValues['llm.ollama.url']"
@@ -282,19 +257,16 @@ const LLM_PROVIDERS = [
             </div>
             @for (
               provider of [
-                {
-                  key: 'llm.anthropic.api_key',
-                  label: 'Anthropic API Key'
-                },
-                { key: 'llm.openai.api_key', label: 'OpenAI API Key' },
-                { key: 'llm.google.api_key', label: 'Google AI API Key' }
+                { key: 'llm.anthropic.api_key', labelKey: 'settings.anthropicKey' },
+                { key: 'llm.openai.api_key', labelKey: 'settings.openaiKey' },
+                { key: 'llm.google.api_key', labelKey: 'settings.googleKey' }
               ];
               track provider.key
             ) {
               <div>
-                <label class="block text-sm font-medium text-slate-400 mb-2">{{
-                  provider.label
-                }}</label>
+                <label class="block text-sm font-medium text-slate-400 mb-2">
+                  {{ provider.labelKey | translate }}
+                </label>
                 <div class="relative">
                   <input
                     [type]="showSecrets[provider.key] ? 'text' : 'password'"
@@ -303,15 +275,10 @@ const LLM_PROVIDERS = [
                     placeholder="sk-****"
                   />
                   <button
-                    (click)="
-                      showSecrets[provider.key] = !showSecrets[provider.key]
-                    "
+                    (click)="showSecrets[provider.key] = !showSecrets[provider.key]"
                     class="absolute right-3 top-3 text-slate-500 hover:text-white transition-colors"
                   >
-                    <app-icon
-                      [name]="showSecrets[provider.key] ? 'eye-off' : 'eye'"
-                      [size]="18"
-                    />
+                    <app-icon [name]="showSecrets[provider.key] ? 'eye-off' : 'eye'" [size]="18" />
                   </button>
                 </div>
               </div>
@@ -321,20 +288,16 @@ const LLM_PROVIDERS = [
 
         <!-- Agent Defaults -->
         <div class="glass rounded-3xl p-6">
-          <h2
-            class="text-lg font-semibold text-white mb-6 flex items-center gap-2"
-          >
+          <h2 class="text-lg font-semibold text-white mb-6 flex items-center gap-2">
             <app-icon name="bot" [size]="20" class="text-cyan-400" />
-            Agent Defaults
+            {{ 'settings.agentDefaults' | translate }}
           </h2>
           <div class="space-y-4">
             @for (role of agentRoles; track role) {
-              <div
-                class="grid grid-cols-3 gap-4 items-center"
-              >
-                <label class="text-sm font-medium text-slate-400">{{
-                  agentRoleLabels[role]
-                }}</label>
+              <div class="grid grid-cols-3 gap-4 items-center">
+                <label class="text-sm font-medium text-slate-400">
+                  {{ agentRoleLabelKeys[role] | translate }}
+                </label>
                 <select
                   [(ngModel)]="agentDefaults[role].provider"
                   class="bg-slate-900/50 border border-white/10 rounded-xl px-4 py-3 text-white focus:outline-none focus:border-indigo-500/50 transition-colors"
@@ -356,16 +319,14 @@ const LLM_PROVIDERS = [
 
         <!-- CORS / Security -->
         <div class="glass rounded-3xl p-6">
-          <h2
-            class="text-lg font-semibold text-white mb-6 flex items-center gap-2"
-          >
+          <h2 class="text-lg font-semibold text-white mb-6 flex items-center gap-2">
             <app-icon name="shield" [size]="20" class="text-amber-400" />
-            CORS / Sicherheit
+            {{ 'settings.cors' | translate }}
           </h2>
           <div>
-            <label class="block text-sm font-medium text-slate-400 mb-2"
-              >Erlaubte Origins (eine pro Zeile)</label
-            >
+            <label class="block text-sm font-medium text-slate-400 mb-2">
+              {{ 'settings.corsOrigins' | translate }}
+            </label>
             <textarea
               [(ngModel)]="corsOriginsText"
               rows="4"
@@ -373,23 +334,21 @@ const LLM_PROVIDERS = [
               placeholder="https://hub.example.com"
             ></textarea>
             <p class="text-xs text-slate-600 mt-1">
-              CORS-Änderungen erfordern einen API-Neustart
+              {{ 'settings.corsHint' | translate }}
             </p>
           </div>
         </div>
 
         <!-- App -->
         <div class="glass rounded-3xl p-6">
-          <h2
-            class="text-lg font-semibold text-white mb-6 flex items-center gap-2"
-          >
+          <h2 class="text-lg font-semibold text-white mb-6 flex items-center gap-2">
             <app-icon name="layout-dashboard" [size]="20" class="text-indigo-400" />
-            Anwendung
+            {{ 'settings.app' | translate }}
           </h2>
           <div>
-            <label class="block text-sm font-medium text-slate-400 mb-2"
-              >App Name</label
-            >
+            <label class="block text-sm font-medium text-slate-400 mb-2">
+              {{ 'settings.appName' | translate }}
+            </label>
             <input
               type="text"
               [(ngModel)]="sysValues['app.name']"
@@ -407,7 +366,7 @@ const LLM_PROVIDERS = [
             class="bg-indigo-600 hover:bg-indigo-500 disabled:opacity-50 text-white px-6 py-3 rounded-full font-bold transition-all flex items-center gap-2"
           >
             <app-icon name="save" [size]="16" />
-            {{ saving() ? 'Speichern...' : 'System-Settings speichern' }}
+            {{ (saving() ? 'common.saving' : 'settings.saveSystem') | translate }}
           </button>
         </div>
       </div>
@@ -416,6 +375,7 @@ const LLM_PROVIDERS = [
 })
 export class SettingsPage implements OnInit {
   private api = inject(ApiService);
+  private i18n = inject(TranslateService);
   authInfo = inject(AuthInfoService);
 
   activeTab = signal<Tab>('user');
@@ -423,20 +383,20 @@ export class SettingsPage implements OnInit {
   toast = signal<{ type: 'success' | 'error'; message: string } | null>(null);
 
   // User settings
-  userLocale = 'de';
+  userLocale: Locale = 'de';
   userTheme = 'dark';
   userSidebarCollapsed = false;
+  supportedLocales = [...SUPPORTED_LOCALES];
 
   // System settings
   sysValues: Record<string, string> = {};
   showSecrets: Record<string, boolean> = {};
   corsOriginsText = '';
   agentRoles = [...AGENT_ROLES];
-  agentRoleLabels = AGENT_ROLE_LABELS;
+  agentRoleLabelKeys = AGENT_ROLE_LABEL_KEYS;
   llmProviders = LLM_PROVIDERS;
   agentDefaults: Record<string, { provider: string; model: string }> = {};
 
-  // Track which encrypted fields have their original masked values
   private originalMaskedValues: Record<string, string> = {};
 
   ngOnInit() {
@@ -445,7 +405,6 @@ export class SettingsPage implements OnInit {
       this.loadSystemSettings();
     }
 
-    // Initialize agent defaults
     for (const role of AGENT_ROLES) {
       this.agentDefaults[role] = { provider: 'OLLAMA', model: 'llama3.1' };
     }
@@ -454,7 +413,7 @@ export class SettingsPage implements OnInit {
   private loadUserSettings() {
     this.api.getUserSettings().subscribe({
       next: (settings) => {
-        this.userLocale = (settings['locale'] as string) ?? 'de';
+        this.userLocale = (settings['locale'] as Locale) ?? 'de';
         this.userTheme = (settings['theme'] as string) ?? 'dark';
         this.userSidebarCollapsed =
           (settings['sidebar.collapsed'] as boolean) ?? false;
@@ -472,7 +431,6 @@ export class SettingsPage implements OnInit {
           }
         }
 
-        // Parse CORS origins
         try {
           const origins = JSON.parse(this.sysValues['cors.origins'] ?? '[]');
           this.corsOriginsText = origins.join('\n');
@@ -480,7 +438,6 @@ export class SettingsPage implements OnInit {
           this.corsOriginsText = this.sysValues['cors.origins'] ?? '';
         }
 
-        // Parse agent defaults
         for (const role of AGENT_ROLES) {
           const key = `agents.defaults.${role}`;
           const raw = this.sysValues[key];
@@ -493,7 +450,6 @@ export class SettingsPage implements OnInit {
           }
         }
 
-        // Parse app name
         try {
           const name = JSON.parse(this.sysValues['app.name'] ?? '""');
           this.sysValues['app.name'] = name;
@@ -506,6 +462,10 @@ export class SettingsPage implements OnInit {
 
   saveUserSettings() {
     this.saving.set(true);
+
+    // Apply locale change immediately
+    this.i18n.use(this.userLocale);
+
     this.api
       .updateUserSettings([
         { key: 'locale', value: JSON.stringify(this.userLocale) },
@@ -518,11 +478,11 @@ export class SettingsPage implements OnInit {
       .subscribe({
         next: () => {
           this.saving.set(false);
-          this.showToast('success', 'Benutzer-Einstellungen gespeichert');
+          this.showToast('success', this.i18n.t('settings.savedSuccess'));
         },
         error: () => {
           this.saving.set(false);
-          this.showToast('error', 'Fehler beim Speichern');
+          this.showToast('error', this.i18n.t('settings.savedError'));
         },
       });
   }
@@ -535,10 +495,8 @@ export class SettingsPage implements OnInit {
       value: string;
       category?: string;
       encrypted?: boolean;
-      description?: string;
     }[] = [];
 
-    // GitLab
     settings.push({
       key: 'gitlab.url',
       value: this.sysValues['gitlab.url'] ?? '',
@@ -547,7 +505,6 @@ export class SettingsPage implements OnInit {
     this.pushSecretSetting(settings, 'gitlab.api_token', 'gitlab');
     this.pushSecretSetting(settings, 'gitlab.webhook_secret', 'gitlab');
 
-    // LLM
     settings.push({
       key: 'llm.ollama.url',
       value: this.sysValues['llm.ollama.url'] ?? '',
@@ -557,7 +514,6 @@ export class SettingsPage implements OnInit {
     this.pushSecretSetting(settings, 'llm.openai.api_key', 'llm');
     this.pushSecretSetting(settings, 'llm.google.api_key', 'llm');
 
-    // CORS
     const origins = this.corsOriginsText
       .split('\n')
       .map((o) => o.trim())
@@ -568,14 +524,12 @@ export class SettingsPage implements OnInit {
       category: 'cors',
     });
 
-    // App
     settings.push({
       key: 'app.name',
       value: JSON.stringify(this.sysValues['app.name'] ?? 'VibCode Hub'),
       category: 'app',
     });
 
-    // Agent defaults
     for (const role of AGENT_ROLES) {
       settings.push({
         key: `agents.defaults.${role}`,
@@ -586,7 +540,6 @@ export class SettingsPage implements OnInit {
 
     this.api.updateSystemSettings(settings).subscribe({
       next: (updated) => {
-        // Refresh masked values
         for (const s of updated) {
           this.sysValues[s.key] = s.value;
           if (s.encrypted) {
@@ -594,19 +547,15 @@ export class SettingsPage implements OnInit {
           }
         }
         this.saving.set(false);
-        this.showToast('success', 'System-Settings gespeichert');
+        this.showToast('success', this.i18n.t('settings.systemSaved'));
       },
       error: () => {
         this.saving.set(false);
-        this.showToast('error', 'Fehler beim Speichern');
+        this.showToast('error', this.i18n.t('settings.savedError'));
       },
     });
   }
 
-  /**
-   * Only push encrypted settings if user actually changed the value
-   * (i.e. it doesn't match the masked ****xxxx pattern)
-   */
   private pushSecretSetting(
     settings: { key: string; value: string; category?: string; encrypted?: boolean }[],
     key: string,
@@ -615,14 +564,8 @@ export class SettingsPage implements OnInit {
     const currentValue = this.sysValues[key] ?? '';
     const originalMasked = this.originalMaskedValues[key] ?? '';
 
-    // Only send if user changed the value (not the masked placeholder)
     if (currentValue !== originalMasked) {
-      settings.push({
-        key,
-        value: currentValue,
-        category,
-        encrypted: true,
-      });
+      settings.push({ key, value: currentValue, category, encrypted: true });
     }
   }
 

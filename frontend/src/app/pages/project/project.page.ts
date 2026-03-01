@@ -21,15 +21,17 @@ import {
 } from '../../services/api.service';
 import { ChatSocketService } from '../../services/chat-socket.service';
 import { IconComponent } from '../../components/icon.component';
+import { TranslatePipe } from '../../pipes/translate.pipe';
+import { TranslateService } from '../../services/translate.service';
 
-/** Agent role config — icon, color, label */
-const AGENT_CONFIG: Record<string, { icon: string; color: string; label: string }> = {
-  TICKET_CREATOR: { icon: 'ticket', color: 'indigo', label: 'Ticket Creator' },
-  CODER:          { icon: 'code-2', color: 'indigo', label: 'Developer' },
-  CODE_REVIEWER:  { icon: 'eye', color: 'violet', label: 'Reviewer' },
-  UI_TESTER:      { icon: 'check-circle', color: 'emerald', label: 'QA Tester' },
-  PEN_TESTER:     { icon: 'shield-alert', color: 'amber', label: 'Pentester' },
-  DOCUMENTER:     { icon: 'file-text', color: 'cyan', label: 'Docs' },
+/** Agent role config — icon, color, i18n key */
+const AGENT_CONFIG: Record<string, { icon: string; color: string; labelKey: string }> = {
+  TICKET_CREATOR: { icon: 'ticket', color: 'indigo', labelKey: 'agents.ticketCreator' },
+  CODER:          { icon: 'code-2', color: 'indigo', labelKey: 'agents.developer' },
+  CODE_REVIEWER:  { icon: 'eye', color: 'violet', labelKey: 'agents.reviewer' },
+  UI_TESTER:      { icon: 'check-circle', color: 'emerald', labelKey: 'agents.qaTester' },
+  PEN_TESTER:     { icon: 'shield-alert', color: 'amber', labelKey: 'agents.pentester' },
+  DOCUMENTER:     { icon: 'file-text', color: 'cyan', labelKey: 'agents.docs' },
 };
 
 /** Issue status steps for progress dots */
@@ -37,14 +39,14 @@ const ISSUE_STEPS = ['OPEN', 'IN_PROGRESS', 'IN_REVIEW', 'TESTING', 'DONE', 'CLO
 
 @Component({
   selector: 'app-project',
-  imports: [FormsModule, RouterLink, IconComponent],
+  imports: [FormsModule, RouterLink, IconComponent, TranslatePipe],
   template: `
     @if (project(); as p) {
       <!-- Header -->
       <div class="flex items-start justify-between mb-6">
         <div>
           <a routerLink="/" class="text-slate-500 text-sm hover:text-indigo-400 transition-colors flex items-center gap-1 mb-2">
-            <app-icon name="arrow-left" [size]="14" /> Dashboard
+            <app-icon name="arrow-left" [size]="14" /> {{ 'project.backToDashboard' | translate }}
           </a>
           <h1 class="text-3xl font-bold tracking-tight bg-gradient-to-r from-white to-slate-500 bg-clip-text text-transparent">
             {{ p.name }}
@@ -64,9 +66,9 @@ const ISSUE_STEPS = ['OPEN', 'IN_PROGRESS', 'IN_REVIEW', 'TESTING', 'DONE', 'CLO
       <!-- Agent Pipeline -->
       <div class="glass rounded-[2rem] p-6 mb-6 relative overflow-hidden">
         <div class="flex items-center justify-between mb-4">
-          <h2 class="text-sm font-bold text-slate-500 uppercase tracking-widest">Agent Pipeline</h2>
+          <h2 class="text-sm font-bold text-slate-500 uppercase tracking-widest">{{ 'project.agentPipeline' | translate }}</h2>
           @if (hasWorkingAgent()) {
-            <span class="text-[10px] text-indigo-400 font-mono animate-pulse uppercase tracking-widest">Processing...</span>
+            <span class="text-[10px] text-indigo-400 font-mono animate-pulse uppercase tracking-widest">{{ 'project.processing' | translate }}</span>
           }
         </div>
 
@@ -96,10 +98,10 @@ const ISSUE_STEPS = ['OPEN', 'IN_PROGRESS', 'IN_REVIEW', 'TESTING', 'DONE', 'CLO
                     <app-icon [name]="entry.icon" [size]="18" />
                   }
                 </div>
-                <span class="font-semibold text-sm text-white">{{ entry.label }}</span>
+                <span class="font-semibold text-sm text-white">{{ entry.labelKey | translate }}</span>
               </div>
               <p class="text-[10px] text-slate-600 font-mono mb-2">
-                {{ entry.instance?.provider ?? 'Not assigned' }}
+                {{ entry.instance?.provider ?? ('project.notAssigned' | translate) }}
                 @if (entry.instance?.model) {
                   · {{ entry.instance!.model }}
                 }
@@ -108,7 +110,7 @@ const ISSUE_STEPS = ['OPEN', 'IN_PROGRESS', 'IN_REVIEW', 'TESTING', 'DONE', 'CLO
                 <span class="text-[10px] font-mono animate-pulse uppercase tracking-widest"
                   [class]="'text-' + entry.color + '-400'"
                 >
-                  Working...
+                  {{ 'project.working' | translate }}
                 </span>
               } @else if (entry.instance) {
                 <span class="text-[10px] text-slate-600 font-mono uppercase">{{ entry.instance.status }}</span>
@@ -124,7 +126,7 @@ const ISSUE_STEPS = ['OPEN', 'IN_PROGRESS', 'IN_REVIEW', 'TESTING', 'DONE', 'CLO
         <!-- Left: Issues -->
         <div class="glass rounded-3xl p-5 max-h-[65vh] overflow-y-auto">
           <div class="flex items-center justify-between mb-4">
-            <h3 class="text-sm font-bold text-slate-500 uppercase tracking-widest">Issues</h3>
+            <h3 class="text-sm font-bold text-slate-500 uppercase tracking-widest">{{ 'project.issues' | translate }}</h3>
             <span class="text-[10px] font-mono text-slate-600">{{ issues().length }}</span>
           </div>
           @for (issue of issues(); track issue.id) {
@@ -153,13 +155,13 @@ const ISSUE_STEPS = ['OPEN', 'IN_PROGRESS', 'IN_REVIEW', 'TESTING', 'DONE', 'CLO
               </div>
               @if (issue.subIssues && issue.subIssues.length > 0) {
                 <span class="text-[10px] text-slate-600 mt-1 block">
-                  {{ issue.subIssues.length }} sub-issues
+                  {{ i18n.t('project.subIssues', { count: issue.subIssues.length }) }}
                 </span>
               }
             </div>
           }
           @if (issues().length === 0) {
-            <p class="text-slate-600 text-sm text-center py-8">Keine Issues vorhanden</p>
+            <p class="text-slate-600 text-sm text-center py-8">{{ 'project.noIssues' | translate }}</p>
           }
         </div>
 
@@ -177,7 +179,7 @@ const ISSUE_STEPS = ['OPEN', 'IN_PROGRESS', 'IN_REVIEW', 'TESTING', 'DONE', 'CLO
                 </span>
               } @else {
                 <span class="text-[10px] font-mono text-slate-500 uppercase tracking-widest">
-                  Live System Feed
+                  {{ 'project.liveSystemFeed' | translate }}
                 </span>
               }
             </div>
@@ -186,7 +188,7 @@ const ISSUE_STEPS = ['OPEN', 'IN_PROGRESS', 'IN_REVIEW', 'TESTING', 'DONE', 'CLO
                 <button
                   (click)="closeSession()"
                   class="text-slate-600 hover:text-slate-400 transition-colors"
-                  title="Session schließen"
+                  [title]="'project.closeSession' | translate"
                 >
                   <app-icon name="x" [size]="14" />
                 </button>
@@ -194,7 +196,7 @@ const ISSUE_STEPS = ['OPEN', 'IN_PROGRESS', 'IN_REVIEW', 'TESTING', 'DONE', 'CLO
               <button
                 (click)="createSession()"
                 class="text-slate-600 hover:text-indigo-400 transition-colors"
-                title="Neuer Chat"
+                [title]="'project.newChat' | translate"
               >
                 <app-icon name="plus" [size]="14" />
               </button>
@@ -224,7 +226,7 @@ const ISSUE_STEPS = ['OPEN', 'IN_PROGRESS', 'IN_REVIEW', 'TESTING', 'DONE', 'CLO
                 </div>
               }
               @if (messages().length === 0) {
-                <p class="text-indigo-500">> System Ready. Waiting for input...</p>
+                <p class="text-indigo-500">> {{ 'project.systemReady' | translate }}</p>
               }
             </div>
 
@@ -236,7 +238,7 @@ const ISSUE_STEPS = ['OPEN', 'IN_PROGRESS', 'IN_REVIEW', 'TESTING', 'DONE', 'CLO
                   type="text"
                   [(ngModel)]="messageInput"
                   (keydown.enter)="sendMessage()"
-                  placeholder="Describe what you want to build..."
+                  [placeholder]="'project.chatPlaceholder' | translate"
                   class="flex-1 bg-transparent border-none outline-none text-white font-mono text-sm placeholder-slate-600"
                 />
                 <button
@@ -265,7 +267,7 @@ const ISSUE_STEPS = ['OPEN', 'IN_PROGRESS', 'IN_REVIEW', 'TESTING', 'DONE', 'CLO
               @if (sessions().length === 0) {
                 <div class="text-center py-12">
                   <app-icon name="message-square-plus" [size]="32" class="text-slate-700 mx-auto mb-3" />
-                  <p class="text-slate-600 text-sm">Starte einen neuen Chat</p>
+                  <p class="text-slate-600 text-sm">{{ 'project.startNewChat' | translate }}</p>
                 </div>
               }
             </div>
@@ -296,6 +298,7 @@ export class ProjectPage implements OnInit, OnDestroy {
   private route = inject(ActivatedRoute);
   private api = inject(ApiService);
   private chatSocket = inject(ChatSocketService);
+  i18n = inject(TranslateService);
 
   project = signal<Project | null>(null);
   issues = signal<Issue[]>([]);
@@ -363,7 +366,7 @@ export class ProjectPage implements OnInit, OnDestroy {
     const p = this.project();
     if (!p) return;
     this.api
-      .createChatSession({ projectId: p.id, title: 'Neuer Chat' })
+      .createChatSession({ projectId: p.id, title: this.i18n.t('project.newChat') })
       .subscribe((session) => {
         this.sessions.update((s) => [session, ...s]);
         this.openSession(session);
@@ -403,7 +406,7 @@ export class ProjectPage implements OnInit, OnDestroy {
   }
 
   formatTime(dateStr: string): string {
-    return new Date(dateStr).toLocaleTimeString('de-DE', {
+    return new Date(dateStr).toLocaleTimeString(this.i18n.dateLocale, {
       hour: '2-digit',
       minute: '2-digit',
     });

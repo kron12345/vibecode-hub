@@ -153,13 +153,27 @@ Diese Dokumentation wird NICHT auf Nachfrage gepflegt, sondern AUTOMATISCH nach 
 ### Am Ende jeder Session:
 → `docs/PROMPTS.md` alle User-Prompts + Ergebnisse der Session dokumentieren
 
+### Bei neuen/geänderten UI-Texten:
+→ Alle i18n-Dateien aktualisieren: `frontend/src/assets/i18n/{de,en,it,fr}.json`
+
 ### Docs-Dateien
 
 | Datei | Inhalt | Wann aktualisieren |
 |---|---|---|
+| `README.md` | GitHub-Startseite, Installation, Features, Security | Bei neuen Features / Breaking Changes |
 | `docs/API.md` | Alle Endpunkte, DTOs, Auth, Changelog | Bei jedem Controller/Route-Change |
 | `docs/SPEC.md` | Anforderungen, Phasenplan | Bei Feature-Fortschritt |
 | `docs/ARCHITECTURE.md` | Technik, Datenmodell, Diagramme | Bei strukturellen Änderungen |
 | `docs/DEVELOPMENT.md` | Arbeitsregeln, MCP-Pflicht | Bei neuen Konventionen |
 | `docs/PROMPTS.md` | Alle Prompts + Ergebnisse | Am Ende jeder Session |
 | `CLAUDE.md` | Kompakt-Anleitung | Bei neuen Patterns/Commands |
+
+## i18n (Mehrsprachigkeit)
+
+- **Sprachen**: DE, EN, IT, FR (erweiterbar)
+- **Dateien**: `frontend/src/assets/i18n/{locale}.json` — flache Key-Value Struktur mit Dot-Notation
+- **Service**: `TranslateService` — lädt JSON, cached als flache Map, `t(key, params?)` für Zugriff
+- **Pipe**: `TranslatePipe` (impure) — `{{ 'key' | translate }}` in Templates
+- **Params**: `{count}` Platzhalter — `i18n.t('dashboard.projectCount', { count: 5 })`
+- **Neue Sprache**: JSON-Datei anlegen, Locale in `SUPPORTED_LOCALES` Array ergänzen, `languages.*` Keys in allen Dateien
+- **User-Präferenz**: Gespeichert als UserSetting `locale`, geladen beim App-Start in `app.ts`

@@ -1,10 +1,13 @@
-import { Component, signal } from '@angular/core';
+import { Component, signal, inject, OnInit } from '@angular/core';
 import { RouterOutlet, RouterLink } from '@angular/router';
 import { IconComponent } from './components/icon.component';
+import { TranslatePipe } from './pipes/translate.pipe';
+import { TranslateService, Locale } from './services/translate.service';
+import { ApiService } from './services/api.service';
 
 @Component({
   selector: 'app-root',
-  imports: [RouterOutlet, RouterLink, IconComponent],
+  imports: [RouterOutlet, RouterLink, IconComponent, TranslatePipe],
   template: `
     <!-- Sidebar -->
     <aside
@@ -36,7 +39,7 @@ import { IconComponent } from './components/icon.component';
         >
           <app-icon name="layout-dashboard" [size]="18" />
           @if (sidebarOpen()) {
-            <span class="text-sm font-medium">Dashboard</span>
+            <span class="text-sm font-medium">{{ 'sidebar.dashboard' | translate }}</span>
           }
         </a>
         <a
@@ -45,7 +48,7 @@ import { IconComponent } from './components/icon.component';
         >
           <app-icon name="folder-git-2" [size]="18" />
           @if (sidebarOpen()) {
-            <span class="text-sm font-medium">Projekte</span>
+            <span class="text-sm font-medium">{{ 'sidebar.projects' | translate }}</span>
           }
         </a>
         <a
@@ -53,7 +56,7 @@ import { IconComponent } from './components/icon.component';
         >
           <app-icon name="bot" [size]="18" />
           @if (sidebarOpen()) {
-            <span class="text-sm font-medium">Agenten</span>
+            <span class="text-sm font-medium">{{ 'sidebar.agents' | translate }}</span>
           }
         </a>
         <a
@@ -61,7 +64,7 @@ import { IconComponent } from './components/icon.component';
         >
           <app-icon name="activity" [size]="18" />
           @if (sidebarOpen()) {
-            <span class="text-sm font-medium">Live Feed</span>
+            <span class="text-sm font-medium">{{ 'sidebar.liveFeed' | translate }}</span>
           }
         </a>
       </nav>
@@ -74,7 +77,7 @@ import { IconComponent } from './components/icon.component';
         >
           <app-icon name="settings" [size]="18" />
           @if (sidebarOpen()) {
-            <span class="text-sm font-medium">Settings</span>
+            <span class="text-sm font-medium">{{ 'sidebar.settings' | translate }}</span>
           }
         </a>
       </div>
@@ -94,6 +97,18 @@ import { IconComponent } from './components/icon.component';
     }
   `,
 })
-export class App {
+export class App implements OnInit {
+  private i18n = inject(TranslateService);
+  private api = inject(ApiService);
   sidebarOpen = signal(true);
+
+  ngOnInit() {
+    // Load user's preferred locale from settings
+    this.api.getUserSettings().subscribe((settings) => {
+      const locale = settings['locale'] as Locale | undefined;
+      if (locale) {
+        this.i18n.use(locale);
+      }
+    });
+  }
 }
