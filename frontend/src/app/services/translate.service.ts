@@ -1,5 +1,4 @@
-import { Injectable, inject, signal } from '@angular/core';
-import { HttpClient } from '@angular/common/http';
+import { Injectable, signal } from '@angular/core';
 
 export const SUPPORTED_LOCALES = ['de', 'en', 'it', 'fr'] as const;
 export type Locale = (typeof SUPPORTED_LOCALES)[number];
@@ -7,7 +6,6 @@ const DEFAULT_LOCALE: Locale = 'de';
 
 @Injectable({ providedIn: 'root' })
 export class TranslateService {
-  private http = inject(HttpClient);
   private translations = signal<Record<string, string>>({});
 
   /** Current locale as a signal — components can react to changes */
@@ -50,21 +48,29 @@ export class TranslateService {
     return map[this.locale()] ?? 'de-DE';
   }
 
-  private loadLocale(locale: Locale): void {
-    this.http
-      .get<Record<string, unknown>>(`/assets/i18n/${locale}.json`)
-      .subscribe({
-        next: (data) => {
-          this.translations.set(this.flatten(data));
-          this.revision.update((r) => r + 1);
-        },
-        error: () => {
-          // Fallback to default if locale file not found
-          if (locale !== DEFAULT_LOCALE) {
-            this.loadLocale(DEFAULT_LOCALE);
-          }
-        },
-      });
+  /**
+   * Load locale JSON using native fetch() to bypass Angular HTTP interceptors
+   * (e.g. Keycloak bearer token interceptor that might block/queue requests).
+   * Adds cache-busting query parameter so browsers always get the latest version.
+   */
+  private async loadLocale(locale: Locale): Promise<void> {
+    try {
+      const cacheBuster = Date.now();
+      const response = await fetch(`/assets/i18n/${locale}.json?v=${cacheBuster}`);
+
+      if (!response.ok) {
+        throw new Error(`HTTP ${response.status}`);
+      }
+
+      const data = await response.json();
+      this.translations.set(this.flatten(data));
+      this.revision.update((r) => r + 1);
+    } catch {
+      // Fallback to default if locale file not found
+      if (locale !== DEFAULT_LOCALE) {
+        this.loadLocale(DEFAULT_LOCALE);
+      }
+    }
   }
 
   /** Flatten nested JSON to dot-notation keys: { a: { b: "x" } } → { "a.b": "x" } */

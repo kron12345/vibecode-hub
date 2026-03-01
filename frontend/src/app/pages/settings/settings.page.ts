@@ -5,7 +5,8 @@ import {
   SystemSetting,
   AgentRoleConfig,
   PipelineConfig,
-  OllamaModel,
+  ProviderModel,
+  ProviderModelsResult,
   CliToolStatus,
 } from '../../services/api.service';
 import { AuthInfoService } from '../../services/auth-info.service';
@@ -403,49 +404,54 @@ const PERMISSION_KEYS: { key: keyof AgentRoleConfig['permissions']; labelKey: st
             <app-icon name="activity" [size]="20" class="text-emerald-400" />
             {{ 'settings.providerStatus' | translate }}
           </h2>
-          <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+          <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
             <!-- Ollama Status -->
             <div class="bg-slate-900/50 border border-white/10 rounded-xl p-4">
               <div class="flex items-center justify-between mb-2">
                 <span class="text-sm font-medium text-slate-300">Ollama</span>
                 <div class="flex items-center gap-2">
-                  @if (ollamaHealthy() === true) {
+                  @if (providerResults()['OLLAMA']?.available) {
                     <span class="w-2 h-2 rounded-full bg-emerald-400 animate-pulse"></span>
-                    <span class="text-xs text-emerald-400">{{ 'common.online' | translate }}</span>
-                  } @else if (ollamaHealthy() === false) {
-                    <span class="w-2 h-2 rounded-full bg-red-400"></span>
-                    <span class="text-xs text-red-400">{{ 'common.offline' | translate }}</span>
-                  } @else {
+                    <span class="text-xs text-emerald-400">{{ providerResults()['OLLAMA'].models.length }} {{ 'settings.modelsShort' | translate }}</span>
+                  } @else if (modelsLoading()) {
                     <span class="w-2 h-2 rounded-full bg-slate-500 animate-pulse"></span>
                     <span class="text-xs text-slate-500">...</span>
+                  } @else {
+                    <span class="w-2 h-2 rounded-full bg-red-400"></span>
+                    <span class="text-xs text-red-400">{{ 'common.offline' | translate }}</span>
                   }
                 </div>
               </div>
-              @if (ollamaModels().length > 0) {
-                <p class="text-xs text-slate-500">
-                  {{ ollamaModels().length }} {{ 'settings.modelsAvailable' | translate }}
-                </p>
-              }
-              <button
-                (click)="refreshOllamaModels()"
-                class="mt-2 text-xs text-indigo-400 hover:text-indigo-300 transition-colors flex items-center gap-1"
-              >
-                <app-icon name="refresh-cw" [size]="12" />
-                {{ 'settings.refreshModels' | translate }}
-              </button>
             </div>
+
+            <!-- API Providers Status -->
+            @for (p of apiProviderKeys; track p) {
+              <div class="bg-slate-900/50 border border-white/10 rounded-xl p-4">
+                <div class="flex items-center justify-between mb-2">
+                  <span class="text-sm font-medium text-slate-300">{{ getProviderLabel(p) }}</span>
+                  <div class="flex items-center gap-2">
+                    @if (providerResults()[p]?.available) {
+                      <span class="w-2 h-2 rounded-full bg-emerald-400"></span>
+                      <span class="text-xs text-emerald-400">{{ providerResults()[p].models.length }} {{ 'settings.modelsShort' | translate }}</span>
+                    } @else if (modelsLoading()) {
+                      <span class="w-2 h-2 rounded-full bg-slate-500 animate-pulse"></span>
+                      <span class="text-xs text-slate-500">...</span>
+                    } @else if (providerResults()[p]?.error) {
+                      <span class="w-2 h-2 rounded-full bg-amber-400"></span>
+                      <span class="text-xs text-amber-400">{{ 'settings.noApiKey' | translate }}</span>
+                    } @else {
+                      <span class="w-2 h-2 rounded-full bg-slate-600"></span>
+                      <span class="text-xs text-slate-600">—</span>
+                    }
+                  </div>
+                </div>
+              </div>
+            }
 
             <!-- CLI Tools Status -->
             <div class="bg-slate-900/50 border border-white/10 rounded-xl p-4">
               <div class="flex items-center justify-between mb-2">
                 <span class="text-sm font-medium text-slate-300">{{ 'settings.cliTools' | translate }}</span>
-                <button
-                  (click)="refreshCliTools()"
-                  class="text-xs text-indigo-400 hover:text-indigo-300 transition-colors flex items-center gap-1"
-                >
-                  <app-icon name="refresh-cw" [size]="12" />
-                  {{ 'settings.refresh' | translate }}
-                </button>
               </div>
               @for (tool of cliTools(); track tool.command) {
                 <div class="flex items-center gap-2 mt-1">
@@ -464,6 +470,16 @@ const PERMISSION_KEYS: { key: keyof AgentRoleConfig['permissions']; labelKey: st
               }
             </div>
           </div>
+
+          <!-- Refresh Button -->
+          <button
+            (click)="refreshAllProviders()"
+            [disabled]="modelsLoading()"
+            class="mt-4 text-xs text-indigo-400 hover:text-indigo-300 disabled:text-slate-600 transition-colors flex items-center gap-1"
+          >
+            <app-icon name="refresh-cw" [size]="12" [class]="modelsLoading() ? 'animate-spin' : ''" />
+            {{ 'settings.refreshModels' | translate }}
+          </button>
         </div>
 
         <!-- Pipeline Config -->
@@ -609,14 +625,14 @@ const PERMISSION_KEYS: { key: keyof AgentRoleConfig['permissions']; labelKey: st
                     <label class="block text-sm font-medium text-slate-400 mb-2">
                       {{ 'settings.model' | translate }}
                     </label>
-                    @if (agentRoleConfigs[role].provider === 'OLLAMA' && ollamaModels().length > 0) {
+                    @if (getModelsForProvider(agentRoleConfigs[role].provider).length > 0) {
                       <select
                         [(ngModel)]="agentRoleConfigs[role].model"
                         class="w-full bg-slate-900/50 border border-white/10 rounded-xl px-4 py-3 text-white focus:outline-none focus:border-indigo-500/50 transition-colors"
                       >
-                        @for (m of ollamaModels(); track m.name) {
+                        @for (m of getModelsForProvider(agentRoleConfigs[role].provider); track m.name) {
                           <option [value]="m.name">
-                            {{ m.name }}
+                            {{ m.displayName || m.name }}
                             @if (m.parameterSize) {
                               ({{ m.parameterSize }})
                             }
@@ -776,9 +792,10 @@ export class SettingsPage implements OnInit {
   expandedRoles: Record<string, boolean> = {};
 
   // Provider discovery
-  ollamaHealthy = signal<boolean | null>(null);
-  ollamaModels = signal<OllamaModel[]>([]);
+  providerResults = signal<Record<string, ProviderModelsResult>>({});
+  modelsLoading = signal(false);
   cliTools = signal<CliToolStatus[]>([]);
+  apiProviderKeys = ['ANTHROPIC', 'OPENAI', 'GOOGLE'];
 
   ngOnInit() {
     this.loadUserSettings();
@@ -828,29 +845,42 @@ export class SettingsPage implements OnInit {
       },
     });
 
-    this.refreshOllamaModels();
-    this.refreshCliTools();
+    this.refreshAllProviders();
   }
 
-  refreshOllamaModels() {
-    this.ollamaHealthy.set(null);
-    this.api.checkOllamaHealth().subscribe({
-      next: (result) => {
-        this.ollamaHealthy.set(result.healthy);
-        if (result.healthy) {
-          this.api.getOllamaModels().subscribe({
-            next: (models) => this.ollamaModels.set(models),
-          });
-        }
+  refreshAllProviders() {
+    this.modelsLoading.set(true);
+
+    // Fetch all provider models in one call
+    this.api.getProviderModels().subscribe({
+      next: (results) => {
+        this.providerResults.set(results);
+        this.modelsLoading.set(false);
       },
-      error: () => this.ollamaHealthy.set(false),
+      error: () => this.modelsLoading.set(false),
     });
-  }
 
-  refreshCliTools() {
+    // CLI tools are a separate endpoint (detects local binaries)
     this.api.getCliToolStatus().subscribe({
       next: (tools) => this.cliTools.set(tools),
     });
+  }
+
+  getModelsForProvider(provider: string): ProviderModel[] {
+    return this.providerResults()[provider]?.models ?? [];
+  }
+
+  getProviderLabel(provider: string): string {
+    const labels: Record<string, string> = {
+      OLLAMA: 'Ollama',
+      ANTHROPIC: 'Anthropic',
+      OPENAI: 'OpenAI',
+      GOOGLE: 'Google AI',
+      CLAUDE_CODE: 'Claude Code',
+      CODEX_CLI: 'Codex CLI',
+      QWEN3_CODER: 'Qwen3 Coder',
+    };
+    return labels[provider] ?? provider;
   }
 
   private loadUserSettings() {

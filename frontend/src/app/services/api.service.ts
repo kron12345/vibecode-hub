@@ -99,12 +99,19 @@ export interface PipelineConfig {
   timeoutMinutes: number;
 }
 
-export interface OllamaModel {
+export interface ProviderModel {
   name: string;
-  size: number;
-  modifiedAt: string;
+  displayName?: string;
+  size?: number;
   parameterSize?: string;
   quantization?: string;
+}
+
+export interface ProviderModelsResult {
+  provider: string;
+  available: boolean;
+  models: ProviderModel[];
+  error?: string;
 }
 
 export interface CliToolStatus {
@@ -249,9 +256,9 @@ export class ApiService {
 
   // ─── Provider Discovery ───────────────────────────────────
 
-  getOllamaModels() {
-    return this.http.get<OllamaModel[]>(
-      `${this.baseUrl}/settings/providers/ollama/models`,
+  getProviderModels() {
+    return this.http.get<Record<string, ProviderModelsResult>>(
+      `${this.baseUrl}/settings/providers/models`,
     );
   }
 

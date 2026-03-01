@@ -1,10 +1,10 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { SystemSettingsService } from './system-settings.service';
 
-export interface OllamaModel {
+export interface ProviderModel {
   name: string;
-  size: number;
-  modifiedAt: string;
+  displayName?: string;
+  size?: number;
   parameterSize?: string;
   quantization?: string;
 }
@@ -16,14 +16,23 @@ export interface CliToolStatus {
   version?: string;
 }
 
+export interface ProviderModelsResult {
+  provider: string;
+  available: boolean;
+  models: ProviderModel[];
+  error?: string;
+}
+
 @Injectable()
 export class ProviderDiscoveryService {
   private readonly logger = new Logger(ProviderDiscoveryService.name);
 
   constructor(private readonly systemSettings: SystemSettingsService) {}
 
+  // ─── Ollama ────────────────────────────────────────────────
+
   /** Fetch available models from Ollama API /api/tags */
-  async discoverOllamaModels(): Promise<OllamaModel[]> {
+  async discoverOllamaModels(): Promise<ProviderModel[]> {
     const ollamaUrl = this.systemSettings.ollamaUrl;
 
     try {
@@ -49,8 +58,8 @@ export class ProviderDiscoveryService {
 
       return models.map((m) => ({
         name: m.name,
+        displayName: m.name,
         size: m.size,
-        modifiedAt: m.modified_at,
         parameterSize: m.details?.parameter_size,
         quantization: m.details?.quantization_level,
       }));
@@ -72,6 +81,171 @@ export class ProviderDiscoveryService {
       return false;
     }
   }
+
+  // ─── API Provider Models ───────────────────────────────────
+
+  /** Fetch models from Anthropic API */
+  async discoverAnthropicModels(): Promise<ProviderModel[]> {
+    const apiKey = this.systemSettings.anthropicApiKey;
+    if (!apiKey) return [];
+
+    try {
+      const response = await fetch('https://api.anthropic.com/v1/models', {
+        headers: {
+          'x-api-key': apiKey,
+          'anthropic-version': '2023-06-01',
+        },
+        signal: AbortSignal.timeout(10000),
+      });
+
+      if (!response.ok) {
+        this.logger.warn(`Anthropic API returned ${response.status}`);
+        return [];
+      }
+
+      const data = await response.json();
+      return (data.data ?? []).map((m: { id: string; display_name?: string }) => ({
+        name: m.id,
+        displayName: m.display_name ?? m.id,
+      }));
+    } catch (e) {
+      this.logger.warn(`Failed to fetch Anthropic models: ${e.message}`);
+      return [];
+    }
+  }
+
+  /** Fetch models from OpenAI API */
+  async discoverOpenAIModels(): Promise<ProviderModel[]> {
+    const apiKey = this.systemSettings.openaiApiKey;
+    if (!apiKey) return [];
+
+    try {
+      const response = await fetch('https://api.openai.com/v1/models', {
+        headers: {
+          Authorization: `Bearer ${apiKey}`,
+        },
+        signal: AbortSignal.timeout(10000),
+      });
+
+      if (!response.ok) {
+        this.logger.warn(`OpenAI API returned ${response.status}`);
+        return [];
+      }
+
+      const data = await response.json();
+      // Filter to relevant models (GPT, o1, codex — skip embedding, tts, whisper etc.)
+      const relevant = (data.data ?? [])
+        .filter((m: { id: string }) =>
+          /^(gpt-|o[134]-|chatgpt-|codex-)/.test(m.id),
+        )
+        .sort((a: { id: string }, b: { id: string }) => a.id.localeCompare(b.id));
+
+      return relevant.map((m: { id: string }) => ({
+        name: m.id,
+        displayName: m.id,
+      }));
+    } catch (e) {
+      this.logger.warn(`Failed to fetch OpenAI models: ${e.message}`);
+      return [];
+    }
+  }
+
+  /** Fetch models from Google AI API */
+  async discoverGoogleModels(): Promise<ProviderModel[]> {
+    const apiKey = this.systemSettings.googleApiKey;
+    if (!apiKey) return [];
+
+    try {
+      const response = await fetch(
+        `https://generativelanguage.googleapis.com/v1beta/models?key=${apiKey}`,
+        { signal: AbortSignal.timeout(10000) },
+      );
+
+      if (!response.ok) {
+        this.logger.warn(`Google AI API returned ${response.status}`);
+        return [];
+      }
+
+      const data = await response.json();
+      // Filter to generative models
+      return (data.models ?? [])
+        .filter(
+          (m: { name: string; supportedGenerationMethods?: string[] }) =>
+            m.supportedGenerationMethods?.includes('generateContent'),
+        )
+        .map((m: { name: string; displayName?: string }) => ({
+          name: m.name.replace('models/', ''),
+          displayName: m.displayName ?? m.name.replace('models/', ''),
+        }));
+    } catch (e) {
+      this.logger.warn(`Failed to fetch Google AI models: ${e.message}`);
+      return [];
+    }
+  }
+
+  /** Get models for all providers at once */
+  async discoverAllModels(): Promise<Record<string, ProviderModelsResult>> {
+    const [ollama, anthropic, openai, google] = await Promise.allSettled([
+      this.discoverOllamaModels(),
+      this.discoverAnthropicModels(),
+      this.discoverOpenAIModels(),
+      this.discoverGoogleModels(),
+    ]);
+
+    return {
+      OLLAMA: {
+        provider: 'OLLAMA',
+        available: ollama.status === 'fulfilled' && ollama.value.length > 0,
+        models: ollama.status === 'fulfilled' ? ollama.value : [],
+        error: ollama.status === 'rejected' ? ollama.reason?.message : undefined,
+      },
+      ANTHROPIC: {
+        provider: 'ANTHROPIC',
+        available: anthropic.status === 'fulfilled' && anthropic.value.length > 0,
+        models: anthropic.status === 'fulfilled' ? anthropic.value : [],
+        error: anthropic.status === 'rejected' ? anthropic.reason?.message : undefined,
+      },
+      OPENAI: {
+        provider: 'OPENAI',
+        available: openai.status === 'fulfilled' && openai.value.length > 0,
+        models: openai.status === 'fulfilled' ? openai.value : [],
+        error: openai.status === 'rejected' ? openai.reason?.message : undefined,
+      },
+      GOOGLE: {
+        provider: 'GOOGLE',
+        available: google.status === 'fulfilled' && google.value.length > 0,
+        models: google.status === 'fulfilled' ? google.value : [],
+        error: google.status === 'rejected' ? google.reason?.message : undefined,
+      },
+      // CLI tools don't have model discovery — they use whatever model the tool supports
+      CLAUDE_CODE: {
+        provider: 'CLAUDE_CODE',
+        available: true,
+        models: [
+          { name: 'claude-sonnet-4-6', displayName: 'Claude Sonnet 4.6' },
+          { name: 'claude-opus-4-6', displayName: 'Claude Opus 4.6' },
+          { name: 'claude-haiku-4-5', displayName: 'Claude Haiku 4.5' },
+        ],
+      },
+      CODEX_CLI: {
+        provider: 'CODEX_CLI',
+        available: true,
+        models: [
+          { name: 'codex-mini', displayName: 'Codex Mini' },
+          { name: 'o4-mini', displayName: 'o4-mini' },
+        ],
+      },
+      QWEN3_CODER: {
+        provider: 'QWEN3_CODER',
+        available: true,
+        models: [
+          { name: 'qwen3-coder', displayName: 'Qwen3 Coder' },
+        ],
+      },
+    };
+  }
+
+  // ─── CLI Tools ─────────────────────────────────────────────
 
   /** Detect installed CLI tools (claude, codex, qwen3-coder) */
   async detectCliTools(): Promise<CliToolStatus[]> {

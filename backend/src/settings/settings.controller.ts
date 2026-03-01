@@ -106,6 +106,14 @@ export class SettingsController {
 
   // ─── Provider Discovery ───────────────────────────────────
 
+  @Get('providers/models')
+  @UseGuards(RolesGuard)
+  @Roles('admin')
+  @ApiOperation({ summary: 'Discover available models for all providers (admin)' })
+  async getAllProviderModels() {
+    return this.providerDiscovery.discoverAllModels();
+  }
+
   @Get('providers/ollama/models')
   @UseGuards(RolesGuard)
   @Roles('admin')
