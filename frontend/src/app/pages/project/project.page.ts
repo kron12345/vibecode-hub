@@ -63,6 +63,12 @@ const ISSUE_STEPS = ['OPEN', 'IN_PROGRESS', 'IN_REVIEW', 'TESTING', 'DONE', 'CLO
                 <app-icon name="git-branch" [size]="12" class="inline" /> GitLab
               </a>
             }
+            @if (p.previewPort) {
+              <span class="mx-2 text-slate-700">·</span>
+              <a [href]="'https://' + p.slug + '.hub.example.com'" target="_blank" class="text-emerald-400 hover:text-emerald-300 font-mono text-sm">
+                <app-icon name="globe" [size]="12" class="inline" /> {{ 'project.previewUrl' | translate }}
+              </a>
+            }
           </p>
         </div>
       </div>

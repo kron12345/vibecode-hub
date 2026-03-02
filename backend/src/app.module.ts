@@ -12,6 +12,7 @@ import { IssuesModule } from './issues/issues.module';
 import { ChatModule } from './chat/chat.module';
 import { LlmModule } from './llm/llm.module';
 import { AgentsModule } from './agents/agents.module';
+import { PreviewModule } from './preview/preview.module';
 
 @Module({
   imports: [
@@ -26,6 +27,7 @@ import { AgentsModule } from './agents/agents.module';
     ChatModule,
     LlmModule,
     AgentsModule,
+    PreviewModule,
   ],
   providers: [
     {

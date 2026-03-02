@@ -52,7 +52,8 @@
     "chatPlaceholder": "Décrivez ce que vous voulez construire...",
     "startNewChat": "Démarrer un nouveau chat",
     "interviewRunning": "Interview...",
-    "settingUp": "Configuration..."
+    "settingUp": "Configuration...",
+    "previewUrl": "Aperçu"
   },
   "agents": {
     "interviewer": "Intervieweur",

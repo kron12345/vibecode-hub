@@ -131,6 +131,32 @@ export class SystemSettingsService implements OnModuleInit {
     return this.get('app.name', undefined, 'VibCode Hub');
   }
 
+  // ─── Preview Getters ──────────────────────────────────────
+
+  get previewEnabled(): boolean {
+    return this.get('preview.enabled', undefined, 'true') === 'true';
+  }
+
+  get previewPortMin(): number {
+    return parseInt(this.get('preview.port_min', undefined, '5000'), 10);
+  }
+
+  get previewPortMax(): number {
+    return parseInt(this.get('preview.port_max', undefined, '5999'), 10);
+  }
+
+  get previewDomain(): string {
+    return this.get('preview.domain', undefined, 'hub.example.com');
+  }
+
+  get previewNginxMapPath(): string {
+    return this.get(
+      'preview.nginx_map_path',
+      undefined,
+      '/etc/nginx/conf.d/hub-project-map.conf',
+    );
+  }
+
   /** Get full agent role config (provider, model, systemPrompt, parameters, permissions, etc.) */
   getAgentRoleConfig(role: string): AgentRoleConfig {
     const raw = this.get(`agents.roles.${role}`, undefined, '');

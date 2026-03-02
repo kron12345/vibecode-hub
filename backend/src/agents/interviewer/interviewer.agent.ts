@@ -5,6 +5,7 @@ import { ChatService } from '../../chat/chat.service';
 import { ChatGateway } from '../../chat/chat.gateway';
 import { LlmService } from '../../llm/llm.service';
 import { LlmMessage } from '../../llm/llm.interfaces';
+import { PreviewService } from '../../preview/preview.service';
 import { BaseAgent, AgentContext } from '../agent-base';
 import { InterviewResult } from './interview-result.interface';
 import {
@@ -30,13 +31,14 @@ Collect the following information through natural conversation (don't ask everyt
 3. **Core Features**: The 3-5 most important features
 4. **MCP Servers**: Based on the tech stack, suggest relevant MCP servers (e.g., angular-mcp-server for Angular, prisma for Prisma, context7 for NestJS)
 5. **Setup**: Init command (e.g., "npx @angular/cli new project"), additional packages
+6. **Deployment**: Is this a web project with a dev server? If yes, determine the dev server command and default port (e.g., Angular=4200, React/Next.js=3000, Vue=5173). Use {PORT} as placeholder in the command so the system can assign a unique port.
 
 ## Rules
 - Ask 1-2 questions at a time, never overwhelm
 - Be conversational and helpful — suggest options based on what you already know
 - If the user is vague, offer concrete suggestions
 - Respond in the same language the user uses (German, English, etc.)
-- When you have enough information (all 5 areas covered), output the completion marker
+- When you have enough information (all 6 areas covered), output the completion marker
 
 ## Completion
 When the interview is complete, end your final message with:
@@ -60,11 +62,19 @@ ${COMPLETION_MARKER}
   "setupInstructions": {
     "initCommand": "npx @angular/cli new project --style=scss",
     "additionalCommands": ["npm install tailwindcss"]
+  },
+  "deployment": {
+    "isWebProject": true,
+    "devServerPort": 4200,
+    "devServerCommand": "npx ng serve --port {PORT}",
+    "buildCommand": "npx ng build"
   }
 }
 \`\`\`
 
-IMPORTANT: Only output the completion marker when you are confident you have enough information. The JSON must be valid.`;
+IMPORTANT: Only output the completion marker when you are confident you have enough information. The JSON must be valid.
+For deployment.devServerCommand, always use {PORT} as placeholder — the system will replace it with the allocated port.
+If the project is not a web project (e.g., a CLI tool, library), set deployment.isWebProject to false.`;
 
 @Injectable()
 export class InterviewerAgent extends BaseAgent {
@@ -77,6 +87,7 @@ export class InterviewerAgent extends BaseAgent {
     chatService: ChatService,
     chatGateway: ChatGateway,
     llmService: LlmService,
+    private readonly previewService: PreviewService,
   ) {
     super(prisma, settings, chatService, chatGateway, llmService);
   }
@@ -228,15 +239,37 @@ export class InterviewerAgent extends BaseAgent {
       },
     });
 
-    await this.sendAgentMessage(
-      ctx,
-      `Interview complete! I've gathered all the project details. The project is now ready for setup.\n\n**Tech Stack:** ${interviewResult.techStack.framework ?? 'N/A'} + ${interviewResult.techStack.backend ?? 'N/A'}\n**Features:** ${interviewResult.features?.join(', ') ?? 'N/A'}`,
-    );
+    let completionMsg = `Interview complete! I've gathered all the project details. The project is now ready for setup.\n\n**Tech Stack:** ${interviewResult.techStack.framework ?? 'N/A'} + ${interviewResult.techStack.backend ?? 'N/A'}\n**Features:** ${interviewResult.features?.join(', ') ?? 'N/A'}`;
+
+    // Setup preview if it's a web project
+    if (interviewResult.deployment?.isWebProject) {
+      try {
+        const previewUrl =
+          await this.previewService.setupPreview(ctx.projectId);
+        if (previewUrl) {
+          const project = await this.prisma.project.findUnique({
+            where: { id: ctx.projectId },
+          });
+          completionMsg += `\n\n**Preview:** ${previewUrl} (Port ${project?.previewPort})`;
+          this.logger.log(`Preview setup for project ${ctx.projectId}: ${previewUrl}`);
+        }
+      } catch (err) {
+        this.logger.warn(
+          `Preview setup failed (non-fatal): ${err.message}`,
+        );
+        await this.log(ctx.agentTaskId, 'WARN', 'Preview setup failed', {
+          error: err.message,
+        });
+      }
+    }
+
+    await this.sendAgentMessage(ctx, completionMsg);
 
     await this.updateStatus(ctx, AgentStatus.IDLE);
     await this.log(ctx.agentTaskId, 'INFO', 'Interview completed', {
       techStack: interviewResult.techStack,
       featureCount: interviewResult.features?.length,
+      deployment: interviewResult.deployment,
     });
 
     // Broadcast project update for frontend

@@ -17,4 +17,10 @@ export interface InterviewResult {
     initCommand?: string;
     additionalCommands?: string[];
   };
+  deployment?: {
+    isWebProject: boolean;
+    devServerPort?: number;
+    devServerCommand?: string;
+    buildCommand?: string;
+  };
 }

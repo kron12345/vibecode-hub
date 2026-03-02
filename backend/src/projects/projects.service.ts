@@ -1,6 +1,7 @@
 import { Injectable, Logger, ConflictException } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { GitlabService } from '../gitlab/gitlab.service';
+import { PreviewService } from '../preview/preview.service';
 import { CreateProjectDto, UpdateProjectDto } from './projects.dto';
 import { ProjectStatus } from '@prisma/client';
 
@@ -11,6 +12,7 @@ export class ProjectsService {
   constructor(
     private prisma: PrismaService,
     private gitlab: GitlabService,
+    private preview: PreviewService,
   ) {}
 
   findAll() {
@@ -93,6 +95,16 @@ export class ProjectsService {
 
   async delete(id: string) {
     const project = await this.prisma.project.findUnique({ where: { id } });
+
+    // Teardown preview (release port, update nginx map)
+    if (project?.previewPort) {
+      try {
+        await this.preview.teardownPreview(id);
+        this.logger.log(`Preview teardown for project ${id}`);
+      } catch (err) {
+        this.logger.warn(`Could not teardown preview: ${err.message}`);
+      }
+    }
 
     if (project?.gitlabProjectId) {
       try {

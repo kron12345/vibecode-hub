@@ -13,6 +13,7 @@ export interface Project {
   techStack?: Record<string, unknown>;
   gitlabProjectId?: number;
   gitlabUrl?: string;
+  previewPort?: number;
   createdAt: string;
   updatedAt: string;
   issues?: Issue[];

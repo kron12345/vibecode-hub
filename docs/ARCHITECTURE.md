@@ -76,9 +76,28 @@ vibcode-hub/
 └── shared/            # Geteilte Types (Frontend ↔ Backend)
 ```
 
+## Preview-Infrastruktur
+
+```
+Browser → https://{slug}.hub.example.com
+   ↓
+Nginx Wildcard Server-Block (*.hub.example.com)
+   ↓ $hub_project → map lookup
+hub-project-map.conf: slug → 127.0.0.1:{port}
+   ↓
+Dev-Server auf localhost:{port}
+```
+
+- **Port-Range**: 5000–5999 (konfigurierbar via SystemSettings)
+- **Map-File**: `/etc/nginx/conf.d/hub-project-map.conf` — komplett aus DB generiert
+- **Trigger**: Interview-Abschluss (Webprojekt) → allocatePort → syncMap → reloadNginx
+- **Cleanup**: Projekt-Löschung → releasePort → syncMap → reloadNginx
+- **Recovery**: API-Start → Map aus DB synchronisieren
+- **Security**: Slug-Validierung, reservierte Subdomains blockiert, `execFile` (keine Shell-Injection), atomare Writes
+
 ## Datenmodell
 
-- **Project** → hat Issues, ChatSessions, AgentInstances. Status: `INTERVIEWING` | `SETTING_UP` | `READY` | `ARCHIVED`. Optional: `techStack` (JSON, Interview-Ergebnis)
+- **Project** → hat Issues, ChatSessions, AgentInstances. Status: `INTERVIEWING` | `SETTING_UP` | `READY` | `ARCHIVED`. Optional: `techStack` (JSON, Interview-Ergebnis), `previewPort` (unique, für Subdomain-Preview)
 - **Issue** → hierarchisch (parent/sub-issues), gespiegelt von GitLab
 - **ChatSession** → pro Projekt, enthält ChatMessages
 - **AgentInstance** → konfigurierter Agent pro Projekt (Rolle + Provider + Model)
