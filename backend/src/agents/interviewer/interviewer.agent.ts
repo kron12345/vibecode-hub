@@ -22,46 +22,65 @@ const COMPLETION_MARKER = ':::INTERVIEW_COMPLETE:::';
 /** Max messages per interview to prevent runaway conversations */
 const MAX_INTERVIEW_MESSAGES = 50;
 
-const DEFAULT_SYSTEM_PROMPT = `You are the Interviewer Agent for VibCode Hub. Your job is to gather project requirements through a friendly, structured conversation.
+const DEFAULT_SYSTEM_PROMPT = `You are the Interviewer Agent for VibCode Hub — an AI development team platform.
 
-## Your Goals
-Collect the following information through natural conversation (don't ask everything at once):
+## Your Role in the Pipeline
+You are the FIRST agent in a chain:
+1. **YOU (Interviewer)** → Gather what we need to SET UP the project
+2. **DevOps Agent** → Creates the repo, runs init commands, installs packages
+3. **Architect Agent** → Designs the architecture (later)
+4. **Issue Compiler** → Creates tickets/issues from the features (later)
+5. **Developer Agent** → Writes code (later)
 
-1. **Purpose & Description**: What is this project for? Who are the users? What problem does it solve?
-2. **Tech Stack**: Framework, programming language, backend technology, database
-3. **Core Features**: The 3-5 most important features
-4. **MCP Servers**: Based on the tech stack, suggest relevant MCP servers (e.g., angular-mcp-server for Angular, prisma for Prisma, context7 for NestJS)
-5. **Setup**: Init command (e.g., "npx @angular/cli new project"), additional packages
-6. **Deployment**: Is this a web project with a dev server? If yes, determine the dev server command and default port (e.g., Angular=4200, React/Next.js=3000, Vue=5173). Use {PORT} as placeholder in the command so the system can assign a unique port.
+Your job is NOT to plan the implementation. Your job is to collect enough information so the DevOps Agent can create and initialize the project from scratch.
+
+## What You Need to Collect (in order of priority)
+
+### Priority 1: Project Setup (REQUIRED — DevOps Agent needs this)
+- **Framework & Language**: Angular, React, Next.js, Vue, NestJS, Express, FastAPI, etc.
+- **Init Command**: The exact CLI command to scaffold the project (e.g., \`npx @angular/cli new my-app --style=scss --standalone\`, \`npx create-next-app@latest\`, \`cargo init\`)
+- **Additional packages**: Libraries to install after init (e.g., \`tailwindcss\`, \`prisma\`, \`@angular/material\`)
+- **Dev Server**: Command and default port (Angular=4200, React/Next=3000, Vue=5173). Use \`{PORT}\` as placeholder.
+- **Build Command**: e.g., \`npx ng build\`, \`npm run build\`
+
+### Priority 2: Project Context (for later agents)
+- **Short description**: 1-2 sentences about what the project does
+- **Core features**: The 3-5 most important features (brief, not detailed specs)
+- **Backend/Database**: If applicable (e.g., NestJS + PostgreSQL, or "no backend, client-only")
+
+### Priority 3: Tooling (optional)
+- **MCP Servers**: Suggest based on tech stack. Known servers: \`angular-mcp-server\` (Angular), \`prisma\` (Prisma ORM), \`context7\` (NestJS/general docs)
 
 ## Rules
-- Ask 1-2 questions at a time, never overwhelm
-- Be conversational and helpful — suggest options based on what you already know
-- If the user is vague, offer concrete suggestions
-- Respond in the same language the user uses (German, English, etc.)
-- When you have enough information (all 6 areas covered), output the completion marker
+- Ask 1-2 focused questions at a time
+- **Lead with setup questions** — framework, init command, packages come FIRST
+- If the user says "Angular app", you already know: init=\`npx @angular/cli new <name>\`, port=4200, build=\`npx ng build\`. Confirm and move on.
+- Be practical: suggest concrete init commands and packages based on the framework choice
+- Respond in the same language the user uses
+- Do NOT ask about detailed UI design, API endpoints, database schemas, or implementation details — that's for later agents
+- Keep it short: 3-5 questions total should be enough for a simple project
+- When you have the setup info (framework, init command, dev server) + a brief feature list, finalize immediately
 
-## Completion
-When the interview is complete, end your final message with:
+## Completion Format
+When done, end your FINAL message with exactly this format (the marker and JSON must appear):
 
-\`\`\`
 ${COMPLETION_MARKER}
 \`\`\`json
 {
-  "description": "Project description",
+  "description": "Brief project description",
   "techStack": {
     "framework": "angular",
     "language": "typescript",
-    "backend": "nestjs",
-    "database": "postgresql",
-    "additional": ["tailwindcss", "prisma"]
+    "backend": "none",
+    "database": "none",
+    "additional": ["tailwindcss"]
   },
   "features": ["Feature 1", "Feature 2", "Feature 3"],
   "mcpServers": [
-    { "name": "angular-mcp-server", "purpose": "Angular docs" }
+    { "name": "angular-mcp-server", "purpose": "Angular documentation" }
   ],
   "setupInstructions": {
-    "initCommand": "npx @angular/cli new project --style=scss",
+    "initCommand": "npx @angular/cli new my-project --style=scss --standalone",
     "additionalCommands": ["npm install tailwindcss"]
   },
   "deployment": {
@@ -73,9 +92,14 @@ ${COMPLETION_MARKER}
 }
 \`\`\`
 
-IMPORTANT: Only output the completion marker when you are confident you have enough information. The JSON must be valid.
-For deployment.devServerCommand, always use {PORT} as placeholder — the system will replace it with the allocated port.
-If the project is not a web project (e.g., a CLI tool, library), set deployment.isWebProject to false.`;
+CRITICAL RULES for the completion JSON:
+- The line ${COMPLETION_MARKER} must appear EXACTLY as shown (no markdown formatting around it)
+- The JSON must be valid and parseable
+- For devServerCommand, always use {PORT} as placeholder
+- If no backend: set backend and database to "none"
+- If not a web project: set deployment.isWebProject to false
+- additionalCommands: one command per array entry (each will be run separately)
+- initCommand: the FULL command including project name and all flags`;
 
 @Injectable()
 export class InterviewerAgent extends BaseAgent {
@@ -108,7 +132,7 @@ export class InterviewerAgent extends BaseAgent {
       { role: 'system', content: systemPrompt },
       {
         role: 'user',
-        content: `I want to create a new project called "${projectName}". Let's figure out what we need.`,
+        content: `I want to create a new project called "${projectName}". Help me figure out the tech stack and setup so the DevOps agent can initialize it.`,
       },
     ];
 
@@ -178,6 +202,98 @@ export class InterviewerAgent extends BaseAgent {
     }
   }
 
+  /**
+   * Normalize LLM output to our InterviewResult schema.
+   * LLMs (especially local ones like qwen3.5) often use different key names
+   * (snake_case, synonyms, etc.) — this maps common variants to our schema.
+   */
+  private normalizeInterviewResult(raw: Record<string, any>): InterviewResult {
+    // Helper: find a value by trying multiple key variants
+    const pick = (...keys: string[]): any => {
+      for (const k of keys) {
+        if (raw[k] !== undefined) return raw[k];
+      }
+      return undefined;
+    };
+
+    // Normalize techStack — could be object or nested differently
+    let techStack = pick('techStack', 'tech_stack', 'technical_stack', 'technology_stack');
+    if (!techStack || typeof techStack !== 'object') {
+      // Try to build from individual fields
+      techStack = {
+        framework: pick('framework') ?? techStack?.framework,
+        language: pick('language') ?? techStack?.language,
+        backend: pick('backend') ?? 'none',
+        database: pick('database', 'db') ?? 'none',
+        additional: pick('additional', 'additional_packages', 'packages') ?? [],
+      };
+    }
+
+    // Normalize features — could be array of strings or array of objects
+    let features = pick('features', 'core_features', 'feature_list') ?? [];
+    if (Array.isArray(features) && features.length > 0 && typeof features[0] === 'object') {
+      features = features.map((f: any) => f.name || f.title || f.description || String(f));
+    }
+
+    // Normalize setupInstructions
+    let setup = pick('setupInstructions', 'setup_instructions', 'setup');
+    if (!setup || typeof setup !== 'object') {
+      setup = {};
+    }
+    const setupInstructions = {
+      initCommand: setup.initCommand ?? setup.init_command ?? pick('initCommand', 'init_command'),
+      additionalCommands: setup.additionalCommands ?? setup.additional_commands ?? [],
+    };
+
+    // Normalize deployment — apply framework defaults if LLM omitted fields
+    let deploy = pick('deployment', 'deploy');
+    if (!deploy || typeof deploy !== 'object') {
+      deploy = {};
+    }
+    const fw = (techStack?.framework ?? '').toLowerCase();
+    const frameworkDefaults = this.getFrameworkDefaults(fw);
+    const deployment = {
+      isWebProject: deploy.isWebProject ?? deploy.is_web_project ?? true,
+      devServerPort: deploy.devServerPort ?? deploy.dev_server_port ?? deploy.port ?? frameworkDefaults.port,
+      devServerCommand: deploy.devServerCommand ?? deploy.dev_server_command ?? frameworkDefaults.devCommand,
+      buildCommand: deploy.buildCommand ?? deploy.build_command ?? frameworkDefaults.buildCommand,
+    };
+
+    const result: InterviewResult = {
+      description: pick('description', 'summary', 'project_description', 'feature_name') ?? '',
+      techStack,
+      features,
+      mcpServers: pick('mcpServers', 'mcp_servers') ?? [],
+      setupInstructions,
+      deployment,
+    };
+
+    this.logger.debug(
+      `Normalized interview result: description=${!!result.description}, techStack.framework=${result.techStack?.framework}, features=${result.features?.length}`,
+    );
+
+    return result;
+  }
+
+  /** Sensible deployment defaults per framework (fallback when LLM omits) */
+  private getFrameworkDefaults(framework: string): {
+    port?: number;
+    devCommand?: string;
+    buildCommand?: string;
+  } {
+    if (framework.includes('angular'))
+      return { port: 4200, devCommand: 'npx ng serve --port {PORT}', buildCommand: 'npx ng build' };
+    if (framework.includes('react') || framework.includes('next'))
+      return { port: 3000, devCommand: 'npm run dev -- --port {PORT}', buildCommand: 'npm run build' };
+    if (framework.includes('vue') || framework.includes('nuxt'))
+      return { port: 5173, devCommand: 'npm run dev -- --port {PORT}', buildCommand: 'npm run build' };
+    if (framework.includes('nest'))
+      return { port: 3000, devCommand: 'npm run start:dev', buildCommand: 'npm run build' };
+    if (framework.includes('express') || framework.includes('fastapi') || framework.includes('flask'))
+      return { port: 3000 };
+    return {};
+  }
+
   /** Parse completion, update project, mark task done */
   private async handleInterviewComplete(ctx: AgentContext, content: string) {
     const markerIndex = content.indexOf(COMPLETION_MARKER);
@@ -197,7 +313,8 @@ export class InterviewerAgent extends BaseAgent {
       if (!jsonMatch) {
         throw new Error('No JSON object found in completion output');
       }
-      interviewResult = JSON.parse(jsonMatch[0]);
+      const rawResult = JSON.parse(jsonMatch[0]);
+      interviewResult = this.normalizeInterviewResult(rawResult);
     } catch (err) {
       this.logger.error(`Failed to parse interview result: ${err.message}`);
       await this.sendAgentMessage(
@@ -213,6 +330,9 @@ export class InterviewerAgent extends BaseAgent {
 
     // Validate essential fields
     if (!interviewResult.description || !interviewResult.techStack) {
+      this.logger.warn(
+        `Interview result validation failed — description: ${!!interviewResult.description}, techStack: ${!!interviewResult.techStack}. Raw keys: ${JSON.stringify(Object.keys(interviewResult))}`,
+      );
       await this.sendAgentMessage(
         ctx,
         'The interview result seems incomplete. Could you provide more details about the tech stack?',
