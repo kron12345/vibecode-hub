@@ -8,13 +8,17 @@ import {
   Query,
 } from '@nestjs/common';
 import { ApiTags, ApiQuery } from '@nestjs/swagger';
+import { EventEmitter2 } from '@nestjs/event-emitter';
 import { ChatService } from './chat.service';
 import { CreateChatSessionDto, SendMessageDto } from './chat.dto';
 
 @ApiTags('chat')
 @Controller('chat')
 export class ChatController {
-  constructor(private readonly chatService: ChatService) {}
+  constructor(
+    private readonly chatService: ChatService,
+    private readonly eventEmitter: EventEmitter2,
+  ) {}
 
   // ─── Sessions ────────────────────────────────────────────────
 
@@ -47,7 +51,17 @@ export class ChatController {
   }
 
   @Post('messages')
-  sendMessage(@Body() dto: SendMessageDto) {
-    return this.chatService.addMessage(dto);
+  async sendMessage(@Body() dto: SendMessageDto) {
+    const message = await this.chatService.addMessage(dto);
+
+    // Emit event for agent orchestration (same as WebSocket gateway)
+    if (dto.role === 'USER') {
+      this.eventEmitter.emit('chat.userMessage', {
+        chatSessionId: dto.chatSessionId,
+        content: dto.content,
+      });
+    }
+
+    return message;
   }
 }

@@ -24,6 +24,7 @@ export class OllamaProvider implements LlmProvider {
         content: m.content,
       })),
       stream: false,
+      think: false, // Disable thinking mode (qwen3.5, deepseek-r1) — we don't use the output
       options: {
         ...(options.temperature !== undefined && {
           temperature: options.temperature,
@@ -60,8 +61,20 @@ export class OllamaProvider implements LlmProvider {
 
       const data = await response.json();
 
+      // qwen3/qwen3.5 models use a 'thinking' field for chain-of-thought.
+      // Sometimes content is empty while thinking has the full reasoning.
+      // If content is empty but the model produced tokens, log a warning.
+      let content: string = data.message?.content ?? '';
+      const thinking: string = data.message?.thinking ?? '';
+
+      if (!content && thinking) {
+        this.logger.warn(
+          `Ollama returned empty content but ${thinking.length} chars of thinking — model may need /nothink suffix or think:false`,
+        );
+      }
+
       return {
-        content: data.message?.content ?? '',
+        content,
         finishReason: data.done ? 'stop' : 'length',
         usage: data.eval_count
           ? {
