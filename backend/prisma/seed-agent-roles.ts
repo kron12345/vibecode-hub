@@ -58,20 +58,25 @@ type Preset = 'local' | 'cli';
 // Only provider/model/temperature differ — system prompts stay the same.
 
 const PRESETS: Record<Preset, Record<string, ProviderOverride>> = {
-  // ── Profil A: Max. Qualität (Ollama, optimized for 2×3090 / 48GB VRAM) ──
-  // 3 core models: qwen3.5:35b (general), qwen3-coder:30b (code), deepseek-r1:32b (review)
-  // 2 lightweight: granite3.3:8b (structure), qwen2.5-coder:14b (tests/ops)
+  // ── Max. Qualität (Ollama, optimized for 2×3090 / 48GB VRAM) ──
+  // 3 core models only — no small models, maximize quality per role:
+  //   qwen3.5:35b      (22GB) — General: interview, specs, docs
+  //   deepseek-r1:32b  (20GB) — Critical thinking: architecture, review, security
+  //   qwen3-coder:30b  (19GB) — Code: implementation, tests, ops
+  // Parallel combos (all fit 48GB):
+  //   qwen3.5 + deepseek-r1 = 42GB, qwen3.5 + qwen3-coder = 41GB
+  //   deepseek-r1 + qwen3-coder = 39GB, same model = shared VRAM!
   local: {
     INTERVIEWER:       { provider: 'OLLAMA', model: 'qwen3.5:35b',      temperature: 0.7, maxTokens: 4096 },
     ARCHITECT:         { provider: 'OLLAMA', model: 'deepseek-r1:32b',  temperature: 0.5, maxTokens: 4096 },
-    ISSUE_COMPILER:    { provider: 'OLLAMA', model: 'granite3.3:8b',    temperature: 0.3, maxTokens: 4096 },
+    ISSUE_COMPILER:    { provider: 'OLLAMA', model: 'qwen3.5:35b',      temperature: 0.3, maxTokens: 4096 },
     CODER:             { provider: 'OLLAMA', model: 'qwen3-coder:30b',  temperature: 0.2, maxTokens: 8192 },
     CODE_REVIEWER:     { provider: 'OLLAMA', model: 'deepseek-r1:32b',  temperature: 0.1, maxTokens: 4096 },
-    UI_TESTER:         { provider: 'OLLAMA', model: 'granite-code:8b',  temperature: 0.2, maxTokens: 4096 },
-    FUNCTIONAL_TESTER: { provider: 'OLLAMA', model: 'qwen2.5-coder:14b', temperature: 0.1, maxTokens: 4096 },
+    UI_TESTER:         { provider: 'OLLAMA', model: 'qwen3-coder:30b',  temperature: 0.2, maxTokens: 4096 },
+    FUNCTIONAL_TESTER: { provider: 'OLLAMA', model: 'qwen3-coder:30b',  temperature: 0.1, maxTokens: 4096 },
     PEN_TESTER:        { provider: 'OLLAMA', model: 'deepseek-r1:32b',  temperature: 0.1, maxTokens: 4096 },
-    DOCUMENTER:        { provider: 'OLLAMA', model: 'granite3.3:8b',    temperature: 0.3, maxTokens: 4096 },
-    DEVOPS:            { provider: 'OLLAMA', model: 'qwen2.5-coder:14b', temperature: 0.1, maxTokens: 4096 },
+    DOCUMENTER:        { provider: 'OLLAMA', model: 'qwen3.5:35b',      temperature: 0.3, maxTokens: 4096 },
+    DEVOPS:            { provider: 'OLLAMA', model: 'qwen3-coder:30b',  temperature: 0.1, maxTokens: 4096 },
   },
 
   // ── CLI Tools (Remote API via CLI subprocesses) ──
@@ -678,16 +683,16 @@ async function main() {
 
   // Print VRAM estimate for local preset
   if (presetName === 'local') {
-    console.log('── VRAM Estimate (Local Preset) ──');
-    console.log('  qwen3.5:35b        ~22GB  (Interviewer)');
-    console.log('  deepseek-r1:32b    ~20GB  (Architect, Reviewer, Pentester)');
-    console.log('  qwen3-coder:30b    ~19GB  (Coder)');
-    console.log('  qwen2.5-coder:14b   ~9GB  (Func. Tester, DevOps)');
-    console.log('  granite3.3:8b       ~5GB  (Issue Compiler, Documenter)');
-    console.log('  granite-code:8b     ~5GB  (UI Tester)');
+    console.log('── VRAM Strategy (2×3090 = 48GB) ──');
+    console.log('  qwen3.5:35b        ~22GB  (Interviewer, Issue Compiler, Documenter)');
+    console.log('  deepseek-r1:32b    ~20GB  (Architect, Code Reviewer, Pentester)');
+    console.log('  qwen3-coder:30b    ~19GB  (Coder, UI Tester, Func. Tester, DevOps)');
     console.log('');
-    console.log('  Max parallel: 2 agents → fits 48GB VRAM');
-    console.log('  Best combos: Interviewer+Architect, Coder+Reviewer, Tester+DevOps');
+    console.log('  Parallel combos (all fit 48GB):');
+    console.log('    qwen3.5 + deepseek-r1  = 42GB ✓');
+    console.log('    qwen3.5 + qwen3-coder  = 41GB ✓');
+    console.log('    deepseek-r1 + qwen3-coder = 39GB ✓');
+    console.log('    Same model parallel    = shared VRAM! ✓');
   }
 }
 
