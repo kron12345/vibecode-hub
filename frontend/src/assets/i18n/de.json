@@ -174,7 +174,10 @@
     "permGit": "Git-Operationen",
     "systemPrompt": "Verhaltensprofil (System Prompt)",
     "systemPromptPlaceholder": "Definiere das Verhalten, die Verantwortlichkeiten und Regeln des Agenten...",
-    "systemPromptHint": "Markdown unterstützt. Das ist die Identität des Agenten — wie eine CLAUDE.md für jede Rolle."
+    "systemPromptHint": "Markdown unterstützt. Das ist die Identität des Agenten — wie eine CLAUDE.md für jede Rolle.",
+    "presets": "Vorlagen",
+    "presetsHint": "Vorlage anwenden — setzt Provider und Modelle für alle Rollen. Verhaltensprofil und Berechtigungen bleiben erhalten.",
+    "presetApplied": "Vorlage \"{name}\" angewendet"
   },
   "languages": {
     "de": "Deutsch",

@@ -130,6 +130,13 @@ export interface AgentRoleConfig {
   icon: string;
 }
 
+export interface AgentPresetInfo {
+  id: string;
+  name: string;
+  description: string;
+  icon: string;
+}
+
 export interface PipelineConfig {
   enabled: boolean;
   autoStart: boolean;
@@ -301,6 +308,19 @@ export class ApiService {
   getPipelineConfig() {
     return this.http.get<PipelineConfig>(
       `${this.baseUrl}/settings/agents/pipeline`,
+    );
+  }
+
+  getAgentPresets() {
+    return this.http.get<AgentPresetInfo[]>(
+      `${this.baseUrl}/settings/agents/presets`,
+    );
+  }
+
+  applyAgentPreset(presetId: string) {
+    return this.http.post<{ presetId: string; name: string; rolesUpdated: number }>(
+      `${this.baseUrl}/settings/agents/presets/${presetId}`,
+      {},
     );
   }
 

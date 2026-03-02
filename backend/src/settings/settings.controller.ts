@@ -2,10 +2,12 @@ import {
   Controller,
   Get,
   Put,
+  Post,
   Param,
   Body,
   Req,
   UseGuards,
+  NotFoundException,
 } from '@nestjs/common';
 import { ApiTags, ApiBearerAuth, ApiOperation } from '@nestjs/swagger';
 import { SettingsService } from './settings.service';
@@ -18,6 +20,7 @@ import {
   BulkUpsertUserSettingsDto,
   BulkUpsertSystemSettingsDto,
 } from './settings.dto';
+import { AGENT_PRESETS } from './agent-presets';
 
 @ApiTags('settings')
 @ApiBearerAuth()
@@ -102,6 +105,67 @@ export class SettingsController {
   @ApiOperation({ summary: 'Get pipeline configuration (admin)' })
   async getPipelineConfig() {
     return this.systemSettingsService.getPipelineConfig();
+  }
+
+  // ─── Agent Presets ───────────────────────────────────────
+
+  @Get('agents/presets')
+  @UseGuards(RolesGuard)
+  @Roles('admin')
+  @ApiOperation({ summary: 'Get available agent presets (admin)' })
+  async getAgentPresets() {
+    return Object.entries(AGENT_PRESETS).map(([id, preset]) => ({
+      id,
+      name: preset.name,
+      description: preset.description,
+      icon: preset.icon,
+    }));
+  }
+
+  @Post('agents/presets/:presetId')
+  @UseGuards(RolesGuard)
+  @Roles('admin')
+  @ApiOperation({ summary: 'Apply an agent preset to all roles (admin)' })
+  async applyAgentPreset(@Param('presetId') presetId: string) {
+    const preset = AGENT_PRESETS[presetId];
+    if (!preset) {
+      throw new NotFoundException(`Preset "${presetId}" not found. Available: ${Object.keys(AGENT_PRESETS).join(', ')}`);
+    }
+
+    // Load current configs, merge preset overrides (keep prompts, permissions, meta)
+    const currentConfigs = this.systemSettingsService.getAllAgentRoleConfigs();
+    const settings: { key: string; value: string; category: string }[] = [];
+
+    for (const [role, override] of Object.entries(preset.roles)) {
+      const current = currentConfigs[role];
+      if (!current) continue;
+
+      const merged = {
+        ...current,
+        provider: override.provider,
+        model: override.model,
+        parameters: {
+          ...current.parameters,
+          temperature: override.temperature,
+          maxTokens: override.maxTokens,
+        },
+      };
+
+      settings.push({
+        key: `agents.roles.${role}`,
+        value: JSON.stringify(merged),
+        category: 'agents',
+      });
+    }
+
+    await this.settingsService.bulkUpsertSystemSettings(settings);
+    await this.systemSettingsService.refreshCache();
+
+    return {
+      presetId,
+      name: preset.name,
+      rolesUpdated: settings.length,
+    };
   }
 
   // ─── Provider Discovery ───────────────────────────────────

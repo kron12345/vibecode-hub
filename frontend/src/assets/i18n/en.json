@@ -174,7 +174,10 @@
     "permGit": "Git operations",
     "systemPrompt": "Behavior Profile (System Prompt)",
     "systemPromptPlaceholder": "Define the agent's behavior, responsibilities, and rules...",
-    "systemPromptHint": "Markdown supported. This is the agent's identity — like a CLAUDE.md for each role."
+    "systemPromptHint": "Markdown supported. This is the agent's identity — like a CLAUDE.md for each role.",
+    "presets": "Presets",
+    "presetsHint": "Apply a preset — sets provider and model for all roles. Behavior profiles and permissions are preserved.",
+    "presetApplied": "Preset \"{name}\" applied"
   },
   "languages": {
     "de": "Deutsch",

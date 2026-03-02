@@ -4,6 +4,7 @@ import {
   ApiService,
   SystemSetting,
   AgentRoleConfig,
+  AgentPresetInfo,
   PipelineConfig,
   ProviderModel,
   ProviderModelsResult,
@@ -556,6 +557,34 @@ const PERMISSION_KEYS: { key: keyof AgentRoleConfig['permissions']; labelKey: st
           </div>
         </div>
 
+        <!-- Presets -->
+        @if (availablePresets().length > 0) {
+          <div class="glass rounded-3xl p-6">
+            <h2 class="text-lg font-semibold text-white mb-4 flex items-center gap-2">
+              <app-icon name="layout-template" [size]="20" class="text-amber-400" />
+              {{ 'settings.presets' | translate }}
+            </h2>
+            <p class="text-sm text-slate-400 mb-4">
+              {{ 'settings.presetsHint' | translate }}
+            </p>
+            <div class="flex flex-wrap gap-3">
+              @for (preset of availablePresets(); track preset.id) {
+                <button
+                  (click)="applyPreset(preset.id)"
+                  [disabled]="applyingPreset()"
+                  class="flex items-center gap-3 px-5 py-3 rounded-2xl border border-white/10 bg-slate-900/50 hover:bg-white/5 hover:border-white/20 transition-all disabled:opacity-50"
+                >
+                  <app-icon [name]="preset.icon" [size]="18" class="text-amber-400" />
+                  <div class="text-left">
+                    <span class="text-sm font-medium text-white">{{ preset.name }}</span>
+                    <p class="text-xs text-slate-500">{{ preset.description }}</p>
+                  </div>
+                </button>
+              }
+            </div>
+          </div>
+        }
+
         <!-- Agent Role Cards -->
         @for (role of agentRoles; track role) {
           <div class="glass rounded-3xl overflow-hidden">
@@ -808,6 +837,8 @@ export class SettingsPage implements OnInit {
     timeoutMinutes: 30,
   };
   expandedRoles: Record<string, boolean> = {};
+  availablePresets = signal<AgentPresetInfo[]>([]);
+  applyingPreset = signal(false);
 
   // Provider discovery
   providerResults = signal<Record<string, ProviderModelsResult>>({});
@@ -861,6 +892,10 @@ export class SettingsPage implements OnInit {
       next: (config) => {
         this.pipelineConfig = { ...config };
       },
+    });
+
+    this.api.getAgentPresets().subscribe({
+      next: (presets) => this.availablePresets.set(presets),
     });
 
     this.refreshAllProviders();
@@ -1065,6 +1100,28 @@ export class SettingsPage implements OnInit {
       },
       error: () => {
         this.saving.set(false);
+        this.showToast('error', this.i18n.t('settings.savedError'));
+      },
+    });
+  }
+
+  applyPreset(presetId: string) {
+    this.applyingPreset.set(true);
+    this.api.applyAgentPreset(presetId).subscribe({
+      next: (result) => {
+        // Reload configs to reflect the preset changes
+        this.api.getAgentRoleConfigs().subscribe({
+          next: (configs) => {
+            for (const [role, config] of Object.entries(configs)) {
+              this.agentRoleConfigs[role] = { ...config };
+            }
+            this.applyingPreset.set(false);
+            this.showToast('success', this.i18n.t('settings.presetApplied', { name: result.name }));
+          },
+        });
+      },
+      error: () => {
+        this.applyingPreset.set(false);
         this.showToast('error', this.i18n.t('settings.savedError'));
       },
     });
