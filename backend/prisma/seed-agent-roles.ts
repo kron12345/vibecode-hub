@@ -1,14 +1,14 @@
 /**
- * Seed script: Creates default agent role configurations in SystemSettings.
+ * Seed script: Creates agent role configurations in SystemSettings.
  *
- * Each role gets a comprehensive config stored as JSON:
- * - provider/model: LLM configuration
- * - systemPrompt: Behavior profile (like CLAUDE.md for each role)
- * - parameters: LLM parameters (temperature, maxTokens)
- * - permissions: What the agent is allowed to do
- * - pipelinePosition: Order in the agent pipeline
+ * Supports two presets:
+ *   --preset local   → Ollama models (optimized for 2×3090 / 48GB VRAM)
+ *   --preset cli     → CLI tools (Claude Code, Codex CLI, Qwen3 Coder)
  *
- * Run: npx ts-node prisma/seed-agent-roles.ts
+ * Run:
+ *   npx ts-node prisma/seed-agent-roles.ts --preset local
+ *   npx ts-node prisma/seed-agent-roles.ts --preset cli
+ *   npx ts-node prisma/seed-agent-roles.ts            # defaults to "local"
  */
 import 'dotenv/config';
 import { PrismaClient } from '@prisma/client';
@@ -20,14 +20,7 @@ const connectionString =
 const adapter = new PrismaPg({ connectionString });
 const prisma = new PrismaClient({ adapter });
 
-// ─── Provider Types ─────────────────────────────────────────────────
-// OLLAMA        — Local inference via Ollama API
-// CLAUDE_CODE   — CLI subprocess (claude)
-// CODEX_CLI     — CLI subprocess (codex)
-// QWEN3_CODER   — CLI subprocess (qwen3-coder)
-// ANTHROPIC     — API (Anthropic Claude)
-// OPENAI        — API (OpenAI GPT/Codex)
-// GOOGLE        — API (Google Gemini)
+// ─── Types ──────────────────────────────────────────────────────────
 
 interface AgentRoleConfig {
   provider: string;
@@ -48,15 +41,59 @@ interface AgentRoleConfig {
   };
   pipelinePosition: number;
   description: string;
-  color: string; // UI color for the agent card
-  icon: string; // Lucide icon name
+  color: string;
+  icon: string;
 }
 
-const AGENT_ROLES: Record<string, AgentRoleConfig> = {
-  INTERVIEWER: {
-    provider: 'OLLAMA',
-    model: 'llama3.1',
-    systemPrompt: `# Interviewer Agent
+interface ProviderOverride {
+  provider: string;
+  model: string;
+  temperature?: number;
+  maxTokens?: number;
+}
+
+type Preset = 'local' | 'cli';
+
+// ─── Provider Presets ───────────────────────────────────────────────
+// Only provider/model/temperature differ — system prompts stay the same.
+
+const PRESETS: Record<Preset, Record<string, ProviderOverride>> = {
+  // ── Profil A: Max. Qualität (Ollama, optimized for 2×3090 / 48GB VRAM) ──
+  // 3 core models: qwen3.5:35b (general), qwen3-coder:30b (code), deepseek-r1:32b (review)
+  // 2 lightweight: granite3.3:8b (structure), qwen2.5-coder:14b (tests/ops)
+  local: {
+    INTERVIEWER:       { provider: 'OLLAMA', model: 'qwen3.5:35b',      temperature: 0.7, maxTokens: 4096 },
+    ARCHITECT:         { provider: 'OLLAMA', model: 'deepseek-r1:32b',  temperature: 0.5, maxTokens: 4096 },
+    ISSUE_COMPILER:    { provider: 'OLLAMA', model: 'granite3.3:8b',    temperature: 0.3, maxTokens: 4096 },
+    CODER:             { provider: 'OLLAMA', model: 'qwen3-coder:30b',  temperature: 0.2, maxTokens: 8192 },
+    CODE_REVIEWER:     { provider: 'OLLAMA', model: 'deepseek-r1:32b',  temperature: 0.1, maxTokens: 4096 },
+    UI_TESTER:         { provider: 'OLLAMA', model: 'granite-code:8b',  temperature: 0.2, maxTokens: 4096 },
+    FUNCTIONAL_TESTER: { provider: 'OLLAMA', model: 'qwen2.5-coder:14b', temperature: 0.1, maxTokens: 4096 },
+    PEN_TESTER:        { provider: 'OLLAMA', model: 'deepseek-r1:32b',  temperature: 0.1, maxTokens: 4096 },
+    DOCUMENTER:        { provider: 'OLLAMA', model: 'granite3.3:8b',    temperature: 0.3, maxTokens: 4096 },
+    DEVOPS:            { provider: 'OLLAMA', model: 'qwen2.5-coder:14b', temperature: 0.1, maxTokens: 4096 },
+  },
+
+  // ── CLI Tools (Remote API via CLI subprocesses) ──
+  // Claude Code for general/review/security, Codex CLI for code/ops, Qwen3 Coder for testing
+  cli: {
+    INTERVIEWER:       { provider: 'CLAUDE_CODE',  model: 'claude-sonnet-4-6', temperature: 0.7, maxTokens: 4096 },
+    ARCHITECT:         { provider: 'CLAUDE_CODE',  model: 'claude-sonnet-4-6', temperature: 0.5, maxTokens: 4096 },
+    ISSUE_COMPILER:    { provider: 'CLAUDE_CODE',  model: 'claude-sonnet-4-6', temperature: 0.3, maxTokens: 4096 },
+    CODER:             { provider: 'CODEX_CLI',    model: 'o4-mini',           temperature: 0.2, maxTokens: 8192 },
+    CODE_REVIEWER:     { provider: 'CLAUDE_CODE',  model: 'claude-sonnet-4-6', temperature: 0.1, maxTokens: 4096 },
+    UI_TESTER:         { provider: 'QWEN3_CODER',  model: 'qwen3-coder',      temperature: 0.2, maxTokens: 4096 },
+    FUNCTIONAL_TESTER: { provider: 'CODEX_CLI',    model: 'o4-mini',           temperature: 0.1, maxTokens: 4096 },
+    PEN_TESTER:        { provider: 'CLAUDE_CODE',  model: 'claude-sonnet-4-6', temperature: 0.1, maxTokens: 4096 },
+    DOCUMENTER:        { provider: 'CLAUDE_CODE',  model: 'claude-sonnet-4-6', temperature: 0.3, maxTokens: 4096 },
+    DEVOPS:            { provider: 'CODEX_CLI',    model: 'o4-mini',           temperature: 0.1, maxTokens: 4096 },
+  },
+};
+
+// ─── System Prompts (shared across all presets) ─────────────────────
+
+const SYSTEM_PROMPTS: Record<string, string> = {
+  INTERVIEWER: `# Interviewer Agent
 
 You are the **Interviewer** — the first point of contact for every feature request.
 
@@ -88,25 +125,8 @@ Do NOT pass to Issue Compiler until:
 - User has explicitly confirmed the feature description
 - All ambiguities are resolved
 - Impact on existing features is assessed`,
-    parameters: { temperature: 0.7, maxTokens: 4096 },
-    permissions: {
-      fileRead: true,
-      fileWrite: false,
-      terminal: false,
-      installPackages: false,
-      http: false,
-      gitOperations: false,
-    },
-    pipelinePosition: 1,
-    description: 'Conducts feature interviews, asks questions until 95% clarity',
-    color: 'sky',
-    icon: 'message-circle',
-  },
 
-  ARCHITECT: {
-    provider: 'OLLAMA',
-    model: 'llama3.1',
-    systemPrompt: `# Architect Agent
+  ARCHITECT: `# Architect Agent
 
 You are the **Architect** — responsible for technical design and system-level decisions.
 
@@ -139,25 +159,8 @@ You are the **Architect** — responsible for technical design and system-level 
 - Security implications are addressed
 - Performance impact is considered
 - No unnecessary complexity introduced`,
-    parameters: { temperature: 0.5, maxTokens: 4096 },
-    permissions: {
-      fileRead: true,
-      fileWrite: false,
-      terminal: false,
-      installPackages: false,
-      http: false,
-      gitOperations: false,
-    },
-    pipelinePosition: 2,
-    description: 'Designs technical architecture and system-level decisions',
-    color: 'violet',
-    icon: 'pen-tool',
-  },
 
-  ISSUE_COMPILER: {
-    provider: 'OLLAMA',
-    model: 'llama3.1',
-    systemPrompt: `# Issue Compiler Agent
+  ISSUE_COMPILER: `# Issue Compiler Agent
 
 You are the **Issue Compiler** — you transform interview summaries and architecture decisions into actionable GitLab issues.
 
@@ -193,25 +196,8 @@ You are the **Issue Compiler** — you transform interview summaries and archite
 - Dependencies are correctly mapped
 - No issue is too large (max 1 session of work)
 - All aspects from the interview summary are covered`,
-    parameters: { temperature: 0.3, maxTokens: 4096 },
-    permissions: {
-      fileRead: true,
-      fileWrite: false,
-      terminal: false,
-      installPackages: false,
-      http: true,
-      gitOperations: false,
-    },
-    pipelinePosition: 3,
-    description: 'Compiles interview results into structured GitLab issues',
-    color: 'amber',
-    icon: 'list-checks',
-  },
 
-  CODER: {
-    provider: 'OLLAMA',
-    model: 'llama3.1',
-    systemPrompt: `# Coder Agent
+  CODER: `# Coder Agent
 
 You are the **Coder** — the primary developer implementing features and fixes.
 
@@ -249,25 +235,8 @@ You are the **Coder** — the primary developer implementing features and fixes.
 - New tests cover the implemented functionality
 - No security vulnerabilities introduced
 - Follows existing patterns and conventions`,
-    parameters: { temperature: 0.2, maxTokens: 8192 },
-    permissions: {
-      fileRead: true,
-      fileWrite: true,
-      terminal: true,
-      installPackages: true,
-      http: false,
-      gitOperations: true,
-    },
-    pipelinePosition: 4,
-    description: 'Implements code changes according to issue specifications',
-    color: 'indigo',
-    icon: 'code',
-  },
 
-  CODE_REVIEWER: {
-    provider: 'OLLAMA',
-    model: 'llama3.1',
-    systemPrompt: `# Code Reviewer Agent
+  CODE_REVIEWER: `# Code Reviewer Agent
 
 You are the **Code Reviewer** — guardian of code quality and consistency.
 
@@ -305,25 +274,8 @@ You are the **Code Reviewer** — guardian of code quality and consistency.
 - All review checklist items passed
 - No open security concerns
 - Code is production-ready`,
-    parameters: { temperature: 0.1, maxTokens: 4096 },
-    permissions: {
-      fileRead: true,
-      fileWrite: true,
-      terminal: true,
-      installPackages: false,
-      http: false,
-      gitOperations: true,
-    },
-    pipelinePosition: 5,
-    description: 'Reviews code for quality, security, and consistency',
-    color: 'emerald',
-    icon: 'search-check',
-  },
 
-  UI_TESTER: {
-    provider: 'OLLAMA',
-    model: 'llama3.1',
-    systemPrompt: `# UI Tester Agent
+  UI_TESTER: `# UI Tester Agent
 
 You are the **UI Tester** — responsible for visual and interaction testing.
 
@@ -360,25 +312,8 @@ You are the **UI Tester** — responsible for visual and interaction testing.
 - All interactive elements are functional
 - Accessible to keyboard-only users
 - Responsive across standard breakpoints`,
-    parameters: { temperature: 0.2, maxTokens: 4096 },
-    permissions: {
-      fileRead: true,
-      fileWrite: false,
-      terminal: true,
-      installPackages: true,
-      http: true,
-      gitOperations: false,
-    },
-    pipelinePosition: 6,
-    description: 'Tests UI components, responsiveness, and accessibility',
-    color: 'pink',
-    icon: 'monitor-check',
-  },
 
-  FUNCTIONAL_TESTER: {
-    provider: 'OLLAMA',
-    model: 'llama3.1',
-    systemPrompt: `# Functional Tester Agent
+  FUNCTIONAL_TESTER: `# Functional Tester Agent
 
 You are the **Functional Tester** — responsible for verifying that features work as specified.
 
@@ -417,25 +352,8 @@ You are the **Functional Tester** — responsible for verifying that features wo
 - No regressions in existing tests
 - Error handling works correctly
 - Data integrity is maintained`,
-    parameters: { temperature: 0.1, maxTokens: 4096 },
-    permissions: {
-      fileRead: true,
-      fileWrite: true,
-      terminal: true,
-      installPackages: true,
-      http: true,
-      gitOperations: false,
-    },
-    pipelinePosition: 7,
-    description: 'Verifies functional requirements and runs integration tests',
-    color: 'teal',
-    icon: 'test-tubes',
-  },
 
-  PEN_TESTER: {
-    provider: 'OLLAMA',
-    model: 'llama3.1',
-    systemPrompt: `# Penetration Tester Agent
+  PEN_TESTER: `# Penetration Tester Agent
 
 You are the **Pentester** — responsible for security testing and vulnerability assessment.
 
@@ -475,25 +393,8 @@ You are the **Pentester** — responsible for security testing and vulnerability
 - No Critical or High severity findings
 - All Medium findings have remediation plan
 - Dependencies are up to date (no known critical CVEs)`,
-    parameters: { temperature: 0.1, maxTokens: 4096 },
-    permissions: {
-      fileRead: true,
-      fileWrite: false,
-      terminal: true,
-      installPackages: true,
-      http: true,
-      gitOperations: false,
-    },
-    pipelinePosition: 8,
-    description: 'Security testing and vulnerability assessment',
-    color: 'red',
-    icon: 'shield-alert',
-  },
 
-  DOCUMENTER: {
-    provider: 'OLLAMA',
-    model: 'llama3.1',
-    systemPrompt: `# Documenter Agent
+  DOCUMENTER: `# Documenter Agent
 
 You are the **Documenter** — responsible for keeping all project documentation accurate and complete.
 
@@ -532,25 +433,8 @@ You are the **Documenter** — responsible for keeping all project documentation
 - Data model changes reflected in ARCHITECTURE.md
 - No stale documentation
 - i18n files are in sync across all locales`,
-    parameters: { temperature: 0.3, maxTokens: 4096 },
-    permissions: {
-      fileRead: true,
-      fileWrite: true,
-      terminal: false,
-      installPackages: false,
-      http: false,
-      gitOperations: true,
-    },
-    pipelinePosition: 9,
-    description: 'Maintains project documentation and changelog',
-    color: 'cyan',
-    icon: 'file-text',
-  },
 
-  DEVOPS: {
-    provider: 'OLLAMA',
-    model: 'llama3.1',
-    systemPrompt: `# DevOps Agent
+  DEVOPS: `# DevOps Agent
 
 You are the **DevOps** agent — responsible for deployment, CI/CD, and infrastructure.
 
@@ -595,15 +479,84 @@ You are the **DevOps** agent — responsible for deployment, CI/CD, and infrastr
 - All health checks pass
 - No error logs in the first 30 seconds
 - Previous functionality still works`,
-    parameters: { temperature: 0.1, maxTokens: 4096 },
-    permissions: {
-      fileRead: true,
-      fileWrite: true,
-      terminal: true,
-      installPackages: true,
-      http: true,
-      gitOperations: true,
-    },
+};
+
+// ─── Role Metadata (shared across all presets) ──────────────────────
+
+interface RoleMeta {
+  permissions: AgentRoleConfig['permissions'];
+  pipelinePosition: number;
+  description: string;
+  color: string;
+  icon: string;
+}
+
+const ROLE_META: Record<string, RoleMeta> = {
+  INTERVIEWER: {
+    permissions: { fileRead: true, fileWrite: false, terminal: false, installPackages: false, http: false, gitOperations: false },
+    pipelinePosition: 1,
+    description: 'Conducts feature interviews, asks questions until 95% clarity',
+    color: 'sky',
+    icon: 'message-circle',
+  },
+  ARCHITECT: {
+    permissions: { fileRead: true, fileWrite: false, terminal: false, installPackages: false, http: false, gitOperations: false },
+    pipelinePosition: 2,
+    description: 'Designs technical architecture and system-level decisions',
+    color: 'violet',
+    icon: 'pen-tool',
+  },
+  ISSUE_COMPILER: {
+    permissions: { fileRead: true, fileWrite: false, terminal: false, installPackages: false, http: true, gitOperations: false },
+    pipelinePosition: 3,
+    description: 'Compiles interview results into structured GitLab issues',
+    color: 'amber',
+    icon: 'list-checks',
+  },
+  CODER: {
+    permissions: { fileRead: true, fileWrite: true, terminal: true, installPackages: true, http: false, gitOperations: true },
+    pipelinePosition: 4,
+    description: 'Implements code changes according to issue specifications',
+    color: 'indigo',
+    icon: 'code',
+  },
+  CODE_REVIEWER: {
+    permissions: { fileRead: true, fileWrite: true, terminal: true, installPackages: false, http: false, gitOperations: true },
+    pipelinePosition: 5,
+    description: 'Reviews code for quality, security, and consistency',
+    color: 'emerald',
+    icon: 'search-check',
+  },
+  UI_TESTER: {
+    permissions: { fileRead: true, fileWrite: false, terminal: true, installPackages: true, http: true, gitOperations: false },
+    pipelinePosition: 6,
+    description: 'Tests UI components, responsiveness, and accessibility',
+    color: 'pink',
+    icon: 'monitor-check',
+  },
+  FUNCTIONAL_TESTER: {
+    permissions: { fileRead: true, fileWrite: true, terminal: true, installPackages: true, http: true, gitOperations: false },
+    pipelinePosition: 7,
+    description: 'Verifies functional requirements and runs integration tests',
+    color: 'teal',
+    icon: 'test-tubes',
+  },
+  PEN_TESTER: {
+    permissions: { fileRead: true, fileWrite: false, terminal: true, installPackages: true, http: true, gitOperations: false },
+    pipelinePosition: 8,
+    description: 'Security testing and vulnerability assessment',
+    color: 'red',
+    icon: 'shield-alert',
+  },
+  DOCUMENTER: {
+    permissions: { fileRead: true, fileWrite: true, terminal: false, installPackages: false, http: false, gitOperations: true },
+    pipelinePosition: 9,
+    description: 'Maintains project documentation and changelog',
+    color: 'cyan',
+    icon: 'file-text',
+  },
+  DEVOPS: {
+    permissions: { fileRead: true, fileWrite: true, terminal: true, installPackages: true, http: true, gitOperations: true },
     pipelinePosition: 10,
     description: 'Handles deployment, CI/CD, and infrastructure management',
     color: 'orange',
@@ -611,10 +564,50 @@ You are the **DevOps** agent — responsible for deployment, CI/CD, and infrastr
   },
 };
 
-async function main() {
-  console.log('Seeding agent role configurations...\n');
+// ─── Build final config by merging prompt + meta + preset ───────────
 
-  // First, remove old agent defaults (the simple provider+model ones)
+function buildRoleConfigs(preset: Preset): Record<string, AgentRoleConfig> {
+  const overrides = PRESETS[preset];
+  const result: Record<string, AgentRoleConfig> = {};
+
+  for (const [role, meta] of Object.entries(ROLE_META)) {
+    const override = overrides[role];
+    if (!override) {
+      console.warn(`  ⚠ No preset override for ${role}, skipping`);
+      continue;
+    }
+
+    result[role] = {
+      provider: override.provider,
+      model: override.model,
+      systemPrompt: SYSTEM_PROMPTS[role] ?? '',
+      parameters: {
+        temperature: override.temperature ?? 0.3,
+        maxTokens: override.maxTokens ?? 4096,
+      },
+      ...meta,
+    };
+  }
+
+  return result;
+}
+
+// ─── Main ───────────────────────────────────────────────────────────
+
+async function main() {
+  // Parse --preset argument
+  const args = process.argv.slice(2);
+  const presetIdx = args.indexOf('--preset');
+  const presetName = (presetIdx >= 0 ? args[presetIdx + 1] : 'local') as Preset;
+
+  if (!PRESETS[presetName]) {
+    console.error(`Unknown preset "${presetName}". Available: ${Object.keys(PRESETS).join(', ')}`);
+    process.exit(1);
+  }
+
+  console.log(`\nSeeding agent role configurations (preset: ${presetName})...\n`);
+
+  // Remove old agent defaults (legacy keys)
   const oldKeys = [
     'agents.defaults.TICKET_CREATOR',
     'agents.defaults.CODER',
@@ -627,10 +620,11 @@ async function main() {
   for (const key of oldKeys) {
     await prisma.systemSetting.deleteMany({ where: { key } });
   }
-  console.log(`Removed ${oldKeys.length} old agent defaults.\n`);
 
-  // Seed new comprehensive role configs
-  for (const [role, config] of Object.entries(AGENT_ROLES)) {
+  // Build and seed role configs
+  const roleConfigs = buildRoleConfigs(presetName);
+
+  for (const [role, config] of Object.entries(roleConfigs)) {
     const key = `agents.roles.${role}`;
     const value = JSON.stringify(config);
 
@@ -650,7 +644,7 @@ async function main() {
       },
     });
 
-    console.log(`  ✓ ${role} (pipeline #${config.pipelinePosition}, ${config.provider}/${config.model})`);
+    console.log(`  ✓ ${role.padEnd(20)} ${config.provider}/${config.model} (temp=${config.parameters.temperature})`);
   }
 
   // Seed pipeline settings
@@ -680,7 +674,21 @@ async function main() {
   });
   console.log('  ✓ agents.pipeline (global config)');
 
-  console.log(`\nSeeded ${Object.keys(AGENT_ROLES).length} agent role configs + pipeline settings.`);
+  console.log(`\nSeeded ${Object.keys(roleConfigs).length} agent role configs (preset: ${presetName}) + pipeline settings.\n`);
+
+  // Print VRAM estimate for local preset
+  if (presetName === 'local') {
+    console.log('── VRAM Estimate (Local Preset) ──');
+    console.log('  qwen3.5:35b        ~22GB  (Interviewer)');
+    console.log('  deepseek-r1:32b    ~20GB  (Architect, Reviewer, Pentester)');
+    console.log('  qwen3-coder:30b    ~19GB  (Coder)');
+    console.log('  qwen2.5-coder:14b   ~9GB  (Func. Tester, DevOps)');
+    console.log('  granite3.3:8b       ~5GB  (Issue Compiler, Documenter)');
+    console.log('  granite-code:8b     ~5GB  (UI Tester)');
+    console.log('');
+    console.log('  Max parallel: 2 agents → fits 48GB VRAM');
+    console.log('  Best combos: Interviewer+Architect, Coder+Reviewer, Tester+DevOps');
+  }
 }
 
 main()
