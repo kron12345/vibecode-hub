@@ -587,11 +587,11 @@ const PERMISSION_KEYS: { key: keyof AgentRoleConfig['permissions']; labelKey: st
 
         <!-- Agent Role Cards -->
         @for (role of agentRoles; track role) {
-          <div class="glass rounded-3xl overflow-hidden">
+          <div class="glass rounded-3xl">
             <!-- Role Header (clickable to expand) -->
             <button
               (click)="toggleRoleExpanded(role)"
-              class="w-full px-6 py-4 flex items-center justify-between hover:bg-white/5 transition-colors"
+              class="w-full px-6 py-4 flex items-center justify-between hover:bg-white/5 transition-colors rounded-t-3xl"
             >
               <div class="flex items-center gap-3">
                 <div

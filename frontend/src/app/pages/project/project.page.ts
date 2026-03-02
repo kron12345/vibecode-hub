@@ -265,6 +265,16 @@ type Tab = 'overview' | 'settings';
                 @if (messages().length === 0) {
                   <p class="text-indigo-500">> {{ 'project.systemReady' | translate }}</p>
                 }
+                @if (hasWorkingAgent()) {
+                  <div class="flex items-center gap-2 text-emerald-400/60">
+                    <span class="inline-flex gap-1">
+                      <span class="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-bounce" style="animation-delay: 0ms"></span>
+                      <span class="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-bounce" style="animation-delay: 150ms"></span>
+                      <span class="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-bounce" style="animation-delay: 300ms"></span>
+                    </span>
+                    <span class="text-xs">{{ 'project.agentThinking' | translate }}</span>
+                  </div>
+                }
               </div>
 
               <!-- Input -->
@@ -630,6 +640,7 @@ export class ProjectPage implements OnInit, OnDestroy {
   constructor() {
     effect(() => {
       this.messages();
+      this.hasWorkingAgent();
       setTimeout(() => this.scrollToBottom(), 50);
     });
 
