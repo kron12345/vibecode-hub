@@ -366,6 +366,13 @@ Gespeichert als `agents.pipeline` (JSON):
 | `agentStatus` | Server → Client | Agent-Status-Änderung (role, status, projectId) |
 | `projectUpdated` | Server → Client | Projekt wurde aktualisiert (z.B. Interview abgeschlossen, Setup fertig) |
 
+### Interview Result Normalizer
+
+Der Interviewer-Agent enthält einen `normalizeInterviewResult()` Normalizer, der die JSON-Ausgabe lokaler LLMs (z.B. qwen3.5) auf das `InterviewResult`-Schema mappt:
+- **Key-Varianten**: `tech_stack` → `techStack`, `summary` → `description`, `core_features` → `features`, etc.
+- **Feature-Normalisierung**: Objekt-Arrays `[{name: "..."}]` → String-Arrays `["..."]`
+- **Framework-Defaults**: Fehlende `deployment`-Felder werden anhand des Frameworks ergänzt (Angular=4200, React=3000, Vue=5173)
+
 ### DevOps Agent (automatisch)
 
 Der DevOps-Agent startet automatisch nach Interview-Abschluss über das Event `agent.interviewComplete`.
@@ -503,6 +510,7 @@ map $hub_project $hub_upstream {
 
 | Datum | Änderung |
 |---|---|
+| 2026-03-02 | Interviewer: Robuster JSON-Normalizer (snake_case, Synonyme, Framework-Defaults), überarbeiteter System-Prompt (Pipeline-Fokus, Setup-First) |
 | 2026-03-02 | Fix: REST POST /chat/messages emittiert jetzt chat.userMessage Event (Agent-Orchestrierung), Ollama think:false für qwen3.5/deepseek-r1 |
 | 2026-03-02 | Agent Presets: GET/POST /settings/agents/presets, Local (3-Modell Ollama) + CLI Vorlagen, UI Preset-Selector |
 | 2026-03-02 | DevOps Agent: Automatische Projekteinrichtung nach Interview (Clone, Init, MCP, Push), Event-basiert, deterministisch, Security-First |
