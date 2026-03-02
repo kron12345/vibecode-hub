@@ -59,10 +59,30 @@
 {
   name?: string;
   description?: string;
-  gitlabProjectId?: number;
-  gitlabUrl?: string;
+  status?: 'INTERVIEWING' | 'SETTING_UP' | 'READY' | 'ARCHIVED';
+  techStack?: {
+    techStack?: {
+      framework?: string;
+      language?: string;
+      backend?: string;
+      database?: string;
+      additional?: string[];
+    };
+    deployment?: {
+      isWebProject?: boolean;
+      devServerPort?: number;
+      devServerCommand?: string;
+      buildCommand?: string;
+    };
+    setupInstructions?: {
+      initCommand?: string;
+      additionalCommands?: string[];
+    };
+  };
 }
 ```
+
+**Hinweis**: `slug` ist absichtlich NICHT editierbar (URL-Bestandteil). `techStack` wird deep-gemerged — nur übergebene Sub-Objekte überschreiben existierende Werte, der Rest bleibt erhalten.
 
 ---
 
@@ -431,6 +451,7 @@ map $hub_project $hub_upstream {
 
 | Datum | Änderung |
 |---|---|
+| 2026-03-02 | Projekt-Settings: UpdateProjectDto mit nested DTOs (techStack, deployment, setup), Status-Update, Deep-Merge, Tab-UI mit 6 Glass-Cards |
 | 2026-03-02 | Preview-System: Auto-Subdomain-Previews, Port-Allokation, Nginx-Map-Sync, Interview-Deployment-Erkennung |
 | 2026-03-01 | Phase 2: LLM Abstraction Layer (7 Provider), Agent-Orchestrierung, Interviewer Agent, Quick-Create Flow, Event-System |
 | 2026-03-01 | Agents: 10 Rollen (Interviewer→DevOps), 7 LLM-Provider, Ollama Discovery, CLI Health Check, Pipeline Config |

@@ -4,6 +4,31 @@ import { environment } from '../../environments/environment';
 
 export type ProjectStatus = 'INTERVIEWING' | 'SETTING_UP' | 'READY' | 'ARCHIVED';
 
+export interface UpdateProjectPayload {
+  name?: string;
+  description?: string;
+  status?: ProjectStatus;
+  techStack?: {
+    techStack?: {
+      framework?: string;
+      language?: string;
+      backend?: string;
+      database?: string;
+      additional?: string[];
+    };
+    deployment?: {
+      isWebProject?: boolean;
+      devServerPort?: number;
+      devServerCommand?: string;
+      buildCommand?: string;
+    };
+    setupInstructions?: {
+      initCommand?: string;
+      additionalCommands?: string[];
+    };
+  };
+}
+
 export interface Project {
   id: string;
   name: string;
@@ -159,6 +184,10 @@ export class ApiService {
       `${this.baseUrl}/projects/quick`,
       { name },
     );
+  }
+
+  updateProject(id: string, data: UpdateProjectPayload) {
+    return this.http.put<Project>(`${this.baseUrl}/projects/${id}`, data);
   }
 
   deleteProject(id: string) {

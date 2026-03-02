@@ -3,7 +3,7 @@ import { PrismaService } from '../prisma/prisma.service';
 import { GitlabService } from '../gitlab/gitlab.service';
 import { PreviewService } from '../preview/preview.service';
 import { CreateProjectDto, UpdateProjectDto } from './projects.dto';
-import { ProjectStatus } from '@prisma/client';
+import { ProjectStatus, Prisma } from '@prisma/client';
 
 @Injectable()
 export class ProjectsService {
@@ -59,8 +59,49 @@ export class ProjectsService {
     return this.prisma.project.create({ data: dto });
   }
 
-  update(id: string, dto: UpdateProjectDto) {
-    return this.prisma.project.update({ where: { id }, data: dto });
+  async update(id: string, dto: UpdateProjectDto) {
+    const { techStack: techStackUpdate, ...scalarFields } = dto;
+
+    // Deep-merge techStack if provided
+    let mergedTechStack: Record<string, unknown> | undefined;
+    if (techStackUpdate) {
+      const existing = await this.prisma.project.findUnique({
+        where: { id },
+        select: { techStack: true },
+      });
+      const current = (existing?.techStack as Record<string, unknown>) ?? {};
+
+      mergedTechStack = { ...current };
+      for (const [key, value] of Object.entries(techStackUpdate)) {
+        if (value !== undefined) {
+          const existing = mergedTechStack[key];
+          // Deep-merge objects, overwrite primitives/arrays
+          if (
+            existing &&
+            typeof existing === 'object' &&
+            !Array.isArray(existing) &&
+            typeof value === 'object' &&
+            !Array.isArray(value)
+          ) {
+            mergedTechStack[key] = { ...existing, ...value };
+          } else {
+            mergedTechStack[key] = value;
+          }
+        }
+      }
+    }
+
+    return this.prisma.project.update({
+      where: { id },
+      data: {
+        ...scalarFields,
+        ...(mergedTechStack !== undefined ? { techStack: mergedTechStack as Prisma.InputJsonValue } : {}),
+      },
+      include: {
+        issues: { where: { parentId: null }, orderBy: { createdAt: 'desc' } },
+        agents: true,
+      },
+    });
   }
 
   /** Create a minimal project (name only) for the interview flow */

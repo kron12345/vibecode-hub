@@ -1,5 +1,18 @@
-import { IsString, IsOptional, IsInt, Matches, MinLength, MaxLength } from 'class-validator';
+import {
+  IsString,
+  IsOptional,
+  IsInt,
+  IsEnum,
+  IsBoolean,
+  IsArray,
+  Matches,
+  MinLength,
+  MaxLength,
+  ValidateNested,
+} from 'class-validator';
+import { Type } from 'class-transformer';
 import { ApiProperty } from '@nestjs/swagger';
+import { ProjectStatus } from '@prisma/client';
 
 export class CreateProjectDto {
   @ApiProperty()
@@ -35,6 +48,79 @@ export class CreateMinimalProjectDto {
   name: string;
 }
 
+// ─── Nested DTOs for techStack deep-merge ──────────────────
+
+export class TechStackInfoDto {
+  @IsOptional()
+  @IsString()
+  framework?: string;
+
+  @IsOptional()
+  @IsString()
+  language?: string;
+
+  @IsOptional()
+  @IsString()
+  backend?: string;
+
+  @IsOptional()
+  @IsString()
+  database?: string;
+
+  @IsOptional()
+  @IsArray()
+  @IsString({ each: true })
+  additional?: string[];
+}
+
+export class DeploymentInfoDto {
+  @IsOptional()
+  @IsBoolean()
+  isWebProject?: boolean;
+
+  @IsOptional()
+  @IsInt()
+  devServerPort?: number;
+
+  @IsOptional()
+  @IsString()
+  devServerCommand?: string;
+
+  @IsOptional()
+  @IsString()
+  buildCommand?: string;
+}
+
+export class SetupInstructionsDto {
+  @IsOptional()
+  @IsString()
+  initCommand?: string;
+
+  @IsOptional()
+  @IsArray()
+  @IsString({ each: true })
+  additionalCommands?: string[];
+}
+
+export class TechStackUpdateDto {
+  @IsOptional()
+  @ValidateNested()
+  @Type(() => TechStackInfoDto)
+  techStack?: TechStackInfoDto;
+
+  @IsOptional()
+  @ValidateNested()
+  @Type(() => DeploymentInfoDto)
+  deployment?: DeploymentInfoDto;
+
+  @IsOptional()
+  @ValidateNested()
+  @Type(() => SetupInstructionsDto)
+  setupInstructions?: SetupInstructionsDto;
+}
+
+// ─── Main Update DTO ───────────────────────────────────────
+
 export class UpdateProjectDto {
   @IsOptional()
   @IsString()
@@ -45,10 +131,11 @@ export class UpdateProjectDto {
   description?: string;
 
   @IsOptional()
-  @IsInt()
-  gitlabProjectId?: number;
+  @IsEnum(ProjectStatus)
+  status?: ProjectStatus;
 
   @IsOptional()
-  @IsString()
-  gitlabUrl?: string;
+  @ValidateNested()
+  @Type(() => TechStackUpdateDto)
+  techStack?: TechStackUpdateDto;
 }
