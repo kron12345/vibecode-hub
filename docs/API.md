@@ -503,6 +503,8 @@ map $hub_project $hub_upstream {
 
 | Datum | Änderung |
 |---|---|
+| 2026-03-02 | Fix: REST POST /chat/messages emittiert jetzt chat.userMessage Event (Agent-Orchestrierung), Ollama think:false für qwen3.5/deepseek-r1 |
+| 2026-03-02 | Agent Presets: GET/POST /settings/agents/presets, Local (3-Modell Ollama) + CLI Vorlagen, UI Preset-Selector |
 | 2026-03-02 | DevOps Agent: Automatische Projekteinrichtung nach Interview (Clone, Init, MCP, Push), Event-basiert, deterministisch, Security-First |
 | 2026-03-02 | Projekt-Settings: UpdateProjectDto mit nested DTOs (techStack, deployment, setup), Status-Update, Deep-Merge, Tab-UI mit 6 Glass-Cards |
 | 2026-03-02 | Preview-System: Auto-Subdomain-Previews, Port-Allokation, Nginx-Map-Sync, Interview-Deployment-Erkennung |
