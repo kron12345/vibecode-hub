@@ -131,6 +131,12 @@ export class SystemSettingsService implements OnModuleInit {
     return this.get('app.name', undefined, 'VibCode Hub');
   }
 
+  // ─── DevOps Getters ──────────────────────────────────────
+
+  get devopsWorkspacePath(): string {
+    return this.get('devops.workspace_path', 'DEVOPS_WORKSPACE_PATH', './workspaces/');
+  }
+
   // ─── Preview Getters ──────────────────────────────────────
 
   get previewEnabled(): boolean {

@@ -4,6 +4,7 @@ import { PrismaService } from '../prisma/prisma.service';
 import { ChatService } from '../chat/chat.service';
 import { SystemSettingsService } from '../settings/system-settings.service';
 import { InterviewerAgent } from './interviewer/interviewer.agent';
+import { DevopsAgent } from './devops/devops.agent';
 import {
   AgentRole,
   AgentStatus,
@@ -21,6 +22,7 @@ export class AgentOrchestratorService {
     private readonly chatService: ChatService,
     private readonly settings: SystemSettingsService,
     private readonly interviewer: InterviewerAgent,
+    private readonly devops: DevopsAgent,
   ) {}
 
   /**
@@ -148,5 +150,81 @@ export class AgentOrchestratorService {
         },
       },
     });
+  }
+
+  // ─── DevOps Agent ──────────────────────────────────────────
+
+  /**
+   * Handle interview completion — automatically start DevOps setup.
+   * Reuses the same chat session for seamless flow.
+   */
+  @OnEvent('agent.interviewComplete')
+  async handleInterviewComplete(payload: {
+    projectId: string;
+    chatSessionId: string;
+  }) {
+    const { projectId, chatSessionId } = payload;
+    this.logger.log(`Interview complete for project ${projectId} — starting DevOps setup`);
+
+    try {
+      await this.startDevopsSetup(projectId, chatSessionId);
+    } catch (err) {
+      this.logger.error(`Failed to start DevOps setup: ${err.message}`);
+    }
+  }
+
+  /**
+   * Start the DevOps agent for project setup.
+   * Creates AgentInstance + AgentTask, reuses the given chat session.
+   */
+  async startDevopsSetup(projectId: string, chatSessionId: string) {
+    const project = await this.prisma.project.findUnique({
+      where: { id: projectId },
+    });
+    if (!project) {
+      throw new NotFoundException(`Project ${projectId} not found`);
+    }
+
+    // Get DevOps config for provider/model
+    const config = this.settings.getAgentRoleConfig('DEVOPS');
+
+    // Create agent instance
+    const agentInstance = await this.prisma.agentInstance.create({
+      data: {
+        projectId,
+        role: AgentRole.DEVOPS,
+        provider: config.provider as any,
+        model: config.model,
+        status: AgentStatus.IDLE,
+      },
+    });
+
+    // Create agent task
+    const agentTask = await this.prisma.agentTask.create({
+      data: {
+        agentId: agentInstance.id,
+        type: AgentTaskType.DEPLOY,
+        status: AgentTaskStatus.RUNNING,
+        startedAt: new Date(),
+      },
+    });
+
+    const ctx = {
+      projectId,
+      agentInstanceId: agentInstance.id,
+      agentTaskId: agentTask.id,
+      chatSessionId,
+    };
+
+    // Start setup asynchronously (don't block)
+    this.devops.runSetup(ctx).catch((err) => {
+      this.logger.error(`DevOps setup error: ${err.message}`);
+    });
+
+    return {
+      agentInstanceId: agentInstance.id,
+      agentTaskId: agentTask.id,
+      chatSessionId,
+    };
   }
 }

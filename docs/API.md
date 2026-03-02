@@ -249,6 +249,7 @@
 | `cors` | `cors.origins` | nein |
 | `agents` | `agents.roles.{ROLE}` (10x), `agents.pipeline` | nein |
 | `app` | `app.name` | nein |
+| `devops` | `devops.workspace_path` | nein |
 
 ---
 
@@ -358,12 +359,63 @@ Gespeichert als `agents.pipeline` (JSON):
 }
 ```
 
-### WebSocket Events (neu)
+### WebSocket Events
 
 | Event | Richtung | Beschreibung |
 |---|---|---|
 | `agentStatus` | Server → Client | Agent-Status-Änderung (role, status, projectId) |
-| `projectUpdated` | Server → Client | Projekt wurde aktualisiert (z.B. Interview abgeschlossen) |
+| `projectUpdated` | Server → Client | Projekt wurde aktualisiert (z.B. Interview abgeschlossen, Setup fertig) |
+
+### DevOps Agent (automatisch)
+
+Der DevOps-Agent startet automatisch nach Interview-Abschluss über das Event `agent.interviewComplete`.
+
+**Flow:**
+1. Interviewer-Agent beendet Interview → `agent.interviewComplete` Event
+2. AgentOrchestratorService empfängt Event → `startDevopsSetup()`
+3. DevOps-Agent erstellt AgentInstance (DEVOPS) + AgentTask (DEPLOY) in gleicher ChatSession
+4. 8-Schritte-Setup: loadProject → prepareWorkspace → cloneRepo → initCommand → additionalCommands → generateMcpConfig → gitCommitPush → finalize
+5. Projekt-Status wechselt zu `READY`
+
+**Schritte (deterministisch, kein LLM):**
+
+| Schritt | Fatal | Beschreibung |
+|---|---|---|
+| loadProjectData | Ja | Projekt + GitLab-Daten laden |
+| prepareWorkspace | Ja | Workspace-Verzeichnis erstellen (`devops.workspace_path` Setting) |
+| cloneRepository | Ja | Git clone (oder pull falls schon vorhanden) |
+| runInitCommand | Nein | Init-Befehl aus Interview (`setupInstructions.initCommand`) |
+| runAdditionalCommands | Nein | Zusätzliche Befehle aus Interview |
+| generateMcpConfig | Nein | `.mcp.json` aus `mcpServers[]` generieren |
+| gitCommitAndPush | Nein | `git add . && git commit && git push` |
+| finalize | Nein | Status → READY, Task → COMPLETED, Summary-Message |
+
+**Security:**
+- `execFile` (nicht `exec`) — keine Shell-Injection
+- Binary-Allowlist: `npx, npm, node, git, pnpm, yarn, bun, cargo, go, python, python3, pip, pip3, dotnet, mvn, gradle`
+- Token im Clone-URL wird beim Logging redacted
+- Path-Traversal-Check via `path.resolve()` + `startsWith()`
+- `CI=true` Environment Variable verhindert interaktive Prompts
+
+**System-Setting:**
+
+| Key | Default | Beschreibung |
+|---|---|---|
+| `devops.workspace_path` | `./workspaces/` | Basis-Pfad für geklonte Projekt-Repos |
+
+**DevopsSetupResult** (gespeichert als `AgentTask.output`):
+```typescript
+{
+  workspacePath: string;
+  cloneSuccess: boolean;
+  initCommandResult: CommandResult | null;
+  additionalCommandResults: CommandResult[];
+  mcpConfigGenerated: boolean;
+  gitPushSuccess: boolean;
+  webhookConfigured: boolean;
+  steps: SetupStep[];  // name, status, message, durationMs
+}
+```
 
 ---
 
@@ -451,6 +503,7 @@ map $hub_project $hub_upstream {
 
 | Datum | Änderung |
 |---|---|
+| 2026-03-02 | DevOps Agent: Automatische Projekteinrichtung nach Interview (Clone, Init, MCP, Push), Event-basiert, deterministisch, Security-First |
 | 2026-03-02 | Projekt-Settings: UpdateProjectDto mit nested DTOs (techStack, deployment, setup), Status-Update, Deep-Merge, Tab-UI mit 6 Glass-Cards |
 | 2026-03-02 | Preview-System: Auto-Subdomain-Previews, Port-Allokation, Nginx-Map-Sync, Interview-Deployment-Erkennung |
 | 2026-03-01 | Phase 2: LLM Abstraction Layer (7 Provider), Agent-Orchestrierung, Interviewer Agent, Quick-Create Flow, Event-System |

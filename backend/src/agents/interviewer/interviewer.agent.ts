@@ -1,4 +1,5 @@
 import { Injectable, Logger } from '@nestjs/common';
+import { EventEmitter2 } from '@nestjs/event-emitter';
 import { PrismaService } from '../../prisma/prisma.service';
 import { SystemSettingsService } from '../../settings/system-settings.service';
 import { ChatService } from '../../chat/chat.service';
@@ -88,6 +89,7 @@ export class InterviewerAgent extends BaseAgent {
     chatGateway: ChatGateway,
     llmService: LlmService,
     private readonly previewService: PreviewService,
+    private readonly eventEmitter: EventEmitter2,
   ) {
     super(prisma, settings, chatService, chatGateway, llmService);
   }
@@ -276,6 +278,12 @@ export class InterviewerAgent extends BaseAgent {
     this.chatGateway.emitToSession(ctx.chatSessionId, 'projectUpdated', {
       projectId: ctx.projectId,
       status: ProjectStatus.SETTING_UP,
+    });
+
+    // Trigger DevOps agent setup
+    this.eventEmitter.emit('agent.interviewComplete', {
+      projectId: ctx.projectId,
+      chatSessionId: ctx.chatSessionId,
     });
   }
 }
