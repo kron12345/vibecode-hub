@@ -535,17 +535,51 @@ export class GitlabService {
     return data;
   }
 
-  async getMergeRequestDiffs(projectId: number, mrIid: number): Promise<GitLabMrDiff[]> {
-    const { data } = await firstValueFrom(
-      this.httpService.get<GitLabMrDiff[]>(
-        `${this.apiUrl}/projects/${projectId}/merge_requests/${mrIid}/diffs`,
-        {
-          headers: this.headers,
-          params: { per_page: 100 },
-        },
-      ),
-    );
-    return data;
+  /**
+   * Fetch MR diffs with pagination. Skips node_modules and other generated paths.
+   * Fetches up to maxPages pages, collecting up to maxDiffs relevant diffs.
+   */
+  async getMergeRequestDiffs(
+    projectId: number,
+    mrIid: number,
+    options?: { maxDiffs?: number; maxPages?: number },
+  ): Promise<GitLabMrDiff[]> {
+    const maxDiffs = options?.maxDiffs ?? 50;
+    const maxPages = options?.maxPages ?? 10;
+    const collected: GitLabMrDiff[] = [];
+
+    for (let page = 1; page <= maxPages; page++) {
+      const { data } = await firstValueFrom(
+        this.httpService.get<GitLabMrDiff[]>(
+          `${this.apiUrl}/projects/${projectId}/merge_requests/${mrIid}/diffs`,
+          {
+            headers: this.headers,
+            params: { per_page: 100, page },
+          },
+        ),
+      );
+
+      if (!data || data.length === 0) break;
+
+      // Filter out generated/vendored paths
+      const relevant = data.filter(d =>
+        !d.new_path.includes('node_modules/') &&
+        !d.new_path.includes('vendor/') &&
+        !d.new_path.endsWith('.lock') &&
+        !d.new_path.endsWith('-lock.json'),
+      );
+
+      collected.push(...relevant);
+
+      if (collected.length >= maxDiffs) {
+        return collected.slice(0, maxDiffs);
+      }
+
+      // If this page had less than 100 results, there are no more pages
+      if (data.length < 100) break;
+    }
+
+    return collected;
   }
 
   // ─── Branches ──────────────────────────────────────────────

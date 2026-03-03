@@ -123,19 +123,41 @@ export class CodeReviewerAgent extends BaseAgent {
       const config = this.getRoleConfig();
       const systemPrompt = config.systemPrompt || DEFAULT_SYSTEM_PROMPT;
 
-      const diffText = diffs.map(d => {
+      // Prioritize source files > configs > other files for review
+      const MAX_REVIEW_DIFFS = 25;
+      const MAX_DIFF_CHARS = 2000;
+      const sortedDiffs = [...diffs].sort((a, b) => {
+        const score = (path: string) => {
+          if (/\.(ts|js|tsx|jsx|py|rs|go|java|css|scss|html)$/.test(path)) return 0;
+          if (/\.(json|yml|yaml|toml|env)$/.test(path)) return 1;
+          return 2;
+        };
+        return score(a.new_path) - score(b.new_path);
+      });
+
+      const reviewDiffs = sortedDiffs.slice(0, MAX_REVIEW_DIFFS);
+      const skippedCount = diffs.length - reviewDiffs.length;
+
+      this.logger.log(`Reviewing ${reviewDiffs.length} of ${diffs.length} diff(s) for MR !${mrIid}${skippedCount > 0 ? ` (${skippedCount} skipped)` : ''}`);
+
+      const diffText = reviewDiffs.map(d => {
         const prefix = d.new_file ? '[NEW]' : d.deleted_file ? '[DELETED]' : d.renamed_file ? '[RENAMED]' : '[MODIFIED]';
-        return `### ${prefix} ${d.new_path}\n\`\`\`diff\n${d.diff.substring(0, 3000)}\n\`\`\``;
+        const truncated = d.diff.length > MAX_DIFF_CHARS ? d.diff.substring(0, MAX_DIFF_CHARS) + '\n... (truncated)' : d.diff;
+        return `### ${prefix} ${d.new_path}\n\`\`\`diff\n${truncated}\n\`\`\``;
       }).join('\n\n');
+
+      const skippedNote = skippedCount > 0
+        ? `\n\n_Note: ${skippedCount} additional file(s) were omitted (node_modules, lock files, or low-priority). Focus on the shown diffs._`
+        : '';
 
       const userPrompt = `Review the following merge request:
 
 **Issue:** ${issue.title}
 **Description:** ${issue.description || 'N/A'}
 
-## MR Diffs (${diffs.length} file(s)):
+## MR Diffs (${reviewDiffs.length} of ${diffs.length} file(s)):
 
-${diffText}
+${diffText}${skippedNote}
 
 Provide your review analysis and end with the completion marker and JSON result.`;
 
@@ -266,55 +288,268 @@ Provide your review analysis and end with the completion marker and JSON result.
 
     await this.updateStatus(ctx, AgentStatus.IDLE);
 
-    // Build feedback for Coder
-    const feedback = reviewResult.findings
+    // Build feedback for Coder — include summary if no findings
+    const findingsForCoder = reviewResult.findings
       .map(f => `[${f.severity.toUpperCase()}] ${f.file}${f.line ? `:${f.line}` : ''}: ${f.message}${f.suggestion ? ` → ${f.suggestion}` : ''}`)
       .join('\n');
+
+    const feedback = findingsForCoder
+      ? `Code Review findings:\n\n${findingsForCoder}`
+      : `Code Review feedback:\n\n${reviewResult.summary}`;
 
     this.eventEmitter.emit('agent.reviewChangesRequested', {
       projectId: ctx.projectId,
       chatSessionId: ctx.chatSessionId,
       issueId,
-      feedback: `Code Review findings:\n\n${feedback}`,
+      feedback,
     });
   }
 
   // ─── Parsing ──────────────────────────────────────────────
 
   private parseReviewResult(content: string, issueId: string, mrIid: number): ReviewResult | null {
+    this.logger.debug(`Parsing review result (${content.length} chars)`);
+
+    if (!content.trim()) {
+      this.logger.error('Review content is empty — LLM returned nothing');
+      return null;
+    }
+
+    // Step 1: Strip <think> tags (deepseek-r1 may include them even with think:false)
+    let cleaned = content.replace(/<think>[\s\S]*?<\/think>/g, '').trim();
+
+    if (cleaned.length !== content.length) {
+      this.logger.debug(`Stripped <think> tags: ${content.length} → ${cleaned.length} chars`);
+    }
+
+    // Step 2: Try to extract JSON after the completion marker
+    let jsonStr = this.extractJsonFromReview(cleaned);
+
+    if (!jsonStr) {
+      this.logger.warn('Could not extract JSON from review — attempting text-based analysis');
+      return this.buildResultFromText(cleaned, issueId, mrIid);
+    }
+
     try {
-      let jsonPart = content.includes(COMPLETION_MARKER)
-        ? content.substring(content.indexOf(COMPLETION_MARKER) + COMPLETION_MARKER.length)
-        : content;
-
-      // Strip thinking tags
-      jsonPart = jsonPart.replace(/<think>[\s\S]*?<\/think>/g, '').trim();
-
-      const jsonMatch = jsonPart.match(/\{[\s\S]*\}/);
-      if (!jsonMatch) return null;
-
-      let jsonStr = jsonMatch[0];
-      jsonStr = jsonStr.replace(/,\s*([}\]])/g, '$1');
+      // Fix common JSON issues
+      jsonStr = jsonStr.replace(/,\s*([}\]])/g, '$1'); // trailing commas
+      jsonStr = jsonStr.replace(/[\x00-\x1F\x7F]/g, ' '); // control chars
 
       const parsed = JSON.parse(jsonStr);
 
-      return {
+      // Normalize different JSON formats:
+      // Format A (expected): { approved: bool, summary: str, findings: [...] }
+      // Format B (deepseek-r1): { status: "APPROVED"|"CHANGES_REQUIRED", issues: [...], summary?: str }
+      // Format C: { decision: "approve"|"reject", comments: [...] }
+      const approved = this.normalizeApproval(parsed);
+      const findings = this.parseFindings(parsed.findings || parsed.issues || parsed.comments || parsed.problems || []);
+      // Build summary — avoid using status/decision strings as summary
+      let summary = parsed.summary || this.extractSummaryFromText(cleaned);
+      // Clean up common prefixes from extracted summaries
+      if (summary) {
+        summary = summary.replace(/^[:\s]*(?:CHANGES_REQUIRED|APPROVED|CHANGES REQUESTED)[:\s]*/i, '').trim();
+      }
+      if (!summary || summary.length < 5) {
+        summary = approved ? 'Code review passed' : `Changes requested (${findings.length} finding(s))`;
+      }
+
+      const result: ReviewResult = {
         issueId,
         mrIid,
-        approved: !!parsed.approved,
-        summary: parsed.summary ?? 'No summary provided',
-        findings: (parsed.findings ?? []).map((f: any) => ({
-          severity: ['info', 'warning', 'critical'].includes(f.severity) ? f.severity : 'info',
-          file: f.file ?? 'unknown',
-          line: f.line ?? undefined,
-          message: f.message ?? 'No message',
-          suggestion: f.suggestion ?? undefined,
-        })),
+        approved,
+        summary,
+        findings,
       };
+
+      this.logger.log(`Parsed review: approved=${result.approved}, findings=${result.findings.length}, summary="${result.summary.substring(0, 80)}"`);
+      return result;
+
     } catch (err) {
-      this.logger.error(`Failed to parse review result: ${err.message}`);
-      return null;
+      this.logger.error(`JSON parse failed: ${err.message} — raw JSON: ${jsonStr.substring(0, 200)}`);
+      // Fall back to text analysis
+      return this.buildResultFromText(cleaned, issueId, mrIid);
     }
+  }
+
+  /**
+   * Extract JSON from the review content using multiple strategies.
+   */
+  private extractJsonFromReview(content: string): string | null {
+    // Strategy 1: After :::REVIEW_COMPLETE::: marker
+    if (content.includes(COMPLETION_MARKER)) {
+      const afterMarker = content.substring(
+        content.indexOf(COMPLETION_MARKER) + COMPLETION_MARKER.length,
+      ).trim();
+      const json = this.findJsonObject(afterMarker);
+      if (json) return json;
+    }
+
+    // Strategy 2: JSON in code fences (```json ... ```)
+    const fenceMatch = content.match(/```(?:json)?\s*\n?([\s\S]*?)\n?```/);
+    if (fenceMatch) {
+      const json = this.findJsonObject(fenceMatch[1]);
+      if (json) return json;
+    }
+
+    // Strategy 3: Last JSON object in the content (review JSON is usually at the end)
+    const allJsonMatches = [...content.matchAll(/\{[^{}]*(?:\{[^{}]*\}[^{}]*)*\}/g)];
+    if (allJsonMatches.length > 0) {
+      // Try from last to first — the review JSON is most likely the last one
+      for (let i = allJsonMatches.length - 1; i >= 0; i--) {
+        const candidate = allJsonMatches[i][0];
+        // Match both expected format and deepseek-r1 format
+        if (candidate.includes('"approved"') || candidate.includes('"findings"')
+          || candidate.includes('"status"') || candidate.includes('"issues"')) {
+          return candidate;
+        }
+      }
+    }
+
+    // Strategy 4: Greedy match for a large JSON object containing review keywords
+    const greedyMatch = content.match(/\{[\s\S]*(?:"approved"|"status")[\s\S]*\}/);
+    if (greedyMatch) return greedyMatch[0];
+
+    return null;
+  }
+
+  /**
+   * Find a valid JSON object in a string.
+   */
+  private findJsonObject(str: string): string | null {
+    // Strip markdown code fences if present
+    const stripped = str.replace(/^```(?:json)?\s*\n?/, '').replace(/\n?```\s*$/, '').trim();
+    const match = stripped.match(/\{[\s\S]*\}/);
+    return match ? match[0] : null;
+  }
+
+  /**
+   * Normalize the approval field from various JSON formats.
+   */
+  private normalizeApproval(parsed: any): boolean {
+    // Direct boolean
+    if (typeof parsed.approved === 'boolean') return parsed.approved;
+    // String "true"/"false"
+    if (typeof parsed.approved === 'string') return parsed.approved.toLowerCase() === 'true';
+    // Status string (deepseek-r1 format)
+    if (parsed.status) {
+      const status = String(parsed.status).toLowerCase();
+      return status === 'approved' || status === 'approve' || status === 'lgtm';
+    }
+    // Decision string
+    if (parsed.decision) {
+      const decision = String(parsed.decision).toLowerCase();
+      return decision === 'approve' || decision === 'approved' || decision === 'lgtm';
+    }
+    // Fallback: if there are critical findings, not approved
+    return false;
+  }
+
+  /**
+   * Parse findings array with validation.
+   * Handles multiple formats: findings, issues, comments, problems.
+   */
+  private parseFindings(rawFindings: any): ReviewFinding[] {
+    if (!Array.isArray(rawFindings)) return [];
+    return rawFindings
+      .filter((f: any) => f && typeof f === 'object')
+      .map((f: any) => ({
+        severity: this.normalizeSeverity(f.severity || f.type || f.level),
+        file: String(f.file ?? f.path ?? f.filename ?? 'unknown'),
+        line: typeof f.line === 'number' ? f.line : (typeof f.lineNumber === 'number' ? f.lineNumber : undefined),
+        message: String(f.message ?? f.description ?? f.comment ?? f.text ?? 'No details'),
+        suggestion: f.suggestion ? String(f.suggestion) : (f.suggestedFix ? String(f.suggestedFix) : undefined),
+      }));
+  }
+
+  private normalizeSeverity(raw: any): 'info' | 'warning' | 'critical' {
+    if (!raw) return 'warning';
+    const s = String(raw).toLowerCase();
+    if (['critical', 'error', 'high', 'major', 'blocker'].includes(s)) return 'critical';
+    if (['warning', 'warn', 'medium', 'minor'].includes(s)) return 'warning';
+    return 'info';
+  }
+
+  /**
+   * Fallback: analyze the review text to determine approval/findings
+   * when JSON parsing fails completely.
+   */
+  private buildResultFromText(text: string, issueId: string, mrIid: number): ReviewResult {
+    const lower = text.toLowerCase();
+
+    // Determine approval from text keywords
+    const hasChangesRequested =
+      lower.includes('request changes') ||
+      lower.includes('changes requested') ||
+      lower.includes('changes_required') ||
+      lower.includes('not approved') ||
+      lower.includes('reject');
+
+    const hasApproved =
+      lower.includes('approved') ||
+      lower.includes('approve') ||
+      lower.includes('lgtm') ||
+      lower.includes('looks good');
+
+    // Count severity mentions as proxy findings
+    const criticalCount = (lower.match(/critical/g) || []).length;
+    const warningCount = (lower.match(/warning/g) || []).length;
+
+    // Extract the first paragraph after any "summary" keyword as the summary
+    const summary = this.extractSummaryFromText(text) || 'Review analysis completed (parsed from text)';
+
+    // Build synthetic findings from text analysis
+    const findings: ReviewFinding[] = [];
+    const findingPattern = /(?:^|\n)\s*(?:\d+\.\s*)?(?:\*\*)?(?:(?:critical|warning|info)[:\s—-]+)(.*?)(?:\n|$)/gi;
+    let match: RegExpExecArray | null;
+    while ((match = findingPattern.exec(text)) !== null) {
+      const line = match[0].trim();
+      const severity = /critical/i.test(line) ? 'critical' : /warning/i.test(line) ? 'warning' : 'info';
+      findings.push({
+        severity,
+        file: 'unknown',
+        message: match[1]?.trim() || line.substring(0, 100),
+      });
+    }
+
+    const approved = hasApproved && !hasChangesRequested && criticalCount === 0;
+
+    this.logger.log(`Text-based review: approved=${approved}, criticals=${criticalCount}, warnings=${warningCount}, findings=${findings.length}`);
+
+    return { issueId, mrIid, approved, summary, findings };
+  }
+
+  /**
+   * Extract a summary sentence from the review text.
+   */
+  private extractSummaryFromText(text: string): string | null {
+    // Look for explicit summary section
+    const summaryMatch = text.match(/(?:summary|decision|conclusion|overall)[:\s]*\n?\s*(.+?)(?:\n\n|\n(?=[#*\-]))/i);
+    if (summaryMatch) {
+      const cleaned = summaryMatch[1].replace(/^\*+\s*|\s*\*+$/g, '').trim();
+      if (cleaned.length > 10) return cleaned.substring(0, 200);
+    }
+
+    // Look for the first substantial paragraph (skip headers like "**Review Analysis:**")
+    const markerPos = text.indexOf(COMPLETION_MARKER);
+    const beforeMarker = markerPos > 0 ? text.substring(0, markerPos) : text;
+
+    // Split into paragraphs and find the first meaningful one
+    const paragraphs = beforeMarker.split(/\n\n+/)
+      .map(p => p.replace(/^\*+\s*|\s*\*+$/g, '').replace(/^#+\s*/, '').trim())
+      .filter(p => p.length > 30 && !p.startsWith('###') && !p.startsWith('---'));
+
+    if (paragraphs.length > 0) {
+      // Use the first real paragraph as summary
+      const first = paragraphs[0].split('\n')[0]; // Just the first line
+      return first.substring(0, 200);
+    }
+
+    // Last resort: last sentence before JSON
+    const sentences = beforeMarker.split(/[.\n]/).filter(s => s.trim().length > 20);
+    if (sentences.length > 0) {
+      return sentences[sentences.length - 1].replace(/^\*+\s*|\s*\*+$/g, '').trim().substring(0, 200);
+    }
+    return null;
   }
 
   // ─── GitLab Comment ────────────────────────────────────────

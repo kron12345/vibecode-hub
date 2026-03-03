@@ -1,4 +1,5 @@
 import { Injectable, Logger } from '@nestjs/common';
+import { Agent } from 'undici';
 import { SystemSettingsService } from '../../settings/system-settings.service';
 import {
   LlmStreamingProvider,
@@ -11,6 +12,17 @@ import {
 export class OllamaProvider implements LlmStreamingProvider {
   readonly providerType = 'OLLAMA';
   private readonly logger = new Logger(OllamaProvider.name);
+
+  /**
+   * Custom Undici agent with extended timeouts.
+   * Default headersTimeout (300s) is too short for large models like deepseek-r1:32b
+   * which need ~40s to load into VRAM + minutes to generate.
+   */
+  private readonly dispatcher = new Agent({
+    headersTimeout: 600_000, // 10 min
+    bodyTimeout: 600_000,    // 10 min
+    connectTimeout: 30_000,  // 30s
+  });
 
   constructor(private readonly settings: SystemSettingsService) {}
 
@@ -40,8 +52,8 @@ export class OllamaProvider implements LlmStreamingProvider {
       `Ollama request: model=${options.model}, messages=${options.messages.length}`,
     );
 
-    // 5 minutes timeout — large models (deepseek-r1:32b) need time to load + generate
-    const timeoutMs = 300_000;
+    // 10 minutes timeout — large models (deepseek-r1:32b) need time to load + generate long reviews
+    const timeoutMs = 600_000;
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), timeoutMs);
 
@@ -51,7 +63,8 @@ export class OllamaProvider implements LlmStreamingProvider {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(body),
         signal: controller.signal,
-      });
+        dispatcher: this.dispatcher,
+      } as any);
 
       if (!response.ok) {
         const errorText = await response.text();
@@ -94,7 +107,7 @@ export class OllamaProvider implements LlmStreamingProvider {
       if (err.name === 'AbortError') {
         this.logger.error(`Ollama request timed out after ${timeoutMs / 1000}s`);
       } else {
-        this.logger.error(`Ollama request failed: ${err.message}`);
+        this.logger.error(`Ollama request failed: ${err.message} (${err.cause?.code ?? err.code ?? 'unknown'})`);
       }
       return { content: '', finishReason: 'error' };
     } finally {
@@ -138,7 +151,8 @@ export class OllamaProvider implements LlmStreamingProvider {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(body),
         signal: controller.signal,
-      });
+        dispatcher: this.dispatcher,
+      } as any);
 
       if (!response.ok) {
         const errorText = await response.text();
