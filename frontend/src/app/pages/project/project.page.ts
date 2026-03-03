@@ -776,6 +776,12 @@ export class ProjectPage implements OnInit, OnDestroy {
         this.api.getProject(p.slug).subscribe((updated) => {
           this.project.set(updated);
         });
+
+        // Reload issues + milestones when Issue Compiler finishes
+        if (event.role === 'ISSUE_COMPILER' && event.status === 'IDLE') {
+          this.loadIssues(p.id);
+          this.loadMilestones(p.id);
+        }
       }
     });
 
