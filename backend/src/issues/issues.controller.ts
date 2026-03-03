@@ -12,6 +12,18 @@ import { ApiTags, ApiQuery } from '@nestjs/swagger';
 import { IssuesService } from './issues.service';
 import { CreateIssueDto, UpdateIssueDto } from './issues.dto';
 
+@ApiTags('milestones')
+@Controller('milestones')
+export class MilestonesController {
+  constructor(private readonly issuesService: IssuesService) {}
+
+  @Get()
+  @ApiQuery({ name: 'projectId', required: true })
+  findByProject(@Query('projectId') projectId: string) {
+    return this.issuesService.findMilestonesByProject(projectId);
+  }
+}
+
 @ApiTags('issues')
 @Controller('issues')
 export class IssuesController {

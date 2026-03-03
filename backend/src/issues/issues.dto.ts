@@ -38,6 +38,16 @@ export class CreateIssueDto {
   @IsString()
   parentId?: string;
 
+  @ApiProperty({ required: false, description: 'Milestone ID to assign this issue to' })
+  @IsOptional()
+  @IsString()
+  milestoneId?: string;
+
+  @ApiProperty({ required: false, description: 'GitLab milestone ID for issue sync' })
+  @IsOptional()
+  @IsInt()
+  gitlabMilestoneId?: number;
+
   @ApiProperty({ required: false, description: 'Sync to GitLab on creation' })
   @IsOptional()
   syncToGitlab?: boolean;

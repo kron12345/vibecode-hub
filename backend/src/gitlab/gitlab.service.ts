@@ -24,6 +24,19 @@ export interface GitLabIssue {
   updated_at: string;
 }
 
+export interface GitLabMilestone {
+  id: number;
+  iid: number;
+  title: string;
+  description: string | null;
+  state: 'active' | 'closed';
+  due_date: string | null;
+  start_date: string | null;
+  web_url: string;
+  created_at: string;
+  updated_at: string;
+}
+
 export interface GitLabWorkItem {
   id: string;       // "gid://gitlab/WorkItem/123"
   iid: string;      // Project-scoped IID
@@ -43,6 +56,7 @@ interface CreateIssueOptions {
   title: string;
   description?: string;
   labels?: string[];
+  milestone_id?: number;
 }
 
 interface UpdateIssueOptions {
@@ -50,6 +64,22 @@ interface UpdateIssueOptions {
   description?: string;
   labels?: string[];
   state_event?: 'close' | 'reopen';
+  milestone_id?: number;
+}
+
+interface CreateMilestoneOptions {
+  title: string;
+  description?: string;
+  start_date?: string;
+  due_date?: string;
+}
+
+interface UpdateMilestoneOptions {
+  title?: string;
+  description?: string;
+  start_date?: string;
+  due_date?: string;
+  state_event?: 'close' | 'activate';
 }
 
 @Injectable()
@@ -112,14 +142,19 @@ export class GitlabService {
   // ─── Issues ──────────────────────────────────────────────────
 
   async createIssue(projectId: number, options: CreateIssueOptions): Promise<GitLabIssue> {
+    const body: Record<string, unknown> = {
+      title: options.title,
+      description: options.description ?? '',
+      labels: options.labels?.join(',') ?? '',
+    };
+    if (options.milestone_id !== undefined) {
+      body.milestone_id = options.milestone_id;
+    }
+
     const { data } = await firstValueFrom(
       this.httpService.post<GitLabIssue>(
         `${this.apiUrl}/projects/${projectId}/issues`,
-        {
-          title: options.title,
-          description: options.description ?? '',
-          labels: options.labels?.join(',') ?? '',
-        },
+        body,
         { headers: this.headers },
       ),
     );
@@ -165,6 +200,7 @@ export class GitlabService {
     if (options.description !== undefined) body.description = options.description;
     if (options.labels !== undefined) body.labels = options.labels.join(',');
     if (options.state_event !== undefined) body.state_event = options.state_event;
+    if (options.milestone_id !== undefined) body.milestone_id = options.milestone_id;
 
     const { data } = await firstValueFrom(
       this.httpService.put<GitLabIssue>(
@@ -179,6 +215,64 @@ export class GitlabService {
 
   async closeIssue(projectId: number, issueIid: number): Promise<GitLabIssue> {
     return this.updateIssue(projectId, issueIid, { state_event: 'close' });
+  }
+
+  // ─── Milestones ─────────────────────────────────────────────
+
+  async createMilestone(projectId: number, options: CreateMilestoneOptions): Promise<GitLabMilestone> {
+    const body: Record<string, unknown> = { title: options.title };
+    if (options.description) body.description = options.description;
+    if (options.start_date) body.start_date = options.start_date;
+    if (options.due_date) body.due_date = options.due_date;
+
+    const { data } = await firstValueFrom(
+      this.httpService.post<GitLabMilestone>(
+        `${this.apiUrl}/projects/${projectId}/milestones`,
+        body,
+        { headers: this.headers },
+      ),
+    );
+    this.logger.log(`Created GitLab milestone "${data.title}" (ID: ${data.id}) in project ${projectId}`);
+    return data;
+  }
+
+  async getMilestones(projectId: number, state?: 'active' | 'closed'): Promise<GitLabMilestone[]> {
+    const { data } = await firstValueFrom(
+      this.httpService.get<GitLabMilestone[]>(
+        `${this.apiUrl}/projects/${projectId}/milestones`,
+        {
+          headers: this.headers,
+          params: {
+            state: state ?? 'active',
+            per_page: 100,
+          },
+        },
+      ),
+    );
+    return data;
+  }
+
+  async updateMilestone(
+    projectId: number,
+    milestoneId: number,
+    options: UpdateMilestoneOptions,
+  ): Promise<GitLabMilestone> {
+    const body: Record<string, unknown> = {};
+    if (options.title !== undefined) body.title = options.title;
+    if (options.description !== undefined) body.description = options.description;
+    if (options.start_date !== undefined) body.start_date = options.start_date;
+    if (options.due_date !== undefined) body.due_date = options.due_date;
+    if (options.state_event !== undefined) body.state_event = options.state_event;
+
+    const { data } = await firstValueFrom(
+      this.httpService.put<GitLabMilestone>(
+        `${this.apiUrl}/projects/${projectId}/milestones/${milestoneId}`,
+        body,
+        { headers: this.headers },
+      ),
+    );
+    this.logger.log(`Updated GitLab milestone ${milestoneId} in project ${projectId}`);
+    return data;
   }
 
   // ─── Work Items (GraphQL) ────────────────────────────────────

@@ -54,6 +54,20 @@ export interface QuickCreateResult {
   };
 }
 
+export interface Milestone {
+  id: string;
+  projectId: string;
+  gitlabMilestoneId?: number;
+  title: string;
+  description?: string;
+  sortOrder: number;
+  startDate?: string;
+  dueDate?: string;
+  issues?: Pick<Issue, 'id' | 'title' | 'status' | 'priority'>[];
+  createdAt: string;
+  updatedAt: string;
+}
+
 export interface Issue {
   id: string;
   projectId: string;
@@ -63,6 +77,8 @@ export interface Issue {
   priority: string;
   labels: string[];
   parentId?: string;
+  milestoneId?: string;
+  milestone?: { id: string; title: string; sortOrder: number };
   subIssues?: Issue[];
   gitlabIid?: number;
   assignedAgent?: { id: string; role: string; status: string };
@@ -199,6 +215,14 @@ export class ApiService {
 
   deleteProject(id: string) {
     return this.http.delete(`${this.baseUrl}/projects/${id}`);
+  }
+
+  // ─── Milestones ──────────────────────────────────────────
+
+  getMilestones(projectId: string) {
+    return this.http.get<Milestone[]>(`${this.baseUrl}/milestones`, {
+      params: { projectId },
+    });
   }
 
   // ─── Issues ────────────────────────────────────────────────

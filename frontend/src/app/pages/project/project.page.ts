@@ -17,6 +17,7 @@ import {
   Project,
   ProjectStatus,
   Issue,
+  Milestone,
   ChatSession,
   ChatMessage,
 } from '../../services/api.service';
@@ -160,44 +161,100 @@ type Tab = 'overview' | 'settings';
         <!-- Main Content: Issues + Chat/Terminal -->
         <div class="grid grid-cols-1 lg:grid-cols-[280px_1fr] gap-4">
 
-          <!-- Left: Issues -->
+          <!-- Left: Issues (grouped by milestones) -->
           <div class="glass rounded-3xl p-5 max-h-[65vh] overflow-y-auto">
             <div class="flex items-center justify-between mb-4">
               <h3 class="text-sm font-bold text-slate-500 uppercase tracking-widest">{{ 'project.issues' | translate }}</h3>
               <span class="text-[10px] font-mono text-slate-600">{{ issues().length }}</span>
             </div>
-            @for (issue of issues(); track issue.id) {
-              <div
-                class="bg-black/30 rounded-xl p-3 mb-2 border-l-2 transition-all hover:bg-black/40"
-                [class]="issueBorderClass(issue.priority)"
-              >
-                <div class="flex items-center justify-between mb-1">
-                  <span class="text-[10px] uppercase tracking-widest font-bold"
-                    [class]="issuePriorityColor(issue.priority)"
-                  >
-                    {{ issue.priority }}
+
+            @if (issuesByMilestone().length > 0) {
+              @for (group of issuesByMilestone(); track group.id) {
+                <!-- Milestone Header -->
+                <button
+                  class="w-full flex items-center justify-between px-3 py-2 mb-1 rounded-xl bg-amber-500/10 border border-amber-500/20 hover:bg-amber-500/15 transition-all cursor-pointer"
+                  (click)="toggleMilestone(group.id)"
+                >
+                  <div class="flex items-center gap-2">
+                    <app-icon
+                      [name]="isMilestoneExpanded(group.id) ? 'chevron-down' : 'chevron-right'"
+                      [size]="14"
+                      class="text-amber-400"
+                    />
+                    <span class="text-xs font-bold text-amber-400 uppercase tracking-widest">{{ group.title }}</span>
+                  </div>
+                  <span class="text-[10px] font-mono text-amber-500/60">
+                    {{ i18n.t('project.milestoneIssues', { count: group.issues.length }) }}
                   </span>
-                  <span class="text-[9px] font-mono text-slate-600 uppercase">{{ issue.status }}</span>
-                </div>
-                <p class="text-sm text-slate-300 mb-2">{{ issue.title }}</p>
-                <!-- Progress dots -->
-                <div class="progress-dots">
-                  @for (step of issueSteps; track step; let i = $index) {
-                    <span
-                      class="dot"
-                      [class.done]="getStepIndex(issue.status) > i"
-                      [class.active]="getStepIndex(issue.status) === i"
-                    ></span>
+                </button>
+
+                <!-- Issues within milestone -->
+                @if (isMilestoneExpanded(group.id)) {
+                  @for (issue of group.issues; track issue.id) {
+                    <div
+                      class="bg-black/30 rounded-xl p-3 mb-2 ml-2 border-l-2 transition-all hover:bg-black/40"
+                      [class]="issueBorderClass(issue.priority)"
+                    >
+                      <div class="flex items-center justify-between mb-1">
+                        <span class="text-[10px] uppercase tracking-widest font-bold"
+                          [class]="issuePriorityColor(issue.priority)"
+                        >
+                          {{ issue.priority }}
+                        </span>
+                        <span class="text-[9px] font-mono text-slate-600 uppercase">{{ issue.status }}</span>
+                      </div>
+                      <p class="text-sm text-slate-300 mb-2">{{ issue.title }}</p>
+                      <div class="progress-dots">
+                        @for (step of issueSteps; track step; let i = $index) {
+                          <span
+                            class="dot"
+                            [class.done]="getStepIndex(issue.status) > i"
+                            [class.active]="getStepIndex(issue.status) === i"
+                          ></span>
+                        }
+                      </div>
+                      @if (issue.subIssues && issue.subIssues.length > 0) {
+                        <span class="text-[10px] text-slate-600 mt-1 block">
+                          {{ i18n.t('project.subIssues', { count: issue.subIssues.length }) }}
+                        </span>
+                      }
+                    </div>
+                  }
+                }
+              }
+            } @else if (issues().length > 0) {
+              <!-- Fallback: no milestones, show flat list -->
+              @for (issue of issues(); track issue.id) {
+                <div
+                  class="bg-black/30 rounded-xl p-3 mb-2 border-l-2 transition-all hover:bg-black/40"
+                  [class]="issueBorderClass(issue.priority)"
+                >
+                  <div class="flex items-center justify-between mb-1">
+                    <span class="text-[10px] uppercase tracking-widest font-bold"
+                      [class]="issuePriorityColor(issue.priority)"
+                    >
+                      {{ issue.priority }}
+                    </span>
+                    <span class="text-[9px] font-mono text-slate-600 uppercase">{{ issue.status }}</span>
+                  </div>
+                  <p class="text-sm text-slate-300 mb-2">{{ issue.title }}</p>
+                  <div class="progress-dots">
+                    @for (step of issueSteps; track step; let i = $index) {
+                      <span
+                        class="dot"
+                        [class.done]="getStepIndex(issue.status) > i"
+                        [class.active]="getStepIndex(issue.status) === i"
+                      ></span>
+                    }
+                  </div>
+                  @if (issue.subIssues && issue.subIssues.length > 0) {
+                    <span class="text-[10px] text-slate-600 mt-1 block">
+                      {{ i18n.t('project.subIssues', { count: issue.subIssues.length }) }}
+                    </span>
                   }
                 </div>
-                @if (issue.subIssues && issue.subIssues.length > 0) {
-                  <span class="text-[10px] text-slate-600 mt-1 block">
-                    {{ i18n.t('project.subIssues', { count: issue.subIssues.length }) }}
-                  </span>
-                }
-              </div>
-            }
-            @if (issues().length === 0) {
+              }
+            } @else {
               <p class="text-slate-600 text-sm text-center py-8">{{ 'project.noIssues' | translate }}</p>
             }
           </div>
@@ -569,6 +626,8 @@ export class ProjectPage implements OnInit, OnDestroy {
 
   project = signal<Project | null>(null);
   issues = signal<Issue[]>([]);
+  milestones = signal<Milestone[]>([]);
+  expandedMilestones = signal<Set<string>>(new Set());
   sessions = signal<ChatSession[]>([]);
   activeSession = signal<ChatSession | null>(null);
   messages = signal<ChatMessage[]>([]);
@@ -617,6 +676,37 @@ export class ProjectPage implements OnInit, OnDestroy {
     (this.project()?.agents ?? []).some((a) => a.status === 'WORKING'),
   );
 
+  /** Group issues by milestone, with ungrouped bucket */
+  issuesByMilestone = computed(() => {
+    const allIssues = this.issues();
+    const allMilestones = this.milestones();
+
+    const groups: { id: string; title: string; sortOrder: number; issues: Issue[] }[] = [];
+
+    // Milestones sorted by sortOrder
+    for (const ms of allMilestones) {
+      groups.push({
+        id: ms.id,
+        title: ms.title,
+        sortOrder: ms.sortOrder,
+        issues: allIssues.filter(i => i.milestoneId === ms.id),
+      });
+    }
+
+    // Ungrouped issues (no milestone)
+    const ungrouped = allIssues.filter(i => !i.milestoneId);
+    if (ungrouped.length > 0) {
+      groups.push({
+        id: '_ungrouped',
+        title: this.i18n.t('project.ungroupedIssues'),
+        sortOrder: 999,
+        issues: ungrouped,
+      });
+    }
+
+    return groups.sort((a, b) => a.sortOrder - b.sortOrder);
+  });
+
   /** Extract features from techStack interview results */
   interviewFeatures = computed(() => {
     const ts = this.project()?.techStack as Record<string, unknown> | null;
@@ -657,6 +747,7 @@ export class ProjectPage implements OnInit, OnDestroy {
       this.api.getProject(slug).subscribe((p) => {
         this.project.set(p);
         this.loadIssues(p.id);
+        this.loadMilestones(p.id);
         this.loadSessions(p.id);
 
         // Auto-open interview session if project is in INTERVIEWING state
@@ -799,6 +890,30 @@ export class ProjectPage implements OnInit, OnDestroy {
 
   loadIssues(projectId: string) {
     this.api.getIssues(projectId).subscribe((issues) => this.issues.set(issues));
+  }
+
+  loadMilestones(projectId: string) {
+    this.api.getMilestones(projectId).subscribe((milestones) => {
+      this.milestones.set(milestones);
+      // Default: all milestones expanded
+      this.expandedMilestones.set(new Set(milestones.map(m => m.id)));
+    });
+  }
+
+  toggleMilestone(id: string) {
+    this.expandedMilestones.update(set => {
+      const next = new Set(set);
+      if (next.has(id)) {
+        next.delete(id);
+      } else {
+        next.add(id);
+      }
+      return next;
+    });
+  }
+
+  isMilestoneExpanded(id: string): boolean {
+    return this.expandedMilestones().has(id);
   }
 
   loadSessions(projectId: string) {

@@ -130,6 +130,38 @@
 
 ---
 
+## Milestones
+
+| Method | Endpoint | Auth | Beschreibung |
+|---|---|---|---|
+| `GET` | `/api/milestones?projectId=xxx` | Ja | Milestones eines Projekts mit zugehörigen Issues |
+
+### Response
+
+```typescript
+[
+  {
+    id: string;
+    projectId: string;
+    gitlabMilestoneId: number | null;
+    title: string;
+    description: string | null;
+    sortOrder: number;
+    startDate: string | null;   // ISO date
+    dueDate: string | null;     // ISO date
+    issues: Issue[];            // Zugeordnete Issues
+  }
+]
+```
+
+### Verhalten
+- Milestones werden vom Issue Compiler Agent automatisch erzeugt (auto-grouping der kompilierten Issues)
+- Jedes Issue kann optional einem Milestone zugeordnet sein (`milestoneId`)
+- Milestones werden nach `sortOrder` sortiert zurückgegeben
+- GitLab-Sync: Milestones werden parallel in GitLab angelegt (`gitlabMilestoneId`)
+
+---
+
 ## Chat
 
 ### Sessions
@@ -513,6 +545,9 @@ Der `GitlabService` wird intern vom `ProjectsService` genutzt:
 - `getWorkItemId(projectPath, issueIid)` → WorkItem Global ID holen (GraphQL)
 - `createTask(namespacePath, parentWorkItemId, options)` → Task als Child-WorkItem erstellen (GraphQL)
 - `getWorkItemChildren(workItemId)` → Child-Tasks eines WorkItems auflisten (GraphQL)
+- `createMilestone(projectId, title, description, startDate, dueDate)` → Milestone in GitLab erstellen
+- `getMilestones(projectId)` → Milestones eines GitLab-Projekts auflisten
+- `updateMilestone(projectId, milestoneId, data)` → Milestone in GitLab aktualisieren
 
 ---
 
@@ -561,6 +596,7 @@ map $hub_project $hub_upstream {
 
 | Datum | Änderung |
 |---|---|
+| 2026-03-03 | Milestones: GET /api/milestones Endpunkt, Milestone-Modell (Prisma), Issue Compiler auto-grouping, GitLab-Sync (createMilestone, getMilestones, updateMilestone), Frontend collapsible Milestone-Gruppen |
 | 2026-03-03 | Issue Compiler Agent: Automatische Feature→Issues+Tasks Kompilierung nach DevOps, GitLab GraphQL WorkItem-API (Tasks als Children), Normalizer für LLM-Output |
 | 2026-03-02 | Interviewer: Robuster JSON-Normalizer (snake_case, Synonyme, Framework-Defaults), überarbeiteter System-Prompt (Pipeline-Fokus, Setup-First) |
 | 2026-03-02 | Fix: REST POST /chat/messages emittiert jetzt chat.userMessage Event (Agent-Orchestrierung), Ollama think:false für qwen3.5/deepseek-r1 |

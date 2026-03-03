@@ -13,12 +13,27 @@ export class IssuesService {
     private gitlab: GitlabService,
   ) {}
 
+  async findMilestonesByProject(projectId: string) {
+    return this.prisma.milestone.findMany({
+      where: { projectId },
+      include: {
+        issues: {
+          where: { parentId: null },
+          orderBy: { createdAt: 'asc' },
+          select: { id: true, title: true, status: true, priority: true },
+        },
+      },
+      orderBy: { sortOrder: 'asc' },
+    });
+  }
+
   async findByProject(projectId: string) {
     return this.prisma.issue.findMany({
       where: { projectId, parentId: null },
       include: {
         subIssues: { orderBy: { createdAt: 'asc' } },
         assignedAgent: { select: { id: true, role: true, status: true } },
+        milestone: { select: { id: true, title: true, sortOrder: true } },
       },
       orderBy: { createdAt: 'desc' },
     });
@@ -43,7 +58,7 @@ export class IssuesService {
   }
 
   async create(dto: CreateIssueDto) {
-    const { syncToGitlab, ...data } = dto;
+    const { syncToGitlab, gitlabMilestoneId, ...data } = dto;
 
     const issue = await this.prisma.issue.create({
       data: {
@@ -53,6 +68,7 @@ export class IssuesService {
         priority: data.priority,
         labels: data.labels ?? [],
         parentId: data.parentId,
+        milestoneId: data.milestoneId,
       },
       include: { project: { select: { gitlabProjectId: true } } },
     });
@@ -66,6 +82,7 @@ export class IssuesService {
             title: issue.title,
             description: issue.description ?? undefined,
             labels: issue.labels,
+            milestone_id: gitlabMilestoneId,
           },
         );
         const updated = await this.prisma.issue.update({

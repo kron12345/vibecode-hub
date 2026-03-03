@@ -11,6 +11,7 @@ import { BaseAgent, AgentContext } from '../agent-base';
 import { InterviewResult } from '../interviewer/interview-result.interface';
 import {
   CompiledIssue,
+  CompiledMilestone,
   CompiledTask,
   IssueCompilerResult,
 } from './issue-compiler-result.interface';
@@ -30,10 +31,10 @@ const DEFAULT_SYSTEM_PROMPT = `You are the Issue Compiler Agent for VibCode Hub 
 You are the THIRD agent in a chain:
 1. **Interviewer** → Gathered project requirements & features
 2. **DevOps Agent** → Set up the repository & tooling
-3. **YOU (Issue Compiler)** → Break features into actionable GitLab Issues + Tasks
+3. **YOU (Issue Compiler)** → Break features into actionable GitLab Issues + Tasks grouped by Milestones
 4. **Coder Agent** → Will implement these issues (later)
 
-Your job is to take the feature list from the interview and create well-structured, actionable issues with concrete sub-tasks that a developer (human or AI) can pick up and implement.
+Your job is to take the feature list from the interview and create well-structured, actionable issues with concrete sub-tasks, **grouped into logical milestones** (development phases).
 
 ## Input You Receive
 - Project name and description
@@ -41,6 +42,12 @@ Your job is to take the feature list from the interview and create well-structur
 - Feature list from the interview
 
 ## Output Rules
+
+### Milestones (Development Phases)
+- Group issues into 2-5 milestones representing logical development phases
+- Milestone titles follow the pattern: "v0.1 — Setup & Foundation", "v0.2 — Core Features", etc.
+- Each milestone has a short description (1-2 sentences) explaining the phase goal
+- Order milestones logically: setup → core → secondary → polish
 
 ### Issues
 - Each feature becomes 1 issue (sometimes a feature can be split into 2 if it's large)
@@ -58,8 +65,8 @@ Your job is to take the feature list from the interview and create well-structur
 ### Important
 - Write in English (code convention)
 - Be specific — "Create LoginComponent with email/password form" not "Create login"
-- Include setup tasks (project config, routing, etc.) as a separate issue if relevant
-- Order issues logically: setup first, then core features, then nice-to-have
+- Include setup tasks (project config, routing, etc.) in the first milestone
+- Order issues logically within each milestone
 
 ## Completion Format
 When done, end your message with exactly this format:
@@ -67,15 +74,21 @@ When done, end your message with exactly this format:
 ${COMPLETION_MARKER}
 \`\`\`json
 {
-  "issues": [
+  "milestones": [
     {
-      "title": "Issue title",
-      "description": "What needs to be built and why",
-      "priority": "HIGH",
-      "labels": ["frontend", "setup"],
-      "tasks": [
-        { "title": "Task title", "description": "What to do" },
-        { "title": "Another task", "description": "What to do" }
+      "title": "v0.1 — Setup & Foundation",
+      "description": "Initial project setup and configuration",
+      "issues": [
+        {
+          "title": "Issue title",
+          "description": "What needs to be built and why",
+          "priority": "HIGH",
+          "labels": ["frontend", "setup"],
+          "tasks": [
+            { "title": "Task title", "description": "What to do" },
+            { "title": "Another task", "description": "What to do" }
+          ]
+        }
       ]
     }
   ]
@@ -100,21 +113,28 @@ The marker line and JSON block MUST appear — without them the system cannot pr
 ${COMPLETION_MARKER}
 \`\`\`json
 {
-  "issues": [
+  "milestones": [
     {
-      "title": "Issue title",
-      "description": "What needs to be built and why",
-      "priority": "HIGH",
-      "labels": ["frontend", "setup"],
-      "tasks": [
-        { "title": "Task title", "description": "What to do" }
+      "title": "v0.1 — Phase Name",
+      "description": "What this phase achieves",
+      "issues": [
+        {
+          "title": "Issue title",
+          "description": "What needs to be built and why",
+          "priority": "HIGH",
+          "labels": ["frontend", "setup"],
+          "tasks": [
+            { "title": "Task title", "description": "What to do" }
+          ]
+        }
       ]
     }
   ]
 }
 \`\`\`
 
-CRITICAL: The JSON must be valid. Do NOT include thinking tags, comments, or trailing commas in the JSON.`;
+CRITICAL: The JSON must be valid. Do NOT include thinking tags, comments, or trailing commas in the JSON.
+Group ALL issues into milestones — do not return a flat "issues" array at the top level.`;
 
 @Injectable()
 export class IssueCompilerAgent extends BaseAgent {
@@ -150,8 +170,8 @@ export class IssueCompilerAgent extends BaseAgent {
       // Step 3: Normalize result
       const compiledResult = this.normalizeResult(rawResult);
 
-      // Step 4: Create issues in DB + GitLab
-      await this.createIssuesAndTasks(ctx, projectData, compiledResult);
+      // Step 4: Create milestones, issues + tasks in DB + GitLab
+      await this.createMilestonesAndIssues(ctx, projectData, compiledResult);
 
       // Step 5: Finalize
       await this.finalize(ctx, compiledResult);
@@ -236,7 +256,7 @@ export class IssueCompilerAgent extends BaseAgent {
         : null,
     ].filter(Boolean).join('\n');
 
-    const userPrompt = `Please compile the following project features into structured GitLab issues with sub-tasks.
+    const userPrompt = `Please compile the following project features into structured GitLab issues with sub-tasks, grouped into milestones (development phases).
 
 **Project:** ${project.name}
 **Description:** ${project.description || interviewResult.description || 'N/A'}
@@ -247,7 +267,7 @@ ${techInfo}
 **Features to compile:**
 ${featureList}
 
-Create well-structured issues with actionable tasks for each feature. Include a setup/configuration issue if the features require initial setup (routing, authentication config, etc.).`;
+Create well-structured milestones with issues and actionable tasks. Group logically: setup/config first, then core features, then polish/extras.`;
 
     const messages: LlmMessage[] = [
       { role: 'system', content: systemPrompt },
@@ -314,10 +334,48 @@ Create well-structured issues with actionable tasks for each feature. Include a 
       return undefined;
     };
 
-    let issues: any[] = pick('issues', 'items', 'tickets', 'compiled_issues') ?? [];
+    // Try to extract milestones
+    let rawMilestones: any[] | undefined = pick('milestones', 'phases', 'versions', 'sprints');
 
-    // Normalize each issue
-    const compiled: CompiledIssue[] = issues.map((raw: any) => {
+    let milestones: CompiledMilestone[];
+
+    if (Array.isArray(rawMilestones) && rawMilestones.length > 0) {
+      // LLM returned milestone-grouped output
+      milestones = rawMilestones.map((m: any, i: number) => ({
+        title: m.title ?? m.name ?? `v0.${i + 1} — Phase ${i + 1}`,
+        description: m.description ?? m.summary ?? '',
+        issues: this.normalizeIssues(m.issues ?? m.items ?? m.tickets ?? []),
+      }));
+    } else {
+      // Fallback: flat issues list → wrap in single milestone
+      const flatIssues = pick('issues', 'items', 'tickets', 'compiled_issues') ?? [];
+      milestones = [{
+        title: 'v0.1 — MVP',
+        description: 'All project issues',
+        issues: this.normalizeIssues(flatIssues),
+      }];
+    }
+
+    // Build flat issues array from milestones
+    const allIssues = milestones.flatMap(m => m.issues);
+    const totalTasks = allIssues.reduce((sum, i) => sum + i.tasks.length, 0);
+
+    this.logger.debug(
+      `Normalized: ${milestones.length} milestones, ${allIssues.length} issues, ${totalTasks} tasks`,
+    );
+
+    return {
+      milestones,
+      issues: allIssues,
+      totalMilestones: milestones.length,
+      totalIssues: allIssues.length,
+      totalTasks,
+    };
+  }
+
+  /** Normalize a raw issues array from LLM output */
+  private normalizeIssues(rawIssues: any[]): CompiledIssue[] {
+    return rawIssues.map((raw: any) => {
       const title = raw.title ?? raw.name ?? raw.summary ?? 'Untitled Issue';
       const description = raw.description ?? raw.body ?? raw.details ?? '';
 
@@ -351,23 +409,11 @@ Create well-structured issues with actionable tasks for each feature. Include a 
 
       return { title, description, priority: priority as CompiledIssue['priority'], labels, tasks };
     });
-
-    const totalTasks = compiled.reduce((sum, i) => sum + i.tasks.length, 0);
-
-    this.logger.debug(
-      `Normalized compilation result: ${compiled.length} issues, ${totalTasks} tasks`,
-    );
-
-    return {
-      issues: compiled,
-      totalIssues: compiled.length,
-      totalTasks,
-    };
   }
 
-  // ─── Step 4: Create Issues + Tasks ──────────────────────────
+  // ─── Step 4: Create Milestones + Issues + Tasks ──────────────
 
-  private async createIssuesAndTasks(
+  private async createMilestonesAndIssues(
     ctx: AgentContext,
     projectData: {
       project: { id: string };
@@ -381,89 +427,133 @@ Create well-structured issues with actionable tasks for each feature. Include a 
     let createdTasks = 0;
     let failedTasks = 0;
 
-    for (const compiledIssue of compiledResult.issues) {
+    for (let msIdx = 0; msIdx < compiledResult.milestones.length; msIdx++) {
+      const milestone = compiledResult.milestones[msIdx];
+
+      // Create GitLab milestone
+      let gitlabMilestoneId: number | undefined;
+      if (gitlabProjectId) {
+        try {
+          const glMilestone = await this.gitlabService.createMilestone(gitlabProjectId, {
+            title: milestone.title,
+            description: milestone.description,
+          });
+          gitlabMilestoneId = glMilestone.id;
+        } catch (err) {
+          this.logger.warn(`GitLab milestone creation failed for "${milestone.title}": ${err.message}`);
+          await this.log(ctx.agentTaskId, 'WARN', `GitLab milestone failed: ${milestone.title}`, {
+            error: err.message,
+          });
+        }
+      }
+
+      // Create DB milestone
+      let dbMilestoneId: string | undefined;
       try {
-        // Create the main issue in DB (+ GitLab sync)
-        const issue = await this.issuesService.create({
-          projectId: project.id,
-          title: compiledIssue.title,
-          description: compiledIssue.description,
-          priority: this.mapPriority(compiledIssue.priority),
-          labels: compiledIssue.labels,
-          syncToGitlab: true,
+        const dbMilestone = await this.prisma.milestone.create({
+          data: {
+            projectId: project.id,
+            title: milestone.title,
+            description: milestone.description,
+            sortOrder: msIdx,
+            gitlabMilestoneId: gitlabMilestoneId ?? null,
+          },
         });
-
-        createdIssues++;
-        await this.log(ctx.agentTaskId, 'INFO', `Created issue: ${compiledIssue.title}`, {
-          issueId: issue.id,
-          gitlabIid: issue.gitlabIid,
+        dbMilestoneId = dbMilestone.id;
+      } catch (err) {
+        this.logger.warn(`DB milestone creation failed for "${milestone.title}": ${err.message}`);
+        await this.log(ctx.agentTaskId, 'WARN', `DB milestone failed: ${milestone.title}`, {
+          error: err.message,
         });
+      }
 
-        // Create tasks as children
-        for (const task of compiledIssue.tasks) {
-          try {
-            // Create as sub-issue in our DB
-            const subIssue = await this.issuesService.create({
-              projectId: project.id,
-              title: task.title,
-              description: task.description,
-              priority: this.mapPriority(compiledIssue.priority),
-              labels: compiledIssue.labels,
-              parentId: issue.id,
-              syncToGitlab: false, // We'll create as WorkItem Task instead
-            });
+      await this.sendAgentMessage(ctx, `🏁 Milestone: **${milestone.title}**`);
 
-            // Create as GitLab Task (child of issue) if GitLab is available
-            if (gitlabProjectPath && issue.gitlabIid && gitlabProjectId) {
-              try {
-                const parentWorkItemId = await this.gitlabService.getWorkItemId(
-                  gitlabProjectPath,
-                  issue.gitlabIid,
-                );
+      // Create issues within this milestone
+      for (const compiledIssue of milestone.issues) {
+        try {
+          const issue = await this.issuesService.create({
+            projectId: project.id,
+            title: compiledIssue.title,
+            description: compiledIssue.description,
+            priority: this.mapPriority(compiledIssue.priority),
+            labels: compiledIssue.labels,
+            milestoneId: dbMilestoneId,
+            gitlabMilestoneId: gitlabMilestoneId,
+            syncToGitlab: true,
+          });
 
-                const workItem = await this.gitlabService.createTask(
-                  gitlabProjectPath,
-                  parentWorkItemId,
-                  { title: task.title, description: task.description },
-                );
+          createdIssues++;
+          await this.log(ctx.agentTaskId, 'INFO', `Created issue: ${compiledIssue.title}`, {
+            issueId: issue.id,
+            gitlabIid: issue.gitlabIid,
+            milestone: milestone.title,
+          });
 
-                // Store the GitLab IID on the sub-issue
-                const workItemIid = parseInt(workItem.iid, 10);
-                if (!isNaN(workItemIid)) {
-                  await this.prisma.issue.update({
-                    where: { id: subIssue.id },
-                    data: { gitlabIid: workItemIid },
+          // Create tasks as children
+          for (const task of compiledIssue.tasks) {
+            try {
+              const subIssue = await this.issuesService.create({
+                projectId: project.id,
+                title: task.title,
+                description: task.description,
+                priority: this.mapPriority(compiledIssue.priority),
+                labels: compiledIssue.labels,
+                parentId: issue.id,
+                syncToGitlab: false, // We'll create as WorkItem Task instead
+              });
+
+              // Create as GitLab Task (child of issue) if GitLab is available
+              if (gitlabProjectPath && issue.gitlabIid && gitlabProjectId) {
+                try {
+                  const parentWorkItemId = await this.gitlabService.getWorkItemId(
+                    gitlabProjectPath,
+                    issue.gitlabIid,
+                  );
+
+                  const workItem = await this.gitlabService.createTask(
+                    gitlabProjectPath,
+                    parentWorkItemId,
+                    { title: task.title, description: task.description },
+                  );
+
+                  const workItemIid = parseInt(workItem.iid, 10);
+                  if (!isNaN(workItemIid)) {
+                    await this.prisma.issue.update({
+                      where: { id: subIssue.id },
+                      data: { gitlabIid: workItemIid },
+                    });
+                  }
+                } catch (glErr) {
+                  this.logger.warn(`GitLab task creation failed for "${task.title}": ${glErr.message}`);
+                  await this.log(ctx.agentTaskId, 'WARN', `GitLab task failed: ${task.title}`, {
+                    error: glErr.message,
                   });
+                  failedTasks++;
                 }
-              } catch (glErr) {
-                this.logger.warn(`GitLab task creation failed for "${task.title}": ${glErr.message}`);
-                await this.log(ctx.agentTaskId, 'WARN', `GitLab task failed: ${task.title}`, {
-                  error: glErr.message,
-                });
-                failedTasks++;
               }
+
+              createdTasks++;
+            } catch (taskErr) {
+              this.logger.warn(`Task creation failed for "${task.title}": ${taskErr.message}`);
+              failedTasks++;
             }
-
-            createdTasks++;
-          } catch (taskErr) {
-            this.logger.warn(`Task creation failed for "${task.title}": ${taskErr.message}`);
-            failedTasks++;
           }
-        }
 
-        // Progress update every few issues
-        if (createdIssues % 3 === 0 || createdIssues === compiledResult.totalIssues) {
-          await this.sendAgentMessage(
-            ctx,
-            `📝 Progress: ${createdIssues}/${compiledResult.totalIssues} issues created (${createdTasks} tasks)...`,
-          );
-        }
+          // Progress update every few issues
+          if (createdIssues % 3 === 0 || createdIssues === compiledResult.totalIssues) {
+            await this.sendAgentMessage(
+              ctx,
+              `📝 Progress: ${createdIssues}/${compiledResult.totalIssues} issues created (${createdTasks} tasks)...`,
+            );
+          }
 
-      } catch (issueErr) {
-        this.logger.error(`Issue creation failed for "${compiledIssue.title}": ${issueErr.message}`);
-        await this.log(ctx.agentTaskId, 'ERROR', `Issue creation failed: ${compiledIssue.title}`, {
-          error: issueErr.message,
-        });
+        } catch (issueErr) {
+          this.logger.error(`Issue creation failed for "${compiledIssue.title}": ${issueErr.message}`);
+          await this.log(ctx.agentTaskId, 'ERROR', `Issue creation failed: ${compiledIssue.title}`, {
+            error: issueErr.message,
+          });
+        }
       }
     }
 
@@ -477,7 +567,6 @@ Create well-structured issues with actionable tasks for each feature. Include a 
   // ─── Step 5: Finalize ───────────────────────────────────────
 
   private async finalize(ctx: AgentContext, result: IssueCompilerResult): Promise<void> {
-    // Complete the task
     await this.prisma.agentTask.update({
       where: { id: ctx.agentTaskId },
       data: {
@@ -487,23 +576,33 @@ Create well-structured issues with actionable tasks for each feature. Include a 
       },
     });
 
-    const summary = [
+    const summaryLines: string[] = [
       `✅ **Issue Compilation complete!**`,
       ``,
-      `Created **${result.totalIssues} issues** with **${result.totalTasks} tasks** total.`,
-      ``,
-      `| # | Issue | Priority | Tasks |`,
-      `|---|-------|----------|-------|`,
-      ...result.issues.map((issue, i) =>
-        `| ${i + 1} | ${issue.title} | ${issue.priority} | ${issue.tasks.length} |`,
-      ),
-      ``,
-      `Issues are synced to GitLab with parent-child task hierarchy.`,
+      `Created **${result.totalMilestones} milestones** with **${result.totalIssues} issues** and **${result.totalTasks} tasks** total.`,
     ];
 
-    await this.sendAgentMessage(ctx, summary.join('\n'));
+    for (const milestone of result.milestones) {
+      summaryLines.push('');
+      summaryLines.push(`### 🏁 ${milestone.title}`);
+      if (milestone.description) {
+        summaryLines.push(`_${milestone.description}_`);
+      }
+      summaryLines.push('');
+      summaryLines.push(`| # | Issue | Priority | Tasks |`);
+      summaryLines.push(`|---|-------|----------|-------|`);
+      milestone.issues.forEach((issue, i) => {
+        summaryLines.push(`| ${i + 1} | ${issue.title} | ${issue.priority} | ${issue.tasks.length} |`);
+      });
+    }
+
+    summaryLines.push('');
+    summaryLines.push('Issues are synced to GitLab with milestones and parent-child task hierarchy.');
+
+    await this.sendAgentMessage(ctx, summaryLines.join('\n'));
     await this.updateStatus(ctx, AgentStatus.IDLE);
     await this.log(ctx.agentTaskId, 'INFO', 'Issue compilation completed', {
+      totalMilestones: result.totalMilestones,
       totalIssues: result.totalIssues,
       totalTasks: result.totalTasks,
     });

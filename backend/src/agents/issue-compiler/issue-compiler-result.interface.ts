@@ -13,9 +13,18 @@ export interface CompiledIssue {
   tasks: CompiledTask[];
 }
 
+/** A milestone grouping related issues */
+export interface CompiledMilestone {
+  title: string;
+  description: string;
+  issues: CompiledIssue[];
+}
+
 /** Full result from the Issue Compiler Agent */
 export interface IssueCompilerResult {
+  milestones: CompiledMilestone[];
   issues: CompiledIssue[];
+  totalMilestones: number;
   totalIssues: number;
   totalTasks: number;
 }

@@ -98,7 +98,8 @@ Dev-Server auf localhost:{port}
 ## Datenmodell
 
 - **Project** → hat Issues, ChatSessions, AgentInstances. Status: `INTERVIEWING` | `SETTING_UP` | `READY` | `ARCHIVED`. Optional: `techStack` (JSON, Interview-Ergebnis), `previewPort` (unique, für Subdomain-Preview)
-- **Issue** → hierarchisch (parent/sub-issues), gespiegelt von GitLab
+- **Milestone** → Gruppierung von Issues pro Projekt, optional GitLab-gespiegelt (`gitlabMilestoneId`). Felder: title, description, sortOrder, startDate, dueDate. Wird vom Issue Compiler Agent automatisch erzeugt.
+- **Issue** → hierarchisch (parent/sub-issues), gespiegelt von GitLab, optional einem Milestone zugeordnet (`milestoneId`)
 - **ChatSession** → pro Projekt, enthält ChatMessages
 - **AgentInstance** → konfigurierter Agent pro Projekt (Rolle + Provider + Model)
 - **AgentTask** → einzelner Arbeitsschritt eines Agenten (11 Task-Typen)
@@ -112,7 +113,7 @@ Dev-Server auf localhost:{port}
 |---|---|---|---|
 | 1 | Interviewer | Feature-Interviews, fragt bis 95% Klarheit | Sky |
 | 2 | Architect | Technisches Design, Architektur-Entscheidungen | Violet |
-| 3 | Issue Compiler | Interview → GitLab Issues + Sub-Issues | Amber |
+| 3 | Issue Compiler | Interview → Milestones + GitLab Issues + Sub-Issues | Amber |
 | 4 | Coder | Implementiert Code nach Issue-Spezifikation | Indigo |
 | 5 | Code Reviewer | Code-Review: Qualität, Security, Patterns | Emerald |
 | 6 | UI Tester | UI-Tests: Layout, Responsivität, Accessibility | Pink |

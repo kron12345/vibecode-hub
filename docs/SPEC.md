@@ -46,6 +46,7 @@ VibCode Hub ist ein AI-Entwicklerteam-Portal. Der Nutzer agiert als "Chef" und s
 - [x] Interviewer Agent (KI-Interview → Projekt-Requirements)
 - [x] Quick-Create Flow (Name → Interview → Tech-Stack)
 - [x] WebSocket-basierte Live-Updates (agentStatus, projectUpdated)
+- [x] Milestone-Support (Issue Compiler auto-grouping)
 - [ ] DevOps-Agent (Projekt einrichten: Repo, Framework, .mcp.json)
 - [ ] Zweiter Agent: Coder (Issue → Branch → MR)
 - [ ] Streaming (Token-für-Token im Chat)

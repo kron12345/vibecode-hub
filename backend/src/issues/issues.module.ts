@@ -1,11 +1,11 @@
 import { Module } from '@nestjs/common';
 import { IssuesService } from './issues.service';
-import { IssuesController } from './issues.controller';
+import { IssuesController, MilestonesController } from './issues.controller';
 import { GitlabModule } from '../gitlab/gitlab.module';
 
 @Module({
   imports: [GitlabModule],
-  controllers: [IssuesController],
+  controllers: [IssuesController, MilestonesController],
   providers: [IssuesService],
   exports: [IssuesService],
 })
