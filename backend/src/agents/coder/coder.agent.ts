@@ -236,7 +236,7 @@ export class CoderAgent extends BaseAgent {
       }
 
       // Commit & push
-      await this.gitCommitAndPush(
+      const commitSha = await this.gitCommitAndPush(
         workspace,
         branchName,
         `feat: implement ${issue.title}\n\nCloses #${issue.gitlabIid ?? ''}`,
@@ -268,11 +268,19 @@ export class CoderAgent extends BaseAgent {
       // Update issue status → IN_REVIEW
       await this.issuesService.update(issue.id, { status: IssueStatus.IN_REVIEW });
 
-      // Post summary as GitLab comment
+      // Build commit URL for GitLab
+      const gitlabBaseUrl = await this.settings.get('GITLAB_URL', 'https://git.example.com');
+      const commitUrl = `${gitlabBaseUrl}/${projectPath}/-/commit/${commitSha}`;
+      const commitShort = commitSha.substring(0, 8);
+      result.commitSha = commitSha;
+      result.commitUrl = commitUrl;
+
+      // Post summary as GitLab comment with commit link
       if (issue.gitlabIid && gitlabProjectId) {
         const commentBody = [
           `✅ **Coder Agent** completed implementation.`,
           '',
+          `**Commit:** [\`${commitShort}\`](${commitUrl}) — [View Diff](${commitUrl})`,
           `**Branch:** \`${branchName}\``,
           result.mrUrl ? `**MR:** [!${result.mrIid}](${result.mrUrl})` : '',
           `**Changed files (${changedFiles.length}):**`,
@@ -288,7 +296,7 @@ export class CoderAgent extends BaseAgent {
           issueId: issue.id,
           authorType: CommentAuthorType.AGENT,
           authorName: 'Coder Agent',
-          content: `Implementation complete. Branch: ${branchName}, ${changedFiles.length} file(s) changed.${result.mrUrl ? ` MR: ${result.mrUrl}` : ''}`,
+          content: `Implementation complete. Commit: [${commitShort}](${commitUrl}), Branch: ${branchName}, ${changedFiles.length} file(s) changed.${result.mrUrl ? ` MR: ${result.mrUrl}` : ''}`,
           agentTaskId: agentTask.id,
         },
       });
@@ -422,13 +430,22 @@ export class CoderAgent extends BaseAgent {
       // Check changes
       const changedFiles = await this.getChangedFiles(workspace);
 
+      // Fetch GitLab project info (reused for commit URL + default branch checkout)
+      const glProject = await this.gitlabService.getProject(issue.project.gitlabProjectId);
+      const gitlabBaseUrl = await this.settings.get('GITLAB_URL', 'https://git.example.com');
+
+      let commitSha: string | undefined;
+      let commitUrl: string | undefined;
       if (changedFiles.length > 0) {
-        await this.gitCommitAndPush(
+        commitSha = await this.gitCommitAndPush(
           workspace,
           branchName,
           `fix: address ${sourceLabel.toLowerCase()} for ${issue.title}`,
         );
+        commitUrl = `${gitlabBaseUrl}/${glProject.path_with_namespace}/-/commit/${commitSha}`;
       }
+
+      const commitShort = commitSha?.substring(0, 8);
 
       // Update issue → IN_REVIEW
       await this.issuesService.update(issueId, { status: IssueStatus.IN_REVIEW });
@@ -438,7 +455,7 @@ export class CoderAgent extends BaseAgent {
         where: { id: agentTask.id },
         data: {
           status: AgentTaskStatus.COMPLETED,
-          output: { changedFiles, feedbackSource } as any,
+          output: { changedFiles, feedbackSource, commitSha } as any,
           completedAt: new Date(),
         },
       });
@@ -449,16 +466,24 @@ export class CoderAgent extends BaseAgent {
           issueId,
           authorType: CommentAuthorType.AGENT,
           authorName: 'Coder Agent',
-          content: `Fix applied (${sourceLabel}). ${changedFiles.length} file(s) changed.`,
+          content: `Fix applied (${sourceLabel}). ${changedFiles.length} file(s) changed.${commitUrl ? ` Commit: [${commitShort}](${commitUrl})` : ''}`,
           agentTaskId: agentTask.id,
         },
       });
 
       if (issue.gitlabIid) {
+        const fixComment = [
+          `✅ **Coder Agent** applied fix (${sourceLabel}).`,
+          '',
+          commitUrl ? `**Commit:** [\`${commitShort}\`](${commitUrl}) — [View Diff](${commitUrl})` : '',
+          `**Changed files (${changedFiles.length}):**`,
+          ...changedFiles.map(f => `- \`${f}\``),
+        ].filter(Boolean).join('\n');
+
         await this.postGitlabComment(
           issue.project.gitlabProjectId,
           issue.gitlabIid,
-          `✅ **Coder Agent** applied fix. ${changedFiles.length} file(s) changed.\n\n${changedFiles.map(f => `- \`${f}\``).join('\n')}`,
+          fixComment,
         );
       }
 
@@ -478,7 +503,6 @@ export class CoderAgent extends BaseAgent {
       });
 
       // Switch back to default
-      const glProject = await this.gitlabService.getProject(issue.project.gitlabProjectId);
       await this.gitCheckout(workspace, glProject.default_branch);
 
       await this.updateStatus(ctx, AgentStatus.IDLE);
@@ -622,13 +646,16 @@ export class CoderAgent extends BaseAgent {
       .map(line => line.substring(3).trim());
   }
 
-  private async gitCommitAndPush(cwd: string, branch: string, message: string): Promise<void> {
+  private async gitCommitAndPush(cwd: string, branch: string, message: string): Promise<string> {
     await execFileAsync('git', ['add', '.'], { cwd, timeout: GIT_TIMEOUT_MS });
     await execFileAsync('git', ['commit', '-m', message], { cwd, timeout: GIT_TIMEOUT_MS });
+    const { stdout } = await execFileAsync('git', ['rev-parse', 'HEAD'], { cwd, timeout: GIT_TIMEOUT_MS });
+    const commitSha = stdout.trim();
     await execFileAsync(
       'git', ['push', '-u', 'origin', branch],
       { cwd, timeout: GIT_TIMEOUT_MS },
     );
+    return commitSha;
   }
 
   // ─── Utility ──────────────────────────────────────────────

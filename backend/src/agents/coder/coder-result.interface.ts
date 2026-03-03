@@ -4,6 +4,8 @@ export interface CoderIssueResult {
   branch: string;
   mrIid?: number;
   mrUrl?: string;
+  commitSha?: string;
+  commitUrl?: string;
   filesChanged: string[];
   status: 'success' | 'failed' | 'skipped';
   error?: string;
