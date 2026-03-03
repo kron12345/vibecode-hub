@@ -1,13 +1,14 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { SystemSettingsService } from '../../settings/system-settings.service';
 import {
-  LlmProvider,
+  LlmStreamingProvider,
   LlmCompletionOptions,
   LlmCompletionResult,
+  LlmStreamChunk,
 } from '../llm.interfaces';
 
 @Injectable()
-export class OpenAIProvider implements LlmProvider {
+export class OpenAIProvider implements LlmStreamingProvider {
   readonly providerType = 'OPENAI';
   private readonly logger = new Logger(OpenAIProvider.name);
 
@@ -83,6 +84,86 @@ export class OpenAIProvider implements LlmProvider {
         this.logger.error(`OpenAI request failed: ${err.message}`);
       }
       return { content: '', finishReason: 'error' };
+    } finally {
+      clearTimeout(timeout);
+    }
+  }
+
+  async *streamComplete(options: LlmCompletionOptions): AsyncGenerator<LlmStreamChunk> {
+    const apiKey = this.settings.openaiApiKey;
+    if (!apiKey) {
+      this.logger.error('OpenAI API key not configured');
+      yield { content: '', done: true };
+      return;
+    }
+
+    const messages = options.messages.map((m) => ({ role: m.role, content: m.content }));
+
+    const body: Record<string, unknown> = {
+      model: options.model,
+      messages,
+      stream: true,
+      ...(options.maxTokens !== undefined && { max_tokens: options.maxTokens }),
+      ...(options.temperature !== undefined && { temperature: options.temperature }),
+    };
+
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 120_000);
+
+    try {
+      const response = await fetch('https://api.openai.com/v1/chat/completions', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${apiKey}`,
+        },
+        body: JSON.stringify(body),
+        signal: controller.signal,
+      });
+
+      if (!response.ok) {
+        const errorText = await response.text();
+        this.logger.error(`OpenAI stream error ${response.status}: ${errorText}`);
+        yield { content: '', done: true };
+        return;
+      }
+
+      const reader = response.body?.getReader();
+      if (!reader) { yield { content: '', done: true }; return; }
+
+      const decoder = new TextDecoder();
+      let buffer = '';
+
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+
+        buffer += decoder.decode(value, { stream: true });
+        const lines = buffer.split('\n');
+        buffer = lines.pop() ?? '';
+
+        for (const line of lines) {
+          if (!line.startsWith('data: ')) continue;
+          const data = line.slice(6).trim();
+          if (data === '[DONE]') { yield { content: '', done: true }; return; }
+
+          try {
+            const event = JSON.parse(data);
+            const token = event.choices?.[0]?.delta?.content;
+            if (token) {
+              yield { content: token, done: false };
+            }
+          } catch { /* skip */ }
+        }
+      }
+      yield { content: '', done: true };
+    } catch (err) {
+      if (err.name === 'AbortError') {
+        this.logger.error('OpenAI stream timed out after 120s');
+      } else {
+        this.logger.error(`OpenAI stream failed: ${err.message}`);
+      }
+      yield { content: '', done: true };
     } finally {
       clearTimeout(timeout);
     }

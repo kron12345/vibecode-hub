@@ -1,13 +1,14 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { SystemSettingsService } from '../../settings/system-settings.service';
 import {
-  LlmProvider,
+  LlmStreamingProvider,
   LlmCompletionOptions,
   LlmCompletionResult,
+  LlmStreamChunk,
 } from '../llm.interfaces';
 
 @Injectable()
-export class GoogleProvider implements LlmProvider {
+export class GoogleProvider implements LlmStreamingProvider {
   readonly providerType = 'GOOGLE';
   private readonly logger = new Logger(GoogleProvider.name);
 
@@ -92,6 +93,94 @@ export class GoogleProvider implements LlmProvider {
         this.logger.error(`Google AI request failed: ${err.message}`);
       }
       return { content: '', finishReason: 'error' };
+    } finally {
+      clearTimeout(timeout);
+    }
+  }
+
+  async *streamComplete(options: LlmCompletionOptions): AsyncGenerator<LlmStreamChunk> {
+    const apiKey = this.settings.googleApiKey;
+    if (!apiKey) {
+      this.logger.error('Google AI API key not configured');
+      yield { content: '', done: true };
+      return;
+    }
+
+    const systemMessage = options.messages.find((m) => m.role === 'system');
+    const conversationMessages = options.messages
+      .filter((m) => m.role !== 'system')
+      .map((m) => ({
+        role: m.role === 'assistant' ? 'model' : 'user',
+        parts: [{ text: m.content }],
+      }));
+
+    const body: Record<string, unknown> = {
+      contents: conversationMessages,
+      ...(systemMessage && {
+        systemInstruction: { parts: [{ text: systemMessage.content }] },
+      }),
+      generationConfig: {
+        ...(options.temperature !== undefined && { temperature: options.temperature }),
+        ...(options.maxTokens !== undefined && { maxOutputTokens: options.maxTokens }),
+      },
+    };
+
+    // Google uses streamGenerateContent endpoint
+    const url = `https://generativelanguage.googleapis.com/v1beta/models/${options.model}:streamGenerateContent?alt=sse&key=${apiKey}`;
+
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 120_000);
+
+    try {
+      const response = await fetch(url, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+        signal: controller.signal,
+      });
+
+      if (!response.ok) {
+        const errorText = await response.text();
+        this.logger.error(`Google stream error ${response.status}: ${errorText}`);
+        yield { content: '', done: true };
+        return;
+      }
+
+      const reader = response.body?.getReader();
+      if (!reader) { yield { content: '', done: true }; return; }
+
+      const decoder = new TextDecoder();
+      let buffer = '';
+
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+
+        buffer += decoder.decode(value, { stream: true });
+        const lines = buffer.split('\n');
+        buffer = lines.pop() ?? '';
+
+        for (const line of lines) {
+          if (!line.startsWith('data: ')) continue;
+          const data = line.slice(6).trim();
+
+          try {
+            const event = JSON.parse(data);
+            const text = event.candidates?.[0]?.content?.parts?.[0]?.text;
+            if (text) {
+              yield { content: text, done: false };
+            }
+          } catch { /* skip */ }
+        }
+      }
+      yield { content: '', done: true };
+    } catch (err) {
+      if (err.name === 'AbortError') {
+        this.logger.error('Google stream timed out after 120s');
+      } else {
+        this.logger.error(`Google stream failed: ${err.message}`);
+      }
+      yield { content: '', done: true };
     } finally {
       clearTimeout(timeout);
     }

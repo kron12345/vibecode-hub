@@ -145,7 +145,7 @@ export class InterviewerAgent extends BaseAgent {
       },
     ];
 
-    const result = await this.callLlm(messages);
+    const result = await this.callLlmStreaming(ctx, messages);
 
     if (result.finishReason === 'error') {
       await this.sendAgentMessage(
@@ -157,6 +157,7 @@ export class InterviewerAgent extends BaseAgent {
       return;
     }
 
+    // Save the streamed message to DB (frontend already saw it via tokens)
     await this.sendAgentMessage(ctx, result.content);
     await this.updateStatus(ctx, AgentStatus.WAITING);
   }
@@ -192,7 +193,7 @@ export class InterviewerAgent extends BaseAgent {
       ...history.filter((m) => m.role !== 'system'),
     ];
 
-    const result = await this.callLlm(messages);
+    const result = await this.callLlmStreaming(ctx, messages);
 
     if (result.finishReason === 'error') {
       await this.sendAgentMessage(
@@ -214,6 +215,7 @@ export class InterviewerAgent extends BaseAgent {
         COMPLETION_MARKER + '\n' + result.content,
       );
     } else {
+      // Save the streamed content to DB (frontend already saw tokens)
       await this.sendAgentMessage(ctx, result.content);
       await this.updateStatus(ctx, AgentStatus.WAITING);
     }

@@ -331,10 +331,16 @@ type Tab = 'overview' | 'settings';
                     }
                   </div>
                 }
-                @if (messages().length === 0) {
+                @if (messages().length === 0 && !isStreaming()) {
                   <p class="text-indigo-500">> {{ 'project.systemReady' | translate }}</p>
                 }
-                @if (hasWorkingAgent()) {
+                @if (isStreaming() && streamingContent()) {
+                  <div class="flex gap-2">
+                    <span class="text-slate-700 shrink-0">[...]</span>
+                    <span class="text-emerald-400">{{ streamingContent() }}<span class="animate-pulse">▊</span></span>
+                  </div>
+                }
+                @if (hasWorkingAgent() && !isStreaming()) {
                   <div class="flex items-center gap-2 text-emerald-400/60">
                     <span class="inline-flex gap-1">
                       <span class="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-bounce" style="animation-delay: 0ms"></span>
@@ -803,6 +809,10 @@ export class ProjectPage implements OnInit, OnDestroy {
   commentInput = '';
   commentSyncing = signal(false);
 
+  // Streaming
+  streamingContent = signal('');
+  isStreaming = signal(false);
+
   saving = signal(false);
   toast = signal<'success' | 'error' | null>(null);
 
@@ -810,6 +820,9 @@ export class ProjectPage implements OnInit, OnDestroy {
   private socketSub: Subscription | null = null;
   private agentStatusSub: Subscription | null = null;
   private projectUpdatedSub: Subscription | null = null;
+  private streamStartSub: Subscription | null = null;
+  private streamTokenSub: Subscription | null = null;
+  private streamEndSub: Subscription | null = null;
 
   /** Build agent entries from the 10 roles, filling in instance data if available */
   agentEntries = computed(() => {
@@ -945,6 +958,22 @@ export class ProjectPage implements OnInit, OnDestroy {
         }
       },
     );
+
+    // Streaming: accumulate tokens into a live preview
+    this.streamStartSub = this.chatSocket.streamStart$.subscribe(() => {
+      this.streamingContent.set('');
+      this.isStreaming.set(true);
+    });
+
+    this.streamTokenSub = this.chatSocket.streamToken$.subscribe((event) => {
+      this.streamingContent.update((c) => c + event.token);
+      setTimeout(() => this.scrollToBottom(), 20);
+    });
+
+    this.streamEndSub = this.chatSocket.streamEnd$.subscribe(() => {
+      this.streamingContent.set('');
+      this.isStreaming.set(false);
+    });
   }
 
   ngOnDestroy() {
@@ -952,6 +981,9 @@ export class ProjectPage implements OnInit, OnDestroy {
     this.socketSub?.unsubscribe();
     this.agentStatusSub?.unsubscribe();
     this.projectUpdatedSub?.unsubscribe();
+    this.streamStartSub?.unsubscribe();
+    this.streamTokenSub?.unsubscribe();
+    this.streamEndSub?.unsubscribe();
   }
 
   populateSettingsForm(p: Project) {

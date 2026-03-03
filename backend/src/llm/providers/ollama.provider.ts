@@ -1,13 +1,14 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { SystemSettingsService } from '../../settings/system-settings.service';
 import {
-  LlmProvider,
+  LlmStreamingProvider,
   LlmCompletionOptions,
   LlmCompletionResult,
+  LlmStreamChunk,
 } from '../llm.interfaces';
 
 @Injectable()
-export class OllamaProvider implements LlmProvider {
+export class OllamaProvider implements LlmStreamingProvider {
   readonly providerType = 'OLLAMA';
   private readonly logger = new Logger(OllamaProvider.name);
 
@@ -92,6 +93,98 @@ export class OllamaProvider implements LlmProvider {
         this.logger.error(`Ollama request failed: ${err.message}`);
       }
       return { content: '', finishReason: 'error' };
+    } finally {
+      clearTimeout(timeout);
+    }
+  }
+
+  async *streamComplete(options: LlmCompletionOptions): AsyncGenerator<LlmStreamChunk> {
+    const baseUrl = this.settings.ollamaUrl;
+    const url = `${baseUrl}/api/chat`;
+
+    const body = {
+      model: options.model,
+      messages: options.messages.map((m) => ({
+        role: m.role,
+        content: m.content,
+      })),
+      stream: true,
+      think: false,
+      options: {
+        ...(options.temperature !== undefined && {
+          temperature: options.temperature,
+        }),
+        ...(options.maxTokens !== undefined && {
+          num_predict: options.maxTokens,
+        }),
+      },
+    };
+
+    this.logger.debug(
+      `Ollama stream request: model=${options.model}, messages=${options.messages.length}`,
+    );
+
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 120_000);
+
+    try {
+      const response = await fetch(url, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+        signal: controller.signal,
+      });
+
+      if (!response.ok) {
+        const errorText = await response.text();
+        this.logger.error(`Ollama stream error ${response.status}: ${errorText}`);
+        yield { content: '', done: true };
+        return;
+      }
+
+      const reader = response.body?.getReader();
+      if (!reader) {
+        yield { content: '', done: true };
+        return;
+      }
+
+      const decoder = new TextDecoder();
+      let buffer = '';
+
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+
+        buffer += decoder.decode(value, { stream: true });
+        const lines = buffer.split('\n');
+        buffer = lines.pop() ?? '';
+
+        for (const line of lines) {
+          if (!line.trim()) continue;
+          try {
+            const chunk = JSON.parse(line);
+            const token = chunk.message?.content ?? '';
+            if (token) {
+              yield { content: token, done: false };
+            }
+            if (chunk.done) {
+              yield { content: '', done: true };
+              return;
+            }
+          } catch {
+            // Skip malformed JSON lines
+          }
+        }
+      }
+
+      yield { content: '', done: true };
+    } catch (err) {
+      if (err.name === 'AbortError') {
+        this.logger.error('Ollama stream timed out after 120s');
+      } else {
+        this.logger.error(`Ollama stream failed: ${err.message}`);
+      }
+      yield { content: '', done: true };
     } finally {
       clearTimeout(timeout);
     }

@@ -54,7 +54,7 @@ VibCode Hub ist ein AI-Entwicklerteam-Portal. Der Nutzer agiert als "Chef" und s
 - [x] Pipeline Feedback Loop (CI/CD Failure → Job-Logs → Coder fixIssue)
 - [x] User Feedback Loop (GitLab Comment → Coder re-triggered)
 - [x] GitLab Webhook Expansion (note, pipeline, merge_request Events)
-- [ ] Streaming (Token-für-Token im Chat)
+- [x] Streaming (Token-für-Token im Chat via WebSocket)
 
 ### Phase 3 — Erweiterung
 - [ ] UI Tester Agent

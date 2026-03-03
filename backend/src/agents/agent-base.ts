@@ -4,7 +4,7 @@ import { SystemSettingsService } from '../settings/system-settings.service';
 import { ChatService } from '../chat/chat.service';
 import { ChatGateway } from '../chat/chat.gateway';
 import { LlmService } from '../llm/llm.service';
-import { LlmMessage } from '../llm/llm.interfaces';
+import { LlmMessage, LlmCompletionResult } from '../llm/llm.interfaces';
 import { AgentRole, AgentStatus, MessageRole } from '@prisma/client';
 
 export interface AgentContext {
@@ -82,6 +82,58 @@ export abstract class BaseAgent {
       temperature: overrides?.temperature ?? config.parameters.temperature,
       maxTokens: overrides?.maxTokens ?? config.parameters.maxTokens,
     });
+  }
+
+  /**
+   * Call the LLM with streaming — emits tokens via WebSocket in real-time.
+   * Returns the full accumulated content when done.
+   */
+  protected async callLlmStreaming(
+    ctx: AgentContext,
+    messages: LlmMessage[],
+    overrides?: { temperature?: number; maxTokens?: number },
+  ): Promise<LlmCompletionResult> {
+    const config = this.getRoleConfig();
+
+    // Notify frontend: stream starting
+    this.chatGateway.emitToSession(ctx.chatSessionId, 'chatStreamStart', {
+      chatSessionId: ctx.chatSessionId,
+      role: this.role,
+    });
+
+    let fullContent = '';
+
+    try {
+      const stream = this.llmService.completeStream({
+        provider: config.provider,
+        model: config.model,
+        messages,
+        temperature: overrides?.temperature ?? config.parameters.temperature,
+        maxTokens: overrides?.maxTokens ?? config.parameters.maxTokens,
+      });
+
+      for await (const chunk of stream) {
+        if (chunk.content) {
+          fullContent += chunk.content;
+          this.chatGateway.emitToSession(ctx.chatSessionId, 'chatStreamToken', {
+            chatSessionId: ctx.chatSessionId,
+            token: chunk.content,
+          });
+        }
+      }
+    } catch (err) {
+      this.logger.error(`Streaming failed: ${err.message}`);
+    }
+
+    // Notify frontend: stream complete
+    this.chatGateway.emitToSession(ctx.chatSessionId, 'chatStreamEnd', {
+      chatSessionId: ctx.chatSessionId,
+    });
+
+    return {
+      content: fullContent,
+      finishReason: fullContent ? 'stop' : 'error',
+    };
   }
 
   /** Update agent instance status + broadcast via WebSocket */

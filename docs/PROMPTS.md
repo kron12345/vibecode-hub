@@ -358,3 +358,34 @@ Dokumentation aller Prompts/Anforderungen die zur Entwicklung genutzt wurden.
 
 **Commands:** `npx prisma migrate dev`, `npx prisma generate`, `npx nest build`, `npx ng build`
 **Status:** Coding Pipeline komplett ✅ — Backend + Frontend builds grün
+
+### Prompt 2: Commit-Links in Issue-Kommentaren
+> Was noch fehlt das nach jeden abgearbeiteten Issue ins gitlab commitet und danach gepushed werden soll. Den commit könnte man dann an dem Issue anhängen.
+
+**Ergebnis:**
+- `gitCommitAndPush()` gibt jetzt Commit-SHA zurück
+- GitLab-Issue-Kommentare enthalten direkten Commit-Link mit Diff-URL
+- Gilt für `processIssue()` und `fixIssue()`
+- `CoderIssueResult` Interface um `commitSha` + `commitUrl` erweitert
+
+### Prompt 3: MR-Merge-Strategie → zu klären
+> Wie kommen Feature Branches wieder ins Main?
+
+**Ergebnis (Diskussion):**
+- Auto-Merge nach Milestone-Abschluss als Idee
+- In "Offene Entscheidungen" Liste aufgenommen, nicht implementiert
+
+### Prompt 4: Phase 2 fertig machen — Streaming
+> Mache Phase 2 fertig und teste mal alles durch
+
+**Ergebnis — LLM Streaming:**
+- `LlmStreamingProvider` Interface + `isStreamingProvider()` Type Guard
+- 4 Provider mit echtem Streaming: Ollama (NDJSON), Anthropic (SSE), OpenAI (SSE), Google (SSE)
+- CLI-Provider: Fallback auf Single-Chunk
+- `LlmService.completeStream()` — delegiert an Provider oder Fallback
+- `BaseAgent.callLlmStreaming()` — emittiert Tokens via WebSocket (`chatStreamStart`, `chatStreamToken`, `chatStreamEnd`)
+- InterviewerAgent nutzt jetzt Streaming für Antworten
+- Frontend: `streamingContent` + `isStreaming` Signals, Token-Akkumulation im Chat mit Live-Cursor (▊)
+
+**Commands:** `npx nest build`, `npx ng build`
+**Status:** Phase 2 komplett ✅ — Streaming implementiert, alle Builds grün

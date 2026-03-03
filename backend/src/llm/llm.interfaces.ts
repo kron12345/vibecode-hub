@@ -48,3 +48,13 @@ export interface LlmProvider {
   readonly providerType: string;
   complete(options: LlmCompletionOptions): Promise<LlmCompletionResult>;
 }
+
+/** Provider that supports token-by-token streaming */
+export interface LlmStreamingProvider extends LlmProvider {
+  streamComplete(options: LlmCompletionOptions): AsyncGenerator<LlmStreamChunk>;
+}
+
+/** Type guard to check if a provider supports streaming */
+export function isStreamingProvider(provider: LlmProvider): provider is LlmStreamingProvider {
+  return 'streamComplete' in provider && typeof (provider as any).streamComplete === 'function';
+}

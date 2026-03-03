@@ -4,6 +4,7 @@ import {
   LlmCompletionOptions,
   LlmCompletionResult,
   LlmStreamChunk,
+  isStreamingProvider,
 } from './llm.interfaces';
 import { OllamaProvider } from './providers/ollama.provider';
 import { AnthropicProvider } from './providers/anthropic.provider';
@@ -63,12 +64,30 @@ export class LlmService {
     return result;
   }
 
-  /** Streaming fallback — returns single chunk for non-streaming providers */
+  /** Stream completion tokens — falls back to single-chunk for non-streaming providers */
   async *completeStream(
     options: LlmCompletionOptions,
-  ): AsyncIterable<LlmStreamChunk> {
-    const result = await this.complete(options);
-    yield { content: result.content, done: true };
+  ): AsyncGenerator<LlmStreamChunk> {
+    const provider = this.providers.get(options.provider);
+    if (!provider) {
+      this.logger.error(`Unknown LLM provider: ${options.provider}`);
+      yield { content: '', done: true };
+      return;
+    }
+
+    if (isStreamingProvider(provider)) {
+      this.logger.log(
+        `LLM stream → ${options.provider}/${options.model} (${options.messages.length} messages)`,
+      );
+      yield* provider.streamComplete(options);
+    } else {
+      // Fallback: complete then yield as single chunk
+      this.logger.log(
+        `LLM stream fallback → ${options.provider}/${options.model} (no streaming support)`,
+      );
+      const result = await provider.complete(options);
+      yield { content: result.content, done: true };
+    }
   }
 
   /** Check if a provider is registered */

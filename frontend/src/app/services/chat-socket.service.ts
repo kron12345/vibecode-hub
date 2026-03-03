@@ -16,6 +16,20 @@ export interface ProjectUpdatedEvent {
   status: string;
 }
 
+export interface StreamStartEvent {
+  chatSessionId: string;
+  role: string;
+}
+
+export interface StreamTokenEvent {
+  chatSessionId: string;
+  token: string;
+}
+
+export interface StreamEndEvent {
+  chatSessionId: string;
+}
+
 @Injectable({ providedIn: 'root' })
 export class ChatSocketService implements OnDestroy {
   private socket: Socket | null = null;
@@ -27,6 +41,10 @@ export class ChatSocketService implements OnDestroy {
   readonly agentStatus$ = new Subject<AgentStatusEvent>();
   /** Emits when a project is updated (e.g., interview complete) */
   readonly projectUpdated$ = new Subject<ProjectUpdatedEvent>();
+  /** Streaming events — token-by-token LLM output */
+  readonly streamStart$ = new Subject<StreamStartEvent>();
+  readonly streamToken$ = new Subject<StreamTokenEvent>();
+  readonly streamEnd$ = new Subject<StreamEndEvent>();
 
   private connect() {
     if (this.socket) return;
@@ -47,6 +65,18 @@ export class ChatSocketService implements OnDestroy {
 
     this.socket.on('projectUpdated', (event: ProjectUpdatedEvent) => {
       this.projectUpdated$.next(event);
+    });
+
+    this.socket.on('chatStreamStart', (event: StreamStartEvent) => {
+      this.streamStart$.next(event);
+    });
+
+    this.socket.on('chatStreamToken', (event: StreamTokenEvent) => {
+      this.streamToken$.next(event);
+    });
+
+    this.socket.on('chatStreamEnd', (event: StreamEndEvent) => {
+      this.streamEnd$.next(event);
     });
   }
 

@@ -233,8 +233,23 @@ sudo gitlab-runner restart
 
 - REST unter `/api/`
 - Swagger/OpenAPI unter `/api/docs`
-- WebSocket für Live-Agent-Updates
+- WebSocket für Live-Agent-Updates + LLM-Token-Streaming
 - GitLab Webhook unter `/api/gitlab/webhook` (ohne Auth, via X-Gitlab-Token)
+
+### LLM Streaming
+
+```
+Agent → LlmService.completeStream() → Provider.streamComplete()
+  → AsyncGenerator<LlmStreamChunk>
+    → chatStreamStart (WebSocket)
+    → chatStreamToken (pro Token)
+    → chatStreamEnd (WebSocket)
+    → Message in DB speichern
+```
+
+- **Streaming-Provider**: Ollama (NDJSON), Anthropic (SSE), OpenAI (SSE), Google (SSE)
+- **Fallback**: CLI-Provider (Claude Code, Codex, Qwen) → Single-Chunk nach Completion
+- **Frontend**: Token-Akkumulation mit Live-Cursor (▊) im Terminal-Chat
 
 ## MCP-Server (Entwicklungs-Tooling)
 
