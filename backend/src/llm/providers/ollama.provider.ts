@@ -40,8 +40,10 @@ export class OllamaProvider implements LlmStreamingProvider {
       `Ollama request: model=${options.model}, messages=${options.messages.length}`,
     );
 
+    // 5 minutes timeout — large models (deepseek-r1:32b) need time to load + generate
+    const timeoutMs = 300_000;
     const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), 120_000);
+    const timeout = setTimeout(() => controller.abort(), timeoutMs);
 
     try {
       const response = await fetch(url, {
@@ -74,6 +76,8 @@ export class OllamaProvider implements LlmStreamingProvider {
         );
       }
 
+      this.logger.debug(`Ollama response: ${content.length} chars, ${data.eval_count ?? 0} tokens`);
+
       return {
         content,
         finishReason: data.done ? 'stop' : 'length',
@@ -88,7 +92,7 @@ export class OllamaProvider implements LlmStreamingProvider {
       };
     } catch (err) {
       if (err.name === 'AbortError') {
-        this.logger.error('Ollama request timed out after 120s');
+        this.logger.error(`Ollama request timed out after ${timeoutMs / 1000}s`);
       } else {
         this.logger.error(`Ollama request failed: ${err.message}`);
       }
@@ -124,8 +128,9 @@ export class OllamaProvider implements LlmStreamingProvider {
       `Ollama stream request: model=${options.model}, messages=${options.messages.length}`,
     );
 
+    const timeoutMs = 300_000;
     const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), 120_000);
+    const timeout = setTimeout(() => controller.abort(), timeoutMs);
 
     try {
       const response = await fetch(url, {
@@ -180,7 +185,7 @@ export class OllamaProvider implements LlmStreamingProvider {
       yield { content: '', done: true };
     } catch (err) {
       if (err.name === 'AbortError') {
-        this.logger.error('Ollama stream timed out after 120s');
+        this.logger.error(`Ollama stream timed out after ${timeoutMs / 1000}s`);
       } else {
         this.logger.error(`Ollama stream failed: ${err.message}`);
       }

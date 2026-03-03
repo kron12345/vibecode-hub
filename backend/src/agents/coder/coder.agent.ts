@@ -492,12 +492,20 @@ export class CoderAgent extends BaseAgent {
         `✅ Fix applied for #${issue.gitlabIid ?? '?'} — ${changedFiles.length} file(s) changed`,
       );
 
+      // Find existing MR IID for this issue's branch
+      const existingTask = await this.prisma.agentTask.findFirst({
+        where: { issueId, gitlabMrIid: { not: null } },
+        orderBy: { startedAt: 'desc' },
+        select: { gitlabMrIid: true },
+      });
+
       // Re-emit coding complete for review
       this.eventEmitter.emit('agent.codingComplete', {
         projectId: ctx.projectId,
         chatSessionId: ctx.chatSessionId,
         issueId,
         gitlabIid: issue.gitlabIid,
+        mrIid: existingTask?.gitlabMrIid ?? undefined,
         gitlabProjectId: issue.project.gitlabProjectId,
         branch: branchName,
       });
@@ -519,15 +527,19 @@ export class CoderAgent extends BaseAgent {
   private async runQwenCli(cwd: string, prompt: string): Promise<string> {
     const qwenPath = '/home/sebastian/.npm-global/bin/qwen';
 
+    // Resolve model from CODER role config
+    const config = this.settings.getAgentRoleConfig('CODER');
+    const model = config.model || 'qwen3-coder:30b';
+
     const args = [
       '--yolo',
+      '-m', model,
       '--openai-base-url', 'http://localhost:11434/v1',
-      '--openai-api-key', 'ollama',
       '--auth-type', 'openai',
       prompt,
     ];
 
-    this.logger.debug(`Running Qwen CLI in ${cwd}`);
+    this.logger.debug(`Running Qwen CLI in ${cwd} with model ${model}`);
 
     return new Promise((resolve, reject) => {
       const child = execFile(
@@ -537,7 +549,7 @@ export class CoderAgent extends BaseAgent {
           cwd,
           timeout: QWEN_TIMEOUT_MS,
           maxBuffer: 50 * 1024 * 1024, // 50 MB — Qwen can be verbose
-          env: { ...process.env },
+          env: { ...process.env, OPENAI_API_KEY: 'ollama' },
         },
         (error, stdout, stderr) => {
           if (error) {

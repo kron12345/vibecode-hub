@@ -108,8 +108,8 @@ export class CodeReviewerAgent extends BaseAgent {
         `🔍 **Code Reviewer** reviewing MR !${mrIid} for issue #${issue.gitlabIid ?? '?'}: **${issue.title}**`,
       );
 
-      // Get MR diffs
-      const diffs = await this.gitlabService.getMergeRequestDiffs(gitlabProjectId, mrIid);
+      // Get MR diffs — retry with delay because GitLab needs time to compute diffs
+      let diffs = await this.fetchDiffsWithRetry(gitlabProjectId, mrIid, 3, 5000);
 
       if (diffs.length === 0) {
         await this.sendAgentMessage(ctx, '⚠️ MR has no diffs — auto-approving');
@@ -357,6 +357,33 @@ Provide your review analysis and end with the completion marker and JSON result.
     } catch (err) {
       this.logger.warn(`Failed to post review comment: ${err.message}`);
     }
+  }
+
+  // ─── Diff Fetching ──────────────────────────────────────
+
+  /**
+   * Fetch MR diffs with retry — GitLab may not have computed diffs
+   * immediately after MR creation.
+   */
+  private async fetchDiffsWithRetry(
+    gitlabProjectId: number,
+    mrIid: number,
+    maxRetries: number,
+    delayMs: number,
+  ): Promise<any[]> {
+    for (let attempt = 1; attempt <= maxRetries; attempt++) {
+      const diffs = await this.gitlabService.getMergeRequestDiffs(gitlabProjectId, mrIid);
+      if (diffs.length > 0) {
+        this.logger.log(`Got ${diffs.length} diff(s) for MR !${mrIid} on attempt ${attempt}`);
+        return diffs;
+      }
+      if (attempt < maxRetries) {
+        this.logger.debug(`MR !${mrIid} has no diffs yet — waiting ${delayMs}ms (attempt ${attempt}/${maxRetries})`);
+        await new Promise(resolve => setTimeout(resolve, delayMs));
+      }
+    }
+    this.logger.warn(`MR !${mrIid} still has no diffs after ${maxRetries} attempts`);
+    return [];
   }
 
   // ─── Helpers ──────────────────────────────────────────────
