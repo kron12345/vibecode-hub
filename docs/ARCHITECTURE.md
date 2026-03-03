@@ -160,6 +160,39 @@ Jede Rolle hat ein vollständiges Behavior Profile (System Prompt) mit: Verantwo
 - **Webhook**: `POST /api/gitlab/webhook` — empfängt Issue-Events und synct sie lokal (Upsert)
 - **Intern**: Service wird von Agenten genutzt um Issues zu erstellen/updaten
 
+### GitLab CI/CD Runner
+
+Ein **shared GitLab Runner** (Docker-Executor) läuft als systemd-Service auf dem Server.
+
+| Setting | Wert |
+|---|---|
+| Binary | `/usr/local/bin/gitlab-runner` (v18.9.0) |
+| Config | `/etc/gitlab-runner/config.toml` |
+| Working Dir | `/home/gitlab-runner` |
+| Executor | `docker` (Default-Image: `node:22-alpine`) |
+| Concurrency | 4 parallele Jobs |
+| Tags | `docker`, `vibcode` |
+| Scope | Shared (instance-level, alle Projekte) |
+| Service | `sudo gitlab-runner status/start/stop/restart` |
+
+**Wartung:**
+```bash
+# Status prüfen
+sudo gitlab-runner status
+
+# Logs anzeigen
+sudo journalctl -u gitlab-runner -f
+
+# Config ändern → automatisch reloaded
+sudo nano /etc/gitlab-runner/config.toml
+
+# Binary aktualisieren
+sudo curl -L --output /usr/local/bin/gitlab-runner \
+  "https://s3.dualstack.us-east-1.amazonaws.com/gitlab-runner-downloads/latest/binaries/gitlab-runner-linux-amd64"
+sudo chmod +x /usr/local/bin/gitlab-runner
+sudo gitlab-runner restart
+```
+
 ## API-Design
 
 - REST unter `/api/`
