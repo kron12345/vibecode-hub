@@ -87,7 +87,34 @@ CRITICAL RULES:
 - The JSON must be valid and parseable
 - Every issue MUST have at least 2 tasks
 - Priority must be one of: LOW, MEDIUM, HIGH, CRITICAL
-- Labels must be lowercase strings`;
+- Labels must be lowercase strings
+- Do NOT wrap the JSON in thinking tags or any other wrapper`;
+
+/** Completion instructions appended to ALL system prompts (custom or default) */
+const ISSUE_COMPLETION_INSTRUCTIONS = `
+
+## MANDATORY Completion Format (ALWAYS follow this)
+When done compiling issues, end your message with EXACTLY this format.
+The marker line and JSON block MUST appear — without them the system cannot proceed.
+
+${COMPLETION_MARKER}
+\`\`\`json
+{
+  "issues": [
+    {
+      "title": "Issue title",
+      "description": "What needs to be built and why",
+      "priority": "HIGH",
+      "labels": ["frontend", "setup"],
+      "tasks": [
+        { "title": "Task title", "description": "What to do" }
+      ]
+    }
+  ]
+}
+\`\`\`
+
+CRITICAL: The JSON must be valid. Do NOT include thinking tags, comments, or trailing commas in the JSON.`;
 
 @Injectable()
 export class IssueCompilerAgent extends BaseAgent {
@@ -192,7 +219,8 @@ export class IssueCompilerAgent extends BaseAgent {
   ): Promise<Record<string, any> | null> {
     const { project, interviewResult } = projectData;
     const config = this.getRoleConfig();
-    const systemPrompt = config.systemPrompt || DEFAULT_SYSTEM_PROMPT;
+    const basePrompt = config.systemPrompt || DEFAULT_SYSTEM_PROMPT;
+    const systemPrompt = basePrompt + ISSUE_COMPLETION_INSTRUCTIONS;
 
     const featureList = interviewResult.features
       .map((f, i) => `${i + 1}. ${f}`)
@@ -246,15 +274,24 @@ Create well-structured issues with actionable tasks for each feature. Include a 
     }
 
     try {
-      const jsonPart = result.content.includes(COMPLETION_MARKER)
+      let jsonPart = result.content.includes(COMPLETION_MARKER)
         ? result.content.substring(result.content.indexOf(COMPLETION_MARKER) + COMPLETION_MARKER.length)
         : result.content;
+
+      // Strip thinking tags that local LLMs (qwen3.5) often wrap around output
+      jsonPart = jsonPart.replace(/<think>[\s\S]*?<\/think>/g, '').trim();
 
       const jsonMatch = jsonPart.match(/\{[\s\S]*\}/);
       if (!jsonMatch) {
         throw new Error('No JSON object found in LLM response');
       }
-      return JSON.parse(jsonMatch[0]);
+
+      // Clean common JSON issues from local LLMs
+      let jsonStr = jsonMatch[0];
+      // Remove trailing commas before } or ]
+      jsonStr = jsonStr.replace(/,\s*([}\]])/g, '$1');
+
+      return JSON.parse(jsonStr);
     } catch (err) {
       this.logger.error(`Failed to parse compilation result: ${err.message}`);
       await this.sendAgentMessage(

@@ -61,8 +61,15 @@ Your job is NOT to plan the implementation. Your job is to collect enough inform
 - Keep it short: 3-5 questions total should be enough for a simple project
 - When you have the setup info (framework, init command, dev server) + a brief feature list, finalize immediately
 
-## Completion Format
-When done, end your FINAL message with exactly this format (the marker and JSON must appear):
+## Completion
+When you have enough info, finalize immediately — do NOT ask for extra confirmation.`;
+
+/** Completion instructions appended to ALL system prompts (custom or default) */
+const COMPLETION_INSTRUCTIONS = `
+
+## MANDATORY Completion Format (ALWAYS follow this)
+When the interview is done, end your FINAL message with EXACTLY this format.
+The marker line and JSON block MUST appear — without them the system cannot proceed.
 
 ${COMPLETION_MARKER}
 \`\`\`json
@@ -92,14 +99,15 @@ ${COMPLETION_MARKER}
 }
 \`\`\`
 
-CRITICAL RULES for the completion JSON:
+CRITICAL RULES for completion:
 - The line ${COMPLETION_MARKER} must appear EXACTLY as shown (no markdown formatting around it)
 - The JSON must be valid and parseable
 - For devServerCommand, always use {PORT} as placeholder
 - If no backend: set backend and database to "none"
 - If not a web project: set deployment.isWebProject to false
 - additionalCommands: one command per array entry (each will be run separately)
-- initCommand: the FULL command including project name and all flags`;
+- initCommand: the FULL command including project name and all flags
+- Do NOT ask "shall I finalize?" — just finalize when you have the info`;
 
 @Injectable()
 export class InterviewerAgent extends BaseAgent {
@@ -126,7 +134,8 @@ export class InterviewerAgent extends BaseAgent {
     });
 
     const config = this.getRoleConfig();
-    const systemPrompt = config.systemPrompt || DEFAULT_SYSTEM_PROMPT;
+    const basePrompt = config.systemPrompt || DEFAULT_SYSTEM_PROMPT;
+    const systemPrompt = basePrompt + COMPLETION_INSTRUCTIONS;
 
     const messages: LlmMessage[] = [
       { role: 'system', content: systemPrompt },
@@ -171,9 +180,10 @@ export class InterviewerAgent extends BaseAgent {
 
     await this.updateStatus(ctx, AgentStatus.WORKING);
 
-    // Build conversation history with system prompt
+    // Build conversation history with system prompt + completion instructions
     const config = this.getRoleConfig();
-    const systemPrompt = config.systemPrompt || DEFAULT_SYSTEM_PROMPT;
+    const basePrompt = config.systemPrompt || DEFAULT_SYSTEM_PROMPT;
+    const systemPrompt = basePrompt + COMPLETION_INSTRUCTIONS;
     const history = await this.getConversationHistory(ctx.chatSessionId);
 
     // Prepend system prompt if not already there
@@ -196,9 +206,46 @@ export class InterviewerAgent extends BaseAgent {
     // Check if interview is complete
     if (result.content.includes(COMPLETION_MARKER)) {
       await this.handleInterviewComplete(ctx, result.content);
+    } else if (this.detectJsonCompletion(result.content)) {
+      // Local LLMs often skip the exact marker but send JSON with completion signals
+      this.logger.log('Detected JSON-based completion (no explicit marker)');
+      await this.handleInterviewComplete(
+        ctx,
+        COMPLETION_MARKER + '\n' + result.content,
+      );
     } else {
       await this.sendAgentMessage(ctx, result.content);
       await this.updateStatus(ctx, AgentStatus.WAITING);
+    }
+  }
+
+  /**
+   * Detect completion from JSON-only responses where the LLM skipped the
+   * :::INTERVIEW_COMPLETE::: marker but sent a structured result.
+   * Checks for common patterns local LLMs use to signal completion.
+   */
+  private detectJsonCompletion(content: string): boolean {
+    const jsonMatch = content.match(/```(?:json)?\s*(\{[\s\S]*?\})\s*```/) ||
+                      content.match(/(\{[\s\S]*\})/);
+    if (!jsonMatch) return false;
+
+    try {
+      const obj = JSON.parse(jsonMatch[1]);
+
+      // Check explicit completion signals
+      if (obj.completion_marker === true) return true;
+      if (obj.ready_for_issue_compiler === true) return true;
+      if (obj.interview_status === 'completed' || obj.interview_status === 'complete') return true;
+
+      // Check for structural completeness (has the essential keys)
+      const hasSetup = !!(obj.techStack || obj.tech_stack || obj.setupInstructions || obj.setup_instructions);
+      const hasFeatures = !!(obj.features || obj.core_features || obj.feature_list);
+      const hasDescription = !!(obj.description || obj.summary || obj.feature_name);
+      if (hasSetup && hasFeatures && hasDescription) return true;
+
+      return false;
+    } catch {
+      return false;
     }
   }
 
@@ -308,12 +355,17 @@ export class InterviewerAgent extends BaseAgent {
     // Parse the JSON result
     let interviewResult: InterviewResult;
     try {
+      // Strip thinking tags that local LLMs (qwen3.5) often wrap around output
+      const cleanedJson = jsonPart.replace(/<think>[\s\S]*?<\/think>/g, '').trim();
+
       // Extract JSON from possible markdown code block
-      const jsonMatch = jsonPart.match(/\{[\s\S]*\}/);
+      const jsonMatch = cleanedJson.match(/\{[\s\S]*\}/);
       if (!jsonMatch) {
         throw new Error('No JSON object found in completion output');
       }
-      const rawResult = JSON.parse(jsonMatch[0]);
+      // Clean trailing commas
+      let jsonStr = jsonMatch[0].replace(/,\s*([}\]])/g, '$1');
+      const rawResult = JSON.parse(jsonStr);
       interviewResult = this.normalizeInterviewResult(rawResult);
     } catch (err) {
       this.logger.error(`Failed to parse interview result: ${err.message}`);

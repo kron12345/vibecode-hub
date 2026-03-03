@@ -68,13 +68,16 @@ export class IssuesService {
             labels: issue.labels,
           },
         );
-        await this.prisma.issue.update({
+        const updated = await this.prisma.issue.update({
           where: { id: issue.id },
           data: {
             gitlabIssueId: glIssue.id,
             gitlabIid: glIssue.iid,
           },
         });
+        // Return the updated issue so callers see the gitlabIid
+        issue.gitlabIssueId = updated.gitlabIssueId;
+        issue.gitlabIid = updated.gitlabIid;
         this.logger.log(`Synced issue to GitLab: #${glIssue.iid}`);
       } catch (err) {
         this.logger.warn(`Could not sync issue to GitLab: ${err.message}`);

@@ -140,19 +140,36 @@ export class DevopsAgent extends BaseAgent {
   ) {
     const start = Date.now();
     try {
-      const project = await this.prisma.project.findUnique({
+      let project = await this.prisma.project.findUnique({
         where: { id: ctx.projectId },
       });
       if (!project) throw new Error('Project not found');
-      if (!project.gitlabProjectId) throw new Error('No GitLab project linked');
 
       const interviewResult = project.techStack as unknown as InterviewResult;
       if (!interviewResult?.techStack) {
         throw new Error('No interview result / techStack on project');
       }
 
+      // Auto-create GitLab repo if not linked yet (Quick-Create flow)
+      if (!project.gitlabProjectId) {
+        await this.sendAgentMessage(ctx, '📦 Creating GitLab repository...');
+        const glProject = await this.gitlabService.createProject({
+          name: project.name,
+          path: project.slug,
+          description: interviewResult.description || project.name,
+        });
+        project = await this.prisma.project.update({
+          where: { id: ctx.projectId },
+          data: {
+            gitlabProjectId: glProject.id,
+            gitlabUrl: glProject.web_url,
+          },
+        });
+        this.logger.log(`GitLab repo created by DevOps agent: ${glProject.web_url}`);
+      }
+
       const gitlabProject = await this.gitlabService.getProject(
-        project.gitlabProjectId,
+        project.gitlabProjectId!,
       );
 
       result.steps.push(this.step('loadProjectData', 'success', 'Project data loaded', start));
@@ -224,12 +241,15 @@ export class DevopsAgent extends BaseAgent {
       }
 
       if (alreadyCloned) {
-        await this.sendAgentMessage(ctx, `📂 Repository already exists — pulling latest changes...`);
-        await execFileAsync('git', ['pull', 'origin', defaultBranch], {
+        // Remove stale workspace and re-clone to avoid merge conflicts
+        await this.sendAgentMessage(ctx, `📂 Stale workspace found — re-cloning fresh...`);
+        await execFileAsync('rm', ['-rf', projectDir], { timeout: 30_000 });
+        await execFileAsync('mkdir', ['-p', projectDir], { timeout: 10_000 });
+        await execFileAsync('git', ['clone', cloneUrl, '.'], {
           cwd: projectDir,
           timeout: TIMEOUT_CLONE,
         });
-        await this.log(ctx.agentTaskId, 'INFO', `Git pull completed: ${redactedUrl}`);
+        await this.log(ctx.agentTaskId, 'INFO', `Re-cloned fresh: ${redactedUrl}`);
       } else {
         await this.sendAgentMessage(ctx, `📥 Cloning repository from GitLab...`);
         // Clone into the project directory (which was just created and is empty)
