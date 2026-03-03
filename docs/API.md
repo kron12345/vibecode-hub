@@ -373,6 +373,54 @@ Der Interviewer-Agent enthält einen `normalizeInterviewResult()` Normalizer, de
 - **Feature-Normalisierung**: Objekt-Arrays `[{name: "..."}]` → String-Arrays `["..."]`
 - **Framework-Defaults**: Fehlende `deployment`-Felder werden anhand des Frameworks ergänzt (Angular=4200, React=3000, Vue=5173)
 
+### Issue Compiler Agent (automatisch)
+
+Der Issue Compiler Agent startet automatisch nach DevOps-Abschluss über das Event `agent.devopsComplete`.
+
+**Flow:**
+1. DevOps-Agent beendet Setup → `agent.devopsComplete` Event
+2. AgentOrchestratorService empfängt Event → `startIssueCompilation()`
+3. Issue Compiler erstellt AgentInstance (ISSUE_COMPILER) + AgentTask (CREATE_ISSUES) in gleicher ChatSession
+4. Lädt Projekt-Features aus Interview-Result (`project.techStack.features`)
+5. Sendet Features an LLM → erhält strukturierte Issues + Tasks als JSON
+6. Erstellt Issues in DB via `IssuesService.create({ syncToGitlab: true })`
+7. Erstellt Tasks als GitLab Work Items (Child-Tasks) via GraphQL `workItemCreate`
+8. Speichert Tasks als Sub-Issues in DB (mit `parentId`)
+9. Zusammenfassung im Chat
+
+**LLM-Interaktion:**
+- System Prompt definiert Output-Format: Issues mit Titel, Beschreibung, Priorität, Labels, Tasks
+- Completion Marker: `:::ISSUES_COMPILED:::` + JSON
+- Normalizer mappt LLM-Varianten (snake_case, Synonyme) auf Schema
+
+**GitLab Work Items (GraphQL):**
+- Issues werden per REST API erstellt (wie bisher)
+- Tasks werden per GraphQL `workItemCreate` als Children erstellt
+- Task Type ID: `gid://gitlab/WorkItems::Type/5`
+- Parent-Verknüpfung via `hierarchyWidget: { parentId }`
+- `getWorkItemId()` holt die WorkItem Global ID für ein Issue
+
+**Fatal vs Non-Fatal:**
+
+| Fehler | Verhalten |
+|---|---|
+| Projekt nicht gefunden | FAILED — Task abgebrochen |
+| Keine Features im Interview | FAILED — nichts zu kompilieren |
+| LLM-Aufruf fehlgeschlagen | FAILED — Provider-Config prüfen |
+| Einzelne Issue-Erstellung fehlgeschlagen | Loggen, weitermachen |
+| GitLab Task-Erstellung fehlgeschlagen | Loggen, weitermachen (DB-Issue existiert trotzdem) |
+
+**IssueCompilerResult** (gespeichert als `AgentTask.output`):
+```typescript
+{
+  issues: CompiledIssue[];  // title, description, priority, labels, tasks[]
+  totalIssues: number;
+  totalTasks: number;
+}
+```
+
+---
+
 ### DevOps Agent (automatisch)
 
 Der DevOps-Agent startet automatisch nach Interview-Abschluss über das Event `agent.interviewComplete`.
@@ -456,12 +504,15 @@ Der `GitlabService` wird intern vom `ProjectsService` genutzt:
 - `createProject(name, path, description)` → GitLab-Projekt anlegen
 - `getProject(id)` → Projekt-Info holen
 - `deleteProject(id)` → Projekt löschen
-- `createIssue(projectId, title, description, labels)` → Issue erstellen
+- `createIssue(projectId, title, description, labels)` → Issue erstellen (REST API)
 - `getIssues(projectId, state)` → Issues auflisten
 - `getIssue(projectId, iid)` → Einzelnes Issue holen
 - `updateIssue(projectId, iid, data)` → Issue aktualisieren
 - `closeIssue(projectId, iid)` → Issue schließen
 - `addWebhook(projectId, url, secret)` → Webhook registrieren
+- `getWorkItemId(projectPath, issueIid)` → WorkItem Global ID holen (GraphQL)
+- `createTask(namespacePath, parentWorkItemId, options)` → Task als Child-WorkItem erstellen (GraphQL)
+- `getWorkItemChildren(workItemId)` → Child-Tasks eines WorkItems auflisten (GraphQL)
 
 ---
 
@@ -510,6 +561,7 @@ map $hub_project $hub_upstream {
 
 | Datum | Änderung |
 |---|---|
+| 2026-03-03 | Issue Compiler Agent: Automatische Feature→Issues+Tasks Kompilierung nach DevOps, GitLab GraphQL WorkItem-API (Tasks als Children), Normalizer für LLM-Output |
 | 2026-03-02 | Interviewer: Robuster JSON-Normalizer (snake_case, Synonyme, Framework-Defaults), überarbeiteter System-Prompt (Pipeline-Fokus, Setup-First) |
 | 2026-03-02 | Fix: REST POST /chat/messages emittiert jetzt chat.userMessage Event (Agent-Orchestrierung), Ollama think:false für qwen3.5/deepseek-r1 |
 | 2026-03-02 | Agent Presets: GET/POST /settings/agents/presets, Local (3-Modell Ollama) + CLI Vorlagen, UI Preset-Selector |

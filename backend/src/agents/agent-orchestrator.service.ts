@@ -5,6 +5,7 @@ import { ChatService } from '../chat/chat.service';
 import { SystemSettingsService } from '../settings/system-settings.service';
 import { InterviewerAgent } from './interviewer/interviewer.agent';
 import { DevopsAgent } from './devops/devops.agent';
+import { IssueCompilerAgent } from './issue-compiler/issue-compiler.agent';
 import {
   AgentRole,
   AgentStatus,
@@ -23,6 +24,7 @@ export class AgentOrchestratorService {
     private readonly settings: SystemSettingsService,
     private readonly interviewer: InterviewerAgent,
     private readonly devops: DevopsAgent,
+    private readonly issueCompiler: IssueCompilerAgent,
   ) {}
 
   /**
@@ -219,6 +221,82 @@ export class AgentOrchestratorService {
     // Start setup asynchronously (don't block)
     this.devops.runSetup(ctx).catch((err) => {
       this.logger.error(`DevOps setup error: ${err.message}`);
+    });
+
+    return {
+      agentInstanceId: agentInstance.id,
+      agentTaskId: agentTask.id,
+      chatSessionId,
+    };
+  }
+
+  // ─── Issue Compiler Agent ───────────────────────────────────
+
+  /**
+   * Handle DevOps completion — automatically start Issue Compiler.
+   * Reuses the same chat session for seamless flow.
+   */
+  @OnEvent('agent.devopsComplete')
+  async handleDevopsComplete(payload: {
+    projectId: string;
+    chatSessionId: string;
+  }) {
+    const { projectId, chatSessionId } = payload;
+    this.logger.log(`DevOps complete for project ${projectId} — starting Issue Compiler`);
+
+    try {
+      await this.startIssueCompilation(projectId, chatSessionId);
+    } catch (err) {
+      this.logger.error(`Failed to start Issue Compiler: ${err.message}`);
+    }
+  }
+
+  /**
+   * Start the Issue Compiler agent.
+   * Creates AgentInstance + AgentTask, reuses the given chat session.
+   */
+  async startIssueCompilation(projectId: string, chatSessionId: string) {
+    const project = await this.prisma.project.findUnique({
+      where: { id: projectId },
+    });
+    if (!project) {
+      throw new NotFoundException(`Project ${projectId} not found`);
+    }
+
+    // Get Issue Compiler config for provider/model
+    const config = this.settings.getAgentRoleConfig('ISSUE_COMPILER');
+
+    // Create agent instance
+    const agentInstance = await this.prisma.agentInstance.create({
+      data: {
+        projectId,
+        role: AgentRole.ISSUE_COMPILER,
+        provider: config.provider as any,
+        model: config.model,
+        status: AgentStatus.IDLE,
+      },
+    });
+
+    // Create agent task
+    const agentTask = await this.prisma.agentTask.create({
+      data: {
+        agentId: agentInstance.id,
+        type: AgentTaskType.CREATE_ISSUES,
+        status: AgentTaskStatus.RUNNING,
+        startedAt: new Date(),
+      },
+    });
+
+    const ctx = {
+      projectId,
+      agentInstanceId: agentInstance.id,
+      agentTaskId: agentTask.id,
+      chatSessionId,
+    };
+
+    // Start compilation asynchronously (don't block)
+    this.issueCompiler.runCompilation(ctx).catch((err) => {
+      this.logger.error(`Issue Compiler error: ${err.message}`);
     });
 
     return {

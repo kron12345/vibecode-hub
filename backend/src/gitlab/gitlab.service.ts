@@ -24,6 +24,14 @@ export interface GitLabIssue {
   updated_at: string;
 }
 
+export interface GitLabWorkItem {
+  id: string;       // "gid://gitlab/WorkItem/123"
+  iid: string;      // Project-scoped IID
+  title: string;
+  state: string;
+  workItemType: { name: string };
+}
+
 interface CreateProjectOptions {
   name: string;
   path: string;
@@ -171,6 +179,132 @@ export class GitlabService {
 
   async closeIssue(projectId: number, issueIid: number): Promise<GitLabIssue> {
     return this.updateIssue(projectId, issueIid, { state_event: 'close' });
+  }
+
+  // ─── Work Items (GraphQL) ────────────────────────────────────
+
+  /** Execute a GraphQL query against the GitLab API */
+  private async graphql<T = any>(query: string, variables?: Record<string, any>): Promise<T> {
+    const url = `${this.systemSettings.gitlabUrl}/api/graphql`;
+    const response = await firstValueFrom(
+      this.httpService.post(url, { query, variables }, { headers: this.headers }),
+    );
+    if (response.data.errors?.length) {
+      throw new Error(`GitLab GraphQL: ${response.data.errors[0].message}`);
+    }
+    return response.data.data;
+  }
+
+  /**
+   * Get the WorkItem global ID for an Issue.
+   * Needed as parentId when creating child Tasks.
+   */
+  async getWorkItemId(projectPath: string, issueIid: number): Promise<string> {
+    const data = await this.graphql<{
+      project: { issue: { id: string } };
+    }>(
+      `query($path: ID!, $iid: String!) {
+        project(fullPath: $path) {
+          issue(iid: $iid) { id }
+        }
+      }`,
+      { path: projectPath, iid: String(issueIid) },
+    );
+
+    if (!data.project?.issue?.id) {
+      throw new Error(`WorkItem ID not found for issue #${issueIid} in ${projectPath}`);
+    }
+
+    return data.project.issue.id;
+  }
+
+  /**
+   * Create a Task work item as child of an Issue.
+   * Uses GitLab's WorkItem GraphQL API with hierarchyWidget.
+   * Task type ID = "gid://gitlab/WorkItems::Type/5" (standard in GitLab 17+).
+   */
+  async createTask(
+    namespacePath: string,
+    parentWorkItemId: string,
+    options: { title: string; description?: string; labels?: string[] },
+  ): Promise<GitLabWorkItem> {
+    // First, get the project's namespace ID via GraphQL
+    const nsData = await this.graphql<{
+      namespace: { id: string };
+    }>(
+      `query($path: ID!) {
+        namespace(fullPath: $path) { id }
+      }`,
+      { path: namespacePath },
+    );
+
+    if (!nsData.namespace?.id) {
+      throw new Error(`Namespace not found: ${namespacePath}`);
+    }
+
+    const data = await this.graphql<{
+      workItemCreate: {
+        workItem: GitLabWorkItem;
+        errors: string[];
+      };
+    }>(
+      `mutation($input: WorkItemCreateInput!) {
+        workItemCreate(input: $input) {
+          workItem {
+            id
+            iid
+            title
+            state
+            workItemType { name }
+          }
+          errors
+        }
+      }`,
+      {
+        input: {
+          namespacePath,
+          title: options.title,
+          description: options.description ?? '',
+          workItemTypeId: 'gid://gitlab/WorkItems::Type/5', // Task
+          hierarchyWidget: { parentId: parentWorkItemId },
+        },
+      },
+    );
+
+    if (data.workItemCreate.errors?.length) {
+      throw new Error(`createTask: ${data.workItemCreate.errors.join(', ')}`);
+    }
+
+    const workItem = data.workItemCreate.workItem;
+    this.logger.log(`Created GitLab task "${workItem.title}" (${workItem.id}) under ${parentWorkItemId}`);
+    return workItem;
+  }
+
+  /** Get children (tasks) of a work item */
+  async getWorkItemChildren(workItemId: string): Promise<GitLabWorkItem[]> {
+    const data = await this.graphql<{
+      workItem: {
+        widgets: Array<{
+          type: string;
+          children?: { nodes: GitLabWorkItem[] };
+        }>;
+      };
+    }>(
+      `query($id: WorkItemID!) {
+        workItem(id: $id) {
+          widgets {
+            type
+            ... on WorkItemWidgetHierarchy {
+              children { nodes { id iid title state workItemType { name } } }
+            }
+          }
+        }
+      }`,
+      { id: workItemId },
+    );
+
+    const hierarchy = data.workItem?.widgets?.find(w => w.type === 'HIERARCHY');
+    return hierarchy?.children?.nodes ?? [];
   }
 
   // ─── Webhooks ────────────────────────────────────────────────

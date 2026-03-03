@@ -1,4 +1,5 @@
 import { Injectable, Logger } from '@nestjs/common';
+import { EventEmitter2 } from '@nestjs/event-emitter';
 import { execFile } from 'child_process';
 import { promisify } from 'util';
 import * as path from 'path';
@@ -59,6 +60,7 @@ export class DevopsAgent extends BaseAgent {
     chatGateway: ChatGateway,
     llmService: LlmService,
     private readonly gitlabService: GitlabService,
+    private readonly eventEmitter: EventEmitter2,
   ) {
     super(prisma, settings, chatService, chatGateway, llmService);
   }
@@ -491,6 +493,12 @@ export class DevopsAgent extends BaseAgent {
       });
 
       result.steps.push(this.step('finalize', 'success', 'Project status → READY', start));
+
+      // Trigger Issue Compiler agent
+      this.eventEmitter.emit('agent.devopsComplete', {
+        projectId: ctx.projectId,
+        chatSessionId: ctx.chatSessionId,
+      });
 
     } catch (err) {
       result.steps.push(this.step('finalize', 'failed', err.message, start));
