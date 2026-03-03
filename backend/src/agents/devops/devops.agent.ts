@@ -114,6 +114,9 @@ export class DevopsAgent extends BaseAgent {
       // Step 6: Generate .mcp.json
       await this.stepGenerateMcpConfig(ctx, result, projectDir, interviewResult);
 
+      // Step 6b: Generate .gitlab-ci.yml
+      await this.stepGenerateCiConfig(ctx, result, projectDir, interviewResult);
+
       // Step 7: Git commit & push
       await this.stepGitCommitAndPush(
         ctx, result, projectDir, gitlabProject.default_branch,
@@ -412,6 +415,231 @@ export class DevopsAgent extends BaseAgent {
       await this.sendAgentMessage(ctx, `⚠️ MCP config generation failed (non-fatal): ${err.message}`);
       await this.log(ctx.agentTaskId, 'WARN', `MCP config failed: ${err.message}`);
     }
+  }
+
+  // ─── Step 6b: Generate .gitlab-ci.yml ───────────────────────
+
+  private async stepGenerateCiConfig(
+    ctx: AgentContext,
+    result: DevopsSetupResult,
+    projectDir: string,
+    interviewResult: InterviewResult,
+  ): Promise<void> {
+    const start = Date.now();
+    try {
+      const framework = (interviewResult.techStack?.framework ?? '').toLowerCase();
+      const language = (interviewResult.techStack?.language ?? '').toLowerCase();
+
+      const ciYml = this.buildCiYml(framework, language);
+
+      const ciPath = path.join(projectDir, '.gitlab-ci.yml');
+      await fs.writeFile(ciPath, ciYml, 'utf-8');
+
+      result.steps.push(this.step('generateCiConfig', 'success', 'CI/CD config generated', start));
+      await this.sendAgentMessage(ctx, `🔄 Generated \`.gitlab-ci.yml\` (${framework || 'generic'} template)`);
+      await this.log(ctx.agentTaskId, 'INFO', 'CI config generated', { framework, language });
+
+    } catch (err) {
+      result.steps.push(this.step('generateCiConfig', 'failed', err.message, start));
+      await this.sendAgentMessage(ctx, `⚠️ CI config generation failed (non-fatal): ${err.message}`);
+      await this.log(ctx.agentTaskId, 'WARN', `CI config failed: ${err.message}`);
+    }
+  }
+
+  /** Build a deterministic .gitlab-ci.yml based on the tech stack */
+  private buildCiYml(framework: string, language: string): string {
+    // Angular / React / Vue / Node projects
+    if (['angular', 'react', 'vue', 'next', 'nuxt', 'svelte'].includes(framework) ||
+        ['typescript', 'javascript'].includes(language)) {
+      return `stages:
+  - install
+  - lint
+  - test
+  - build
+
+variables:
+  NODE_ENV: "test"
+
+install:
+  stage: install
+  tags: [docker, vibcode]
+  image: node:22-alpine
+  script:
+    - npm ci --prefer-offline
+  cache:
+    key: \${CI_COMMIT_REF_SLUG}
+    paths:
+      - node_modules/
+  artifacts:
+    paths:
+      - node_modules/
+    expire_in: 1 hour
+
+lint:
+  stage: lint
+  tags: [docker, vibcode]
+  image: node:22-alpine
+  needs: [install]
+  script:
+    - npm run lint --if-present
+
+test:
+  stage: test
+  tags: [docker, vibcode]
+  image: node:22-alpine
+  needs: [install]
+  script:
+    - npm test --if-present
+  allow_failure: true
+
+build:
+  stage: build
+  tags: [docker, vibcode]
+  image: node:22-alpine
+  needs: [install]
+  script:
+    - npm run build
+  artifacts:
+    paths:
+      - dist/
+    expire_in: 1 week
+`;
+    }
+
+    // Python projects
+    if (['python', 'django', 'flask', 'fastapi'].includes(framework) ||
+        language === 'python') {
+      return `stages:
+  - install
+  - lint
+  - test
+  - build
+
+install:
+  stage: install
+  tags: [docker, vibcode]
+  image: python:3.12-slim
+  script:
+    - pip install -r requirements.txt
+  cache:
+    key: \${CI_COMMIT_REF_SLUG}
+    paths:
+      - .venv/
+
+lint:
+  stage: lint
+  tags: [docker, vibcode]
+  image: python:3.12-slim
+  needs: [install]
+  script:
+    - pip install ruff
+    - ruff check .
+  allow_failure: true
+
+test:
+  stage: test
+  tags: [docker, vibcode]
+  image: python:3.12-slim
+  needs: [install]
+  script:
+    - pip install pytest
+    - pytest --tb=short
+  allow_failure: true
+
+build:
+  stage: build
+  tags: [docker, vibcode]
+  image: python:3.12-slim
+  needs: [install]
+  script:
+    - echo "Build step — customize as needed"
+`;
+    }
+
+    // Rust projects
+    if (framework === 'rust' || language === 'rust') {
+      return `stages:
+  - lint
+  - test
+  - build
+
+lint:
+  stage: lint
+  tags: [docker, vibcode]
+  image: rust:latest
+  script:
+    - rustup component add clippy
+    - cargo clippy -- -D warnings
+  allow_failure: true
+
+test:
+  stage: test
+  tags: [docker, vibcode]
+  image: rust:latest
+  script:
+    - cargo test
+  allow_failure: true
+
+build:
+  stage: build
+  tags: [docker, vibcode]
+  image: rust:latest
+  script:
+    - cargo build --release
+  artifacts:
+    paths:
+      - target/release/
+    expire_in: 1 week
+`;
+    }
+
+    // Go projects
+    if (framework === 'go' || language === 'go') {
+      return `stages:
+  - lint
+  - test
+  - build
+
+lint:
+  stage: lint
+  tags: [docker, vibcode]
+  image: golang:1.22
+  script:
+    - go vet ./...
+  allow_failure: true
+
+test:
+  stage: test
+  tags: [docker, vibcode]
+  image: golang:1.22
+  script:
+    - go test ./...
+  allow_failure: true
+
+build:
+  stage: build
+  tags: [docker, vibcode]
+  image: golang:1.22
+  script:
+    - go build -o app ./...
+  artifacts:
+    paths:
+      - app
+    expire_in: 1 week
+`;
+    }
+
+    // Generic fallback
+    return `stages:
+  - build
+
+build:
+  stage: build
+  tags: [docker, vibcode]
+  script:
+    - echo "Configure CI/CD pipeline for your project"
+    - echo "Framework detection did not match a known template"
+`;
   }
 
   // ─── Step 7: Git Commit & Push ─────────────────────────────

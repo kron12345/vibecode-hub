@@ -10,7 +10,7 @@ import {
 } from '@nestjs/common';
 import { ApiTags, ApiQuery } from '@nestjs/swagger';
 import { IssuesService } from './issues.service';
-import { CreateIssueDto, UpdateIssueDto } from './issues.dto';
+import { CreateIssueDto, UpdateIssueDto, CreateIssueCommentDto } from './issues.dto';
 
 @ApiTags('milestones')
 @Controller('milestones')
@@ -53,5 +53,15 @@ export class IssuesController {
   @Delete(':id')
   delete(@Param('id') id: string) {
     return this.issuesService.delete(id);
+  }
+
+  @Get(':id/comments')
+  getComments(@Param('id') id: string) {
+    return this.issuesService.getComments(id);
+  }
+
+  @Post(':id/comments')
+  addComment(@Param('id') id: string, @Body() dto: CreateIssueCommentDto) {
+    return this.issuesService.addComment(id, dto);
   }
 }

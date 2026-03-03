@@ -81,8 +81,11 @@ model Issue {
   assignedAgentId String?
   assignedAgent   AgentInstance? @relation(fields: [assignedAgentId], references: [id])
 
+  sortOrder       Int       @default(0)
+
   chatMessages    ChatMessage[]
   agentTasks      AgentTask[]
+  comments        IssueComment[]
 
   createdAt       DateTime @default(now())
   updatedAt       DateTime @updatedAt
@@ -105,6 +108,33 @@ enum IssuePriority {
   MEDIUM
   HIGH
   CRITICAL
+}
+
+// ─── Issue Comments ──────────────────────────────────────────
+
+enum CommentAuthorType {
+  AGENT
+  USER
+  SYSTEM
+}
+
+model IssueComment {
+  id              String            @id @default(cuid())
+  issueId         String
+  issue           Issue             @relation(fields: [issueId], references: [id], onDelete: Cascade)
+
+  gitlabNoteId    Int?
+  authorType      CommentAuthorType @default(SYSTEM)
+  authorName      String
+  content         String
+
+  agentTaskId     String?
+  agentTask       AgentTask?        @relation(fields: [agentTaskId], references: [id])
+
+  createdAt       DateTime          @default(now())
+
+  @@index([issueId, createdAt])
+  @@map("issue_comments")
 }
 
 // ─── Chat ───────────────────────────────────────────────────
@@ -218,6 +248,7 @@ model AgentTask {
   output        Json?
   logs          AgentLog[]
   chatMessages  ChatMessage[]
+  comments      IssueComment[]
 
   gitlabMrIid   Int?
 

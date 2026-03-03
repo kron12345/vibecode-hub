@@ -12,7 +12,8 @@
     "noDescription": "Nessuna descrizione",
     "name": "Nome",
     "slug": "Slug",
-    "description": "Descrizione"
+    "description": "Descrizione",
+    "send": "Invia"
   },
   "sidebar": {
     "dashboard": "Dashboard",
@@ -59,6 +60,17 @@
     "settingUp": "Configurazione...",
     "agentThinking": "L'agente sta pensando...",
     "previewUrl": "Anteprima",
+    "comments": "Commenti",
+    "addComment": "Scrivi un commento...",
+    "noComments": "Nessun commento ancora",
+    "commentPosted": "Commento pubblicato",
+    "issueDetail": "Descrizione",
+    "assignedTo": "Assegnato a",
+    "branch": "Branch",
+    "mergeRequest": "Merge Request",
+    "pipelineStatus": "Stato Pipeline",
+    "coderWorking": "Coder in esecuzione...",
+    "reviewerWorking": "Revisore in esecuzione...",
     "tabOverview": "Panoramica",
     "tabSettings": "Impostazioni",
     "settings": {

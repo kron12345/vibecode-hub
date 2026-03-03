@@ -37,6 +37,75 @@ export interface GitLabMilestone {
   updated_at: string;
 }
 
+export interface GitLabNote {
+  id: number;
+  body: string;
+  author: { id: number; username: string; name: string };
+  created_at: string;
+  updated_at: string;
+  system: boolean;
+}
+
+export interface GitLabMergeRequest {
+  id: number;
+  iid: number;
+  title: string;
+  description: string | null;
+  state: 'opened' | 'closed' | 'merged' | 'locked';
+  source_branch: string;
+  target_branch: string;
+  web_url: string;
+  merge_status: string;
+  has_conflicts: boolean;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface GitLabMrDiff {
+  old_path: string;
+  new_path: string;
+  diff: string;
+  new_file: boolean;
+  deleted_file: boolean;
+  renamed_file: boolean;
+}
+
+export interface GitLabPipeline {
+  id: number;
+  iid: number;
+  status: 'created' | 'waiting_for_resource' | 'preparing' | 'pending' | 'running' | 'success' | 'failed' | 'canceled' | 'skipped' | 'manual' | 'scheduled';
+  ref: string;
+  sha: string;
+  web_url: string;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface GitLabJob {
+  id: number;
+  name: string;
+  stage: string;
+  status: string;
+  web_url: string;
+  started_at: string | null;
+  finished_at: string | null;
+}
+
+export interface GitLabBranch {
+  name: string;
+  commit: { id: string; message: string };
+  default: boolean;
+  web_url: string;
+}
+
+export interface GitLabTreeItem {
+  id: string;
+  name: string;
+  type: 'tree' | 'blob';
+  path: string;
+  mode: string;
+}
+
 export interface GitLabWorkItem {
   id: string;       // "gid://gitlab/WorkItem/123"
   iid: string;      // Project-scoped IID
@@ -65,6 +134,14 @@ interface UpdateIssueOptions {
   labels?: string[];
   state_event?: 'close' | 'reopen';
   milestone_id?: number;
+}
+
+interface CreateMergeRequestOptions {
+  source_branch: string;
+  target_branch: string;
+  title: string;
+  description?: string;
+  remove_source_branch?: boolean;
 }
 
 interface CreateMilestoneOptions {
@@ -401,6 +478,157 @@ export class GitlabService {
     return hierarchy?.children?.nodes ?? [];
   }
 
+  // ─── Notes (Issue Comments) ─────────────────────────────────
+
+  async createIssueNote(projectId: number, issueIid: number, body: string): Promise<GitLabNote> {
+    const { data } = await firstValueFrom(
+      this.httpService.post<GitLabNote>(
+        `${this.apiUrl}/projects/${projectId}/issues/${issueIid}/notes`,
+        { body },
+        { headers: this.headers },
+      ),
+    );
+    this.logger.debug(`Created note on issue #${issueIid} in project ${projectId}`);
+    return data;
+  }
+
+  async getIssueNotes(projectId: number, issueIid: number): Promise<GitLabNote[]> {
+    const { data } = await firstValueFrom(
+      this.httpService.get<GitLabNote[]>(
+        `${this.apiUrl}/projects/${projectId}/issues/${issueIid}/notes`,
+        {
+          headers: this.headers,
+          params: { per_page: 100, sort: 'asc' },
+        },
+      ),
+    );
+    return data;
+  }
+
+  // ─── Merge Requests ────────────────────────────────────────
+
+  async createMergeRequest(projectId: number, options: CreateMergeRequestOptions): Promise<GitLabMergeRequest> {
+    const { data } = await firstValueFrom(
+      this.httpService.post<GitLabMergeRequest>(
+        `${this.apiUrl}/projects/${projectId}/merge_requests`,
+        {
+          source_branch: options.source_branch,
+          target_branch: options.target_branch,
+          title: options.title,
+          description: options.description ?? '',
+          remove_source_branch: options.remove_source_branch ?? true,
+        },
+        { headers: this.headers },
+      ),
+    );
+    this.logger.log(`Created MR !${data.iid} in project ${projectId}: ${options.source_branch} → ${options.target_branch}`);
+    return data;
+  }
+
+  async getMergeRequest(projectId: number, mrIid: number): Promise<GitLabMergeRequest> {
+    const { data } = await firstValueFrom(
+      this.httpService.get<GitLabMergeRequest>(
+        `${this.apiUrl}/projects/${projectId}/merge_requests/${mrIid}`,
+        { headers: this.headers },
+      ),
+    );
+    return data;
+  }
+
+  async getMergeRequestDiffs(projectId: number, mrIid: number): Promise<GitLabMrDiff[]> {
+    const { data } = await firstValueFrom(
+      this.httpService.get<GitLabMrDiff[]>(
+        `${this.apiUrl}/projects/${projectId}/merge_requests/${mrIid}/diffs`,
+        {
+          headers: this.headers,
+          params: { per_page: 100 },
+        },
+      ),
+    );
+    return data;
+  }
+
+  // ─── Branches ──────────────────────────────────────────────
+
+  async createBranch(projectId: number, name: string, ref: string): Promise<GitLabBranch> {
+    const { data } = await firstValueFrom(
+      this.httpService.post<GitLabBranch>(
+        `${this.apiUrl}/projects/${projectId}/repository/branches`,
+        { branch: name, ref },
+        { headers: this.headers },
+      ),
+    );
+    this.logger.log(`Created branch "${name}" from "${ref}" in project ${projectId}`);
+    return data;
+  }
+
+  async deleteBranch(projectId: number, name: string): Promise<void> {
+    await firstValueFrom(
+      this.httpService.delete(
+        `${this.apiUrl}/projects/${projectId}/repository/branches/${encodeURIComponent(name)}`,
+        { headers: this.headers },
+      ),
+    );
+    this.logger.log(`Deleted branch "${name}" in project ${projectId}`);
+  }
+
+  // ─── Pipelines ─────────────────────────────────────────────
+
+  async getPipeline(projectId: number, pipelineId: number): Promise<GitLabPipeline> {
+    const { data } = await firstValueFrom(
+      this.httpService.get<GitLabPipeline>(
+        `${this.apiUrl}/projects/${projectId}/pipelines/${pipelineId}`,
+        { headers: this.headers },
+      ),
+    );
+    return data;
+  }
+
+  async getPipelineJobs(projectId: number, pipelineId: number): Promise<GitLabJob[]> {
+    const { data } = await firstValueFrom(
+      this.httpService.get<GitLabJob[]>(
+        `${this.apiUrl}/projects/${projectId}/pipelines/${pipelineId}/jobs`,
+        {
+          headers: this.headers,
+          params: { per_page: 100 },
+        },
+      ),
+    );
+    return data;
+  }
+
+  async getJobLog(projectId: number, jobId: number): Promise<string> {
+    const { data } = await firstValueFrom(
+      this.httpService.get<string>(
+        `${this.apiUrl}/projects/${projectId}/jobs/${jobId}/trace`,
+        {
+          headers: this.headers,
+          responseType: 'text' as any,
+        },
+      ),
+    );
+    return data;
+  }
+
+  // ─── Repository ────────────────────────────────────────────
+
+  async getRepositoryTree(projectId: number, ref: string, path?: string): Promise<GitLabTreeItem[]> {
+    const params: Record<string, any> = {
+      ref,
+      per_page: 100,
+      recursive: false,
+    };
+    if (path) params.path = path;
+
+    const { data } = await firstValueFrom(
+      this.httpService.get<GitLabTreeItem[]>(
+        `${this.apiUrl}/projects/${projectId}/repository/tree`,
+        { headers: this.headers, params },
+      ),
+    );
+    return data;
+  }
+
   // ─── Members ─────────────────────────────────────────────────
 
   /**
@@ -442,6 +670,8 @@ export class GitlabService {
           token: secretToken,
           issues_events: true,
           merge_requests_events: true,
+          note_events: true,
+          pipeline_events: true,
           push_events: false,
           enable_ssl_verification: true,
         },

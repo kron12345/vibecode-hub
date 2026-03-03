@@ -4,9 +4,10 @@ import {
   IsEnum,
   IsArray,
   IsInt,
+  IsBoolean,
 } from 'class-validator';
 import { ApiProperty } from '@nestjs/swagger';
-import { IssueStatus, IssuePriority } from '@prisma/client';
+import { IssueStatus, IssuePriority, CommentAuthorType } from '@prisma/client';
 
 export class CreateIssueDto {
   @ApiProperty()
@@ -84,4 +85,25 @@ export class UpdateIssueDto {
   @IsOptional()
   @IsString()
   assignedAgentId?: string;
+}
+
+export class CreateIssueCommentDto {
+  @ApiProperty({ description: 'Comment content' })
+  @IsString()
+  content: string;
+
+  @ApiProperty({ enum: CommentAuthorType, default: CommentAuthorType.USER, required: false })
+  @IsOptional()
+  @IsEnum(CommentAuthorType)
+  authorType?: CommentAuthorType;
+
+  @ApiProperty({ required: false, description: 'Author display name' })
+  @IsOptional()
+  @IsString()
+  authorName?: string;
+
+  @ApiProperty({ required: false, default: false, description: 'Also post as GitLab note' })
+  @IsOptional()
+  @IsBoolean()
+  syncToGitlab?: boolean;
 }

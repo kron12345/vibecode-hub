@@ -24,6 +24,8 @@ export interface LlmCompletionOptions {
   temperature?: number;
   maxTokens?: number;
   tools?: LlmToolDefinition[];
+  /** Working directory for CLI-based providers */
+  cwd?: string;
 }
 
 export interface LlmCompletionResult {

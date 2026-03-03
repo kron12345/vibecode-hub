@@ -33,6 +33,7 @@ export abstract class CliBaseProvider implements LlmProvider {
           timeout: 120_000,
           maxBuffer: 10 * 1024 * 1024, // 10 MB
           env: { ...process.env },
+          ...(options.cwd && { cwd: options.cwd }),
         },
         (error, stdout, stderr) => {
           if (error) {

@@ -1,8 +1,8 @@
 import { Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { GitlabService } from '../gitlab/gitlab.service';
-import { CreateIssueDto, UpdateIssueDto } from './issues.dto';
-import { IssueStatus } from '@prisma/client';
+import { CreateIssueDto, UpdateIssueDto, CreateIssueCommentDto } from './issues.dto';
+import { IssueStatus, CommentAuthorType } from '@prisma/client';
 
 @Injectable()
 export class IssuesService {
@@ -141,5 +141,51 @@ export class IssuesService {
 
   async delete(id: string) {
     return this.prisma.issue.delete({ where: { id } });
+  }
+
+  // ─── Comments ──────────────────────────────────────────────
+
+  async getComments(issueId: string) {
+    return this.prisma.issueComment.findMany({
+      where: { issueId },
+      orderBy: { createdAt: 'asc' },
+    });
+  }
+
+  async addComment(issueId: string, dto: CreateIssueCommentDto, userId?: string) {
+    const issue = await this.prisma.issue.findUnique({
+      where: { id: issueId },
+      include: { project: { select: { gitlabProjectId: true } } },
+    });
+    if (!issue) throw new NotFoundException(`Issue "${issueId}" not found`);
+
+    const authorName = dto.authorName ?? userId ?? 'Unknown';
+    const authorType = dto.authorType ?? CommentAuthorType.USER;
+
+    let gitlabNoteId: number | null = null;
+
+    // Sync to GitLab if requested
+    if (dto.syncToGitlab && issue.gitlabIid && issue.project.gitlabProjectId) {
+      try {
+        const note = await this.gitlab.createIssueNote(
+          issue.project.gitlabProjectId,
+          issue.gitlabIid,
+          dto.content,
+        );
+        gitlabNoteId = note.id;
+      } catch (err) {
+        this.logger.warn(`Could not sync comment to GitLab: ${err.message}`);
+      }
+    }
+
+    return this.prisma.issueComment.create({
+      data: {
+        issueId,
+        authorType,
+        authorName,
+        content: dto.content,
+        gitlabNoteId,
+      },
+    });
   }
 }

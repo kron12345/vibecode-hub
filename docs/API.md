@@ -95,6 +95,8 @@
 | `POST` | `/api/issues` | Ja | Neues Issue erstellen (optional mit GitLab-Sync) |
 | `PUT` | `/api/issues/:id` | Ja | Issue aktualisieren (Status, Priorität, Labels, Agent) |
 | `DELETE` | `/api/issues/:id` | Ja | Issue löschen |
+| `GET` | `/api/issues/:id/comments` | Ja | Kommentare eines Issues (chronologisch) |
+| `POST` | `/api/issues/:id/comments` | Ja | Kommentar erstellen (optional mit GitLab-Sync) |
 
 ### DTOs
 
@@ -120,6 +122,16 @@
   priority?: 'LOW' | 'MEDIUM' | 'HIGH' | 'CRITICAL';
   labels?: string[];
   assignedAgentId?: string;
+}
+```
+
+**CreateIssueCommentDto**
+```typescript
+{
+  content: string;           // Pflicht
+  authorType?: 'AGENT' | 'USER' | 'SYSTEM';  // Default: USER
+  authorName?: string;       // Display-Name des Autors
+  syncToGitlab?: boolean;    // Auch als GitLab-Note posten
 }
 ```
 
@@ -517,6 +529,9 @@ Der DevOps-Agent startet automatisch nach Interview-Abschluss über das Event `a
 | Event | Aktion |
 |---|---|
 | `issue` (open/update/close) | Upsert lokales Issue (Titel, Beschreibung, Status, Labels) |
+| `note` (Issue-Kommentar) | Speichert User-Kommentar als IssueComment, emittiert `gitlab.userComment` → Coder Agent re-trigger |
+| `pipeline` (success/failed) | Emittiert `gitlab.pipelineResult` → Bei Failure: Job-Logs holen, Coder Agent re-trigger |
+| `merge_request` | Logging (für spätere Workflows) |
 
 **Setup**: Webhook-URL in GitLab-Projekt konfigurieren: `https://hub.example.com/api/gitlab/webhook`
 Secret Token: Konfiguriert via Settings (Kategorie `gitlab`, Key `gitlab.webhook_secret`)
@@ -541,7 +556,18 @@ Der `GitlabService` wird intern vom `ProjectsService` genutzt:
 - `getIssue(projectId, iid)` → Einzelnes Issue holen
 - `updateIssue(projectId, iid, data)` → Issue aktualisieren
 - `closeIssue(projectId, iid)` → Issue schließen
-- `addWebhook(projectId, url, secret)` → Webhook registrieren
+- `addWebhook(projectId, url, secret)` → Webhook registrieren (issues, notes, pipeline, MR events)
+- `createIssueNote(projectId, issueIid, body)` → Kommentar auf GitLab-Issue erstellen
+- `getIssueNotes(projectId, issueIid)` → Kommentare eines GitLab-Issues auflisten
+- `createMergeRequest(projectId, options)` → Merge Request erstellen
+- `getMergeRequest(projectId, mrIid)` → MR-Details holen
+- `getMergeRequestDiffs(projectId, mrIid)` → MR-Diffs holen (für Code Review)
+- `createBranch(projectId, name, ref)` → Branch erstellen
+- `deleteBranch(projectId, name)` → Branch löschen
+- `getPipeline(projectId, pipelineId)` → Pipeline-Details holen
+- `getPipelineJobs(projectId, pipelineId)` → Jobs einer Pipeline auflisten
+- `getJobLog(projectId, jobId)` → Job-Log holen (für Fehleranalyse)
+- `getRepositoryTree(projectId, ref, path?)` → Dateibaum eines Repos auflisten
 - `getWorkItemId(projectPath, issueIid)` → WorkItem Global ID holen (GraphQL)
 - `createTask(namespacePath, parentWorkItemId, options)` → Task als Child-WorkItem erstellen (GraphQL)
 - `getWorkItemChildren(workItemId)` → Child-Tasks eines WorkItems auflisten (GraphQL)
@@ -596,6 +622,7 @@ map $hub_project $hub_upstream {
 
 | Datum | Änderung |
 |---|---|
+| 2026-03-03 | Coder Agent + Code Reviewer + Pipeline/User Feedback Loops: Komplette Coding-Pipeline von Issue→Code→Review→CI/CD→Fix. Qwen CLI --yolo, GitLab MRs, Issue Comments, Webhook-Expansion (note/pipeline/merge_request), IssueComment Model, .gitlab-ci.yml auto-generation, Frontend Issue-Detail Slide-over mit Comment-Timeline |
 | 2026-03-03 | Milestones: GET /api/milestones Endpunkt, Milestone-Modell (Prisma), Issue Compiler auto-grouping, GitLab-Sync (createMilestone, getMilestones, updateMilestone), Frontend collapsible Milestone-Gruppen |
 | 2026-03-03 | Issue Compiler Agent: Automatische Feature→Issues+Tasks Kompilierung nach DevOps, GitLab GraphQL WorkItem-API (Tasks als Children), Normalizer für LLM-Output |
 | 2026-03-02 | Interviewer: Robuster JSON-Normalizer (snake_case, Synonyme, Framework-Defaults), überarbeiteter System-Prompt (Pipeline-Fokus, Setup-First) |

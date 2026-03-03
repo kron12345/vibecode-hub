@@ -263,3 +263,98 @@ Dokumentation aller Prompts/Anforderungen die zur Entwicklung genutzt wurden.
 - WebSocket: `agentStatus` + `projectUpdated` Events
 - i18n: Neue Keys in DE/EN/IT/FR
 - Alle Docs aktualisiert
+
+## Session 7 — 2026-03-03 — Coding Pipeline (Coder, Reviewer, CI/CD, Feedback Loops)
+
+### Prompt: Komplette Coding-Pipeline implementieren
+> 13-Schritte-Plan: Coder Agent, Code Reviewer, GitLab CI/CD, Issue Comments, User/Pipeline Feedback Loops. Event-Kette von Issue Compiler bis User-Abnahme.
+
+**Ergebnis (13 Steps):**
+
+**Step 1 — Prisma Schema:**
+- `CommentAuthorType` Enum (AGENT, USER, SYSTEM)
+- `IssueComment` Model (id, issueId, gitlabNoteId, authorType, authorName, content, agentTaskId, createdAt)
+- `Issue.sortOrder Int @default(0)` hinzugefügt
+- Migration: `20260303152141_add_issue_comments_and_sort_order`
+
+**Step 2 — GitLab Service (10+ neue Methoden):**
+- Notes: `createIssueNote()`, `getIssueNotes()`
+- Merge Requests: `createMergeRequest()`, `getMergeRequest()`, `getMergeRequestDiffs()`
+- Branches: `createBranch()`, `deleteBranch()`
+- Pipelines: `getPipeline()`, `getPipelineJobs()`, `getJobLog()`
+- Repo: `getRepositoryTree()`
+- 8 neue Interfaces (GitLabNote, GitLabMergeRequest, GitLabMrDiff, GitLabPipeline, GitLabJob, GitLabBranch, GitLabTreeItem, CreateMergeRequestOptions)
+- `addWebhook()`: note_events + pipeline_events aktiviert
+
+**Step 3 — Webhook Expansion:**
+- `handleNoteEvent()` — User-Kommentare speichern + `gitlab.userComment` Event (Skip hub-bot)
+- `handlePipelineEvent()` — `gitlab.pipelineResult` Event bei success/failed
+- `handleMergeRequestEvent()` — Logging für spätere Nutzung
+- EventEmitter2 in GitLab Controller injiziert
+
+**Step 4 — Issues Comment CRUD:**
+- `CreateIssueCommentDto` (content, authorType, authorName, syncToGitlab)
+- Service: `getComments()`, `addComment()` mit optionalem GitLab-Sync
+- Controller: `GET /issues/:id/comments`, `POST /issues/:id/comments`
+
+**Step 5 — Qwen CLI Fix:**
+- Absoluter Pfad: `/home/sebastian/.npm-global/bin/qwen`
+- Default-Args: `--openai-base-url http://localhost:11434/v1`, `--openai-api-key ollama`, `--auth-type openai`
+- `cwd` Option in LlmCompletionOptions + CliBaseProvider
+
+**Step 6 — Coder Agent (Hauptteil):**
+- `CoderAgent` extends BaseAgent (~400 Zeilen)
+- `runMilestoneCoding()` — Erstes Milestone mit OPEN Issues, sequentiell abarbeiten
+- `processIssue()` — Feature-Branch → Qwen CLI (--yolo) → Commit → Push → MR → IN_REVIEW
+- `fixIssue()` — Bestehenden Branch auschecken, Feedback in Prompt, Push auf MR
+- `runQwenCli()` — execFile mit 10min Timeout, 50MB Buffer
+- Git-Helpers: gitPull, gitCheckout, gitCreateBranch, getChangedFiles, gitCommitAndPush
+- IssueCompilerAgent: `agent.issueCompilerComplete` Event ergänzt
+- Orchestrator: `@OnEvent('agent.issueCompilerComplete')` → `startCoding()`
+
+**Step 7 — Code Reviewer Agent:**
+- `CodeReviewerAgent` extends BaseAgent (~280 Zeilen)
+- `reviewIssue()` — MR-Diffs holen → Review-Prompt → callLlm() → Result parsen
+- APPROVED (≤2 Warnings, 0 Critical) → Issue TESTING + `agent.reviewApproved`
+- CHANGES REQUESTED → Issue IN_PROGRESS + `agent.reviewChangesRequested` → Coder re-triggered
+- Review als GitLab-Kommentar gepostet
+
+**Step 8 — DevOps CI/CD:**
+- `stepGenerateCiConfig()` im DevOps-Agent
+- `buildCiYml()` — Templates für Node/Angular/React/Vue (4 Stages), Python, Rust, Go, Generic
+- Runner-Tags: `docker`, `vibcode`
+
+**Step 9 — Pipeline Feedback Loop:**
+- `@OnEvent('gitlab.pipelineResult')` im Orchestrator
+- Branch-Name → Issue-IID extrahieren → Job-Logs holen (max 3 Jobs, 2000 Zeichen)
+- Failure als GitLab-Kommentar → Coder `fixIssue()` mit Fehler-Kontext
+
+**Step 10 — User Feedback Loop:**
+- `@OnEvent('gitlab.userComment')` im Orchestrator
+- Reagiert nur bei Issue-Status DONE/IN_REVIEW/TESTING
+- Issue → IN_PROGRESS → Coder `fixIssue()` mit User-Kommentar
+
+**Step 11 — Frontend Issue-Detail:**
+- Slide-over Panel bei Issue-Click (selectedIssue Signal)
+- Issue-Details: Priority, IID, Status, Description, Sub-Issues, Labels, Progress Dots
+- Comment-Timeline (farbcodiert: Agent=Indigo, User=Emerald, System=Amber)
+- Kommentar-Eingabe mit GitLab-Sync
+- Auto-Reload Issues bei CODER/CODE_REVIEWER Finish
+
+**Step 12 — i18n:**
+- ~13 neue Keys in allen 4 Sprachen (de, en, it, fr)
+- Keys: comments, addComment, noComments, commentPosted, issueDetail, assignedTo, branch, mergeRequest, pipelineStatus, coderWorking, reviewerWorking, common.send
+
+**Step 13 — Docs:**
+- API.md: Comment-Endpoints, Webhook-Events, GitLab-Methoden, Changelog
+- ARCHITECTURE.md: IssueComment Model, Agent Pipeline Flow, Coder/Reviewer/DevOps Beschreibung
+- SPEC.md: Phase 2 Checkboxen aktualisiert (Coder, Reviewer, Feedback Loops ✅)
+
+**Neue Dateien:**
+- `backend/src/agents/coder/coder.agent.ts`
+- `backend/src/agents/coder/coder-result.interface.ts`
+- `backend/src/agents/code-reviewer/code-reviewer.agent.ts`
+- `backend/src/agents/code-reviewer/review-result.interface.ts`
+
+**Commands:** `npx prisma migrate dev`, `npx prisma generate`, `npx nest build`, `npx ng build`
+**Status:** Coding Pipeline komplett ✅ — Backend + Frontend builds grün

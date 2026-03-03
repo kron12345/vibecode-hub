@@ -86,6 +86,17 @@ export interface Issue {
   updatedAt: string;
 }
 
+export interface IssueComment {
+  id: string;
+  issueId: string;
+  gitlabNoteId?: number;
+  authorType: 'AGENT' | 'USER' | 'SYSTEM';
+  authorName: string;
+  content: string;
+  agentTaskId?: string;
+  createdAt: string;
+}
+
 export interface ChatSession {
   id: string;
   projectId: string;
@@ -255,6 +266,14 @@ export class ApiService {
 
   deleteIssue(id: string) {
     return this.http.delete(`${this.baseUrl}/issues/${id}`);
+  }
+
+  getIssueComments(issueId: string) {
+    return this.http.get<IssueComment[]>(`${this.baseUrl}/issues/${issueId}/comments`);
+  }
+
+  addIssueComment(issueId: string, data: { content: string; authorName?: string; syncToGitlab?: boolean }) {
+    return this.http.post<IssueComment>(`${this.baseUrl}/issues/${issueId}/comments`, data);
   }
 
   // ─── Chat ──────────────────────────────────────────────────

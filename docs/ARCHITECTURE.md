@@ -99,7 +99,8 @@ Dev-Server auf localhost:{port}
 
 - **Project** → hat Issues, ChatSessions, AgentInstances. Status: `INTERVIEWING` | `SETTING_UP` | `READY` | `ARCHIVED`. Optional: `techStack` (JSON, Interview-Ergebnis), `previewPort` (unique, für Subdomain-Preview)
 - **Milestone** → Gruppierung von Issues pro Projekt, optional GitLab-gespiegelt (`gitlabMilestoneId`). Felder: title, description, sortOrder, startDate, dueDate. Wird vom Issue Compiler Agent automatisch erzeugt.
-- **Issue** → hierarchisch (parent/sub-issues), gespiegelt von GitLab, optional einem Milestone zugeordnet (`milestoneId`)
+- **Issue** → hierarchisch (parent/sub-issues), gespiegelt von GitLab, optional einem Milestone zugeordnet (`milestoneId`), `sortOrder` für Reihenfolge
+- **IssueComment** → Kommentare auf Issues, Typ: AGENT/USER/SYSTEM, optional mit GitLab-Note-ID gespiegelt, optional an AgentTask gebunden
 - **ChatSession** → pro Projekt, enthält ChatMessages
 - **AgentInstance** → konfigurierter Agent pro Projekt (Rolle + Provider + Model)
 - **AgentTask** → einzelner Arbeitsschritt eines Agenten (11 Task-Typen)
@@ -135,6 +136,41 @@ Jede Rolle hat ein vollständiges Behavior Profile (System Prompt) mit: Verantwo
 | ANTHROPIC | API | Anthropic Claude API |
 | OPENAI | API | OpenAI GPT API |
 | GOOGLE | API | Google Gemini API |
+
+## Agent Pipeline Flow
+
+```
+Interview → agent.interviewComplete
+  → DevOps → agent.devopsComplete
+    → Issue Compiler → agent.issueCompilerComplete
+      → Coder Agent (pro Issue im Milestone, sequenziell)
+        → agent.codingComplete
+          → Code Reviewer
+            → agent.reviewApproved → Issue TESTING
+            → agent.reviewChangesRequested → Coder fixIssue()
+
+GitLab Webhooks:
+  gitlab.pipelineResult (failed) → Coder fixIssue() mit Job-Logs
+  gitlab.userComment (auf DONE/IN_REVIEW/TESTING Issue) → Coder fixIssue()
+```
+
+### Coder Agent
+- Nutzt **Qwen CLI** (`/home/sebastian/.npm-global/bin/qwen`) im `--yolo` Mode mit Ollama Backend
+- Pro Issue: Feature-Branch erstellen → Qwen CLI → Commit & Push → GitLab MR → Issue IN_REVIEW
+- Fix-Modus: Bestehenden Branch auschecken, Feedback in Prompt, Push auf MR
+- 10 Minuten Timeout, 50 MB max Buffer
+
+### Code Reviewer Agent
+- Nutzt **Ollama** (über BaseAgent.callLlm()) für Review
+- Holt MR-Diffs via GitLab API, baut Review-Prompt
+- APPROVED: ≤2 Warnings, keine Critical Findings → Issue TESTING
+- CHANGES REQUESTED: → Coder re-triggered mit Review-Findings
+- Postet Review als GitLab-Kommentar
+
+### DevOps Agent — CI/CD
+- Generiert deterministische `.gitlab-ci.yml` basierend auf Tech-Stack
+- Templates: Node/Angular/React (4 Stages), Python, Rust, Go, Generic
+- Runner-Tags: `docker`, `vibcode`
 
 ## Auth-Flow
 

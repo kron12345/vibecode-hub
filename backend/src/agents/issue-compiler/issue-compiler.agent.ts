@@ -1,4 +1,5 @@
 import { Injectable, Logger } from '@nestjs/common';
+import { EventEmitter2 } from '@nestjs/event-emitter';
 import { PrismaService } from '../../prisma/prisma.service';
 import { SystemSettingsService } from '../../settings/system-settings.service';
 import { ChatService } from '../../chat/chat.service';
@@ -149,6 +150,7 @@ export class IssueCompilerAgent extends BaseAgent {
     llmService: LlmService,
     private readonly gitlabService: GitlabService,
     private readonly issuesService: IssuesService,
+    private readonly eventEmitter: EventEmitter2,
   ) {
     super(prisma, settings, chatService, chatGateway, llmService);
   }
@@ -605,6 +607,12 @@ Create well-structured milestones with issues and actionable tasks. Group logica
       totalMilestones: result.totalMilestones,
       totalIssues: result.totalIssues,
       totalTasks: result.totalTasks,
+    });
+
+    // Trigger Coder Agent
+    this.eventEmitter.emit('agent.issueCompilerComplete', {
+      projectId: ctx.projectId,
+      chatSessionId: ctx.chatSessionId,
     });
   }
 
