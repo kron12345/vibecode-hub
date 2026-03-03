@@ -12,28 +12,28 @@ import { TranslateService } from '../../services/translate.service';
   template: `
     <!-- Hardware Stats Bar -->
     <div class="flex flex-wrap gap-4 mb-8">
-      <div class="glass flex-1 min-w-[200px] p-4 rounded-2xl flex items-center justify-between">
+      <div class="glass flex-1 min-w-[200px] p-4 rounded-2xl flex items-center justify-between animate-in stagger-1">
         <div>
           <p class="text-slate-500 text-xs uppercase tracking-widest font-bold">{{ 'dashboard.gpuTemp' | translate }}</p>
           <p class="text-xl font-mono text-emerald-400">--°C</p>
         </div>
         <app-icon name="thermometer" [size]="20" class="text-slate-600" />
       </div>
-      <div class="glass flex-1 min-w-[200px] p-4 rounded-2xl flex items-center justify-between">
+      <div class="glass flex-1 min-w-[200px] p-4 rounded-2xl flex items-center justify-between animate-in stagger-2">
         <div>
           <p class="text-slate-500 text-xs uppercase tracking-widest font-bold">{{ 'dashboard.vramLoad' | translate }}</p>
           <p class="text-xl font-mono text-indigo-400">-- / 48 GB</p>
         </div>
         <app-icon name="cpu" [size]="20" class="text-slate-600" />
       </div>
-      <div class="glass flex-1 min-w-[200px] p-4 rounded-2xl flex items-center justify-between">
+      <div class="glass flex-1 min-w-[200px] p-4 rounded-2xl flex items-center justify-between animate-in stagger-3">
         <div>
           <p class="text-slate-500 text-xs uppercase tracking-widest font-bold">{{ 'dashboard.gitlab' | translate }}</p>
           <p class="text-xl font-mono text-white">{{ 'common.online' | translate }}</p>
         </div>
         <app-icon name="git-branch" [size]="20" class="text-orange-500" />
       </div>
-      <div class="glass flex-1 min-w-[200px] p-4 rounded-2xl flex items-center justify-between">
+      <div class="glass flex-1 min-w-[200px] p-4 rounded-2xl flex items-center justify-between animate-in stagger-4">
         <div>
           <p class="text-slate-500 text-xs uppercase tracking-widest font-bold">{{ 'dashboard.activeAgents' | translate }}</p>
           <p class="text-xl font-mono text-violet-400">0 / 6</p>
@@ -43,16 +43,16 @@ import { TranslateService } from '../../services/translate.service';
     </div>
 
     <!-- Header -->
-    <div class="flex items-center justify-between mb-8">
+    <div class="flex items-center justify-between mb-8 animate-in stagger-5">
       <div>
-        <h1 class="text-3xl font-bold tracking-tight bg-gradient-to-r from-white to-slate-500 bg-clip-text text-transparent">
+        <h1 class="text-3xl font-extrabold tracking-tight bg-gradient-to-r from-white via-indigo-200 to-slate-500 bg-clip-text text-transparent">
           {{ 'dashboard.title' | translate }}
         </h1>
         <p class="text-slate-500 mt-1">{{ i18n.t('dashboard.projectCount', { count: projects().length }) }}</p>
       </div>
       <button
         (click)="showCreate = true"
-        class="bg-indigo-600 hover:bg-indigo-500 text-white px-6 py-3 rounded-full font-bold transition-all flex items-center gap-2"
+        class="bg-indigo-600 hover:bg-indigo-500 hover:shadow-lg hover:shadow-indigo-500/25 text-white px-6 py-3 rounded-full font-bold transition-all duration-300 flex items-center gap-2 hover:scale-[1.03]"
       >
         <app-icon name="plus" [size]="18" />
         {{ 'dashboard.newProject' | translate }}
@@ -61,19 +61,20 @@ import { TranslateService } from '../../services/translate.service';
 
     <!-- Project Bento Grid -->
     <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-      @for (project of projects(); track project.id) {
+      @for (project of projects(); track project.id; let i = $index) {
         <a
           [routerLink]="['/projects', project.slug]"
-          class="glass rounded-3xl p-6 group hover:border-indigo-500/30 transition-all duration-300 hover:-translate-y-1 hover:shadow-lg hover:shadow-indigo-500/10 block"
+          class="glass card-glow rounded-3xl p-6 group transition-all duration-300 hover:-translate-y-1.5 block animate-in"
+          [style.animation-delay]="(0.3 + i * 0.08) + 's'"
         >
           <div class="flex items-start justify-between mb-4">
-            <div class="p-3 bg-indigo-500/20 text-indigo-400 rounded-2xl">
+            <div class="p-3 bg-indigo-500/20 text-indigo-400 rounded-2xl group-hover:bg-indigo-500/30 transition-colors">
               <app-icon name="folder-git-2" [size]="22" />
             </div>
             <app-icon
               name="arrow-up-right"
               [size]="16"
-              class="text-slate-600 group-hover:text-indigo-400 transition-colors"
+              class="text-slate-600 group-hover:text-indigo-400 group-hover:translate-x-0.5 group-hover:-translate-y-0.5 transition-all duration-300"
             />
           </div>
           <h3 class="text-lg font-semibold text-white mb-1">{{ project.name }}</h3>

@@ -1,5 +1,5 @@
 import { Component, signal, inject, OnInit } from '@angular/core';
-import { RouterOutlet, RouterLink } from '@angular/router';
+import { RouterOutlet, RouterLink, RouterLinkActive } from '@angular/router';
 import { IconComponent } from './components/icon.component';
 import { TranslatePipe } from './pipes/translate.pipe';
 import { TranslateService, Locale } from './services/translate.service';
@@ -7,7 +7,7 @@ import { ApiService } from './services/api.service';
 
 @Component({
   selector: 'app-root',
-  imports: [RouterOutlet, RouterLink, IconComponent, TranslatePipe],
+  imports: [RouterOutlet, RouterLink, RouterLinkActive, IconComponent, TranslatePipe],
   template: `
     <!-- Sidebar -->
     <aside
@@ -24,9 +24,9 @@ import { ApiService } from './services/api.service';
           <app-icon [name]="sidebarOpen() ? 'panel-left-close' : 'panel-left-open'" [size]="20" />
         </button>
         @if (sidebarOpen()) {
-          <a routerLink="/" class="text-lg font-bold tracking-tight">
-            <span class="bg-gradient-to-r from-indigo-400 to-violet-400 bg-clip-text text-transparent">VibCode</span>
-            <span class="text-slate-400 font-light"> Hub</span>
+          <a routerLink="/" class="text-lg font-extrabold tracking-tight">
+            <span class="bg-gradient-to-r from-indigo-400 via-violet-400 to-purple-400 bg-clip-text text-transparent">VibCode</span>
+            <span class="text-slate-500 font-light"> Hub</span>
           </a>
         }
       </div>
@@ -35,6 +35,8 @@ import { ApiService } from './services/api.service';
       <nav class="flex-1 py-4 flex flex-col gap-1 px-2">
         <a
           routerLink="/"
+          routerLinkActive="nav-link-active"
+          [routerLinkActiveOptions]="{ exact: true }"
           class="flex items-center gap-3 px-3 py-2.5 rounded-xl text-slate-400 hover:text-white hover:bg-white/5 transition-all"
         >
           <app-icon name="layout-dashboard" [size]="18" />
@@ -73,6 +75,7 @@ import { ApiService } from './services/api.service';
       <div class="px-2 py-4 border-t border-white/5">
         <a
           routerLink="/settings"
+          routerLinkActive="nav-link-active"
           class="flex items-center gap-3 px-3 py-2.5 rounded-xl text-slate-400 hover:text-white hover:bg-white/5 transition-all cursor-pointer"
         >
           <app-icon name="settings" [size]="18" />

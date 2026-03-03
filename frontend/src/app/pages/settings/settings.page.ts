@@ -84,9 +84,9 @@ const PERMISSION_KEYS: { key: keyof AgentRoleConfig['permissions']; labelKey: st
   imports: [FormsModule, IconComponent, TranslatePipe],
   template: `
     <!-- Header -->
-    <div class="mb-8">
+    <div class="mb-8 animate-in stagger-1">
       <h1
-        class="text-3xl font-bold tracking-tight bg-gradient-to-r from-white to-slate-500 bg-clip-text text-transparent"
+        class="text-3xl font-extrabold tracking-tight bg-gradient-to-r from-white via-indigo-200 to-slate-500 bg-clip-text text-transparent"
       >
         {{ 'settings.title' | translate }}
       </h1>
@@ -96,13 +96,13 @@ const PERMISSION_KEYS: { key: keyof AgentRoleConfig['permissions']; labelKey: st
     </div>
 
     <!-- Tabs -->
-    <div class="flex gap-2 mb-6">
+    <div class="flex gap-2 mb-6 animate-in stagger-2">
       <button
         (click)="activeTab.set('user')"
         class="px-4 py-2 rounded-xl text-sm font-medium transition-all"
         [class]="
           activeTab() === 'user'
-            ? 'bg-indigo-600 text-white'
+            ? 'bg-indigo-600 text-white shadow-lg shadow-indigo-500/20'
             : 'text-slate-400 hover:text-white hover:bg-white/5'
         "
       >
@@ -153,7 +153,7 @@ const PERMISSION_KEYS: { key: keyof AgentRoleConfig['permissions']; labelKey: st
 
     <!-- User Settings Tab -->
     @if (activeTab() === 'user') {
-      <div class="glass rounded-3xl p-6">
+      <div class="glass card-glow rounded-3xl p-6 animate-in stagger-3">
         <h2 class="text-lg font-semibold text-white mb-6 flex items-center gap-2">
           <app-icon name="user" [size]="20" class="text-indigo-400" />
           {{ 'settings.userSettings' | translate }}
@@ -220,7 +220,7 @@ const PERMISSION_KEYS: { key: keyof AgentRoleConfig['permissions']; labelKey: st
           <button
             (click)="saveUserSettings()"
             [disabled]="saving()"
-            class="bg-indigo-600 hover:bg-indigo-500 disabled:opacity-50 text-white px-6 py-3 rounded-full font-bold transition-all flex items-center gap-2"
+            class="bg-indigo-600 hover:bg-indigo-500 hover:shadow-lg hover:shadow-indigo-500/25 hover:scale-[1.02] disabled:opacity-50 text-white px-6 py-3 rounded-full font-bold transition-all flex items-center gap-2"
           >
             <app-icon name="save" [size]="16" />
             {{ (saving() ? 'common.saving' : 'common.save') | translate }}
@@ -233,7 +233,7 @@ const PERMISSION_KEYS: { key: keyof AgentRoleConfig['permissions']; labelKey: st
     @if (activeTab() === 'system' && authInfo.isAdmin) {
       <div class="space-y-6">
         <!-- GitLab -->
-        <div class="glass rounded-3xl p-6">
+        <div class="glass card-glow rounded-3xl p-6 animate-in stagger-3">
           <h2 class="text-lg font-semibold text-white mb-6 flex items-center gap-2">
             <app-icon name="git-branch" [size]="20" class="text-orange-400" />
             {{ 'settings.gitlab' | translate }}
@@ -292,7 +292,7 @@ const PERMISSION_KEYS: { key: keyof AgentRoleConfig['permissions']; labelKey: st
         </div>
 
         <!-- LLM Providers -->
-        <div class="glass rounded-3xl p-6">
+        <div class="glass card-glow rounded-3xl p-6 animate-in stagger-4">
           <h2 class="text-lg font-semibold text-white mb-6 flex items-center gap-2">
             <app-icon name="brain" [size]="20" class="text-violet-400" />
             {{ 'settings.llmProviders' | translate }}
@@ -341,7 +341,7 @@ const PERMISSION_KEYS: { key: keyof AgentRoleConfig['permissions']; labelKey: st
         </div>
 
         <!-- CORS / Security -->
-        <div class="glass rounded-3xl p-6">
+        <div class="glass card-glow rounded-3xl p-6 animate-in stagger-5">
           <h2 class="text-lg font-semibold text-white mb-6 flex items-center gap-2">
             <app-icon name="shield" [size]="20" class="text-amber-400" />
             {{ 'settings.cors' | translate }}
@@ -363,7 +363,7 @@ const PERMISSION_KEYS: { key: keyof AgentRoleConfig['permissions']; labelKey: st
         </div>
 
         <!-- App -->
-        <div class="glass rounded-3xl p-6">
+        <div class="glass card-glow rounded-3xl p-6 animate-in stagger-6">
           <h2 class="text-lg font-semibold text-white mb-6 flex items-center gap-2">
             <app-icon name="layout-dashboard" [size]="20" class="text-indigo-400" />
             {{ 'settings.app' | translate }}
@@ -382,11 +382,11 @@ const PERMISSION_KEYS: { key: keyof AgentRoleConfig['permissions']; labelKey: st
         </div>
 
         <!-- Save Button -->
-        <div class="flex justify-end">
+        <div class="flex justify-end animate-in stagger-7">
           <button
             (click)="saveSystemSettings()"
             [disabled]="saving()"
-            class="bg-indigo-600 hover:bg-indigo-500 disabled:opacity-50 text-white px-6 py-3 rounded-full font-bold transition-all flex items-center gap-2"
+            class="bg-indigo-600 hover:bg-indigo-500 hover:shadow-lg hover:shadow-indigo-500/25 hover:scale-[1.02] disabled:opacity-50 text-white px-6 py-3 rounded-full font-bold transition-all flex items-center gap-2"
           >
             <app-icon name="save" [size]="16" />
             {{ (saving() ? 'common.saving' : 'settings.saveSystem') | translate }}
@@ -400,7 +400,7 @@ const PERMISSION_KEYS: { key: keyof AgentRoleConfig['permissions']; labelKey: st
       <div class="space-y-6">
 
         <!-- Provider Status Bar -->
-        <div class="glass rounded-3xl p-6">
+        <div class="glass card-glow rounded-3xl p-6 animate-in stagger-3">
           <h2 class="text-lg font-semibold text-white mb-4 flex items-center gap-2">
             <app-icon name="activity" [size]="20" class="text-emerald-400" />
             {{ 'settings.providerStatus' | translate }}
@@ -484,7 +484,7 @@ const PERMISSION_KEYS: { key: keyof AgentRoleConfig['permissions']; labelKey: st
         </div>
 
         <!-- Pipeline Config -->
-        <div class="glass rounded-3xl p-6">
+        <div class="glass card-glow rounded-3xl p-6 animate-in stagger-4">
           <h2 class="text-lg font-semibold text-white mb-4 flex items-center gap-2">
             <app-icon name="git-pull-request" [size]="20" class="text-violet-400" />
             {{ 'settings.pipelineConfig' | translate }}
@@ -559,7 +559,7 @@ const PERMISSION_KEYS: { key: keyof AgentRoleConfig['permissions']; labelKey: st
 
         <!-- Presets -->
         @if (availablePresets().length > 0) {
-          <div class="glass rounded-3xl p-6">
+          <div class="glass card-glow rounded-3xl p-6 animate-in stagger-5">
             <h2 class="text-lg font-semibold text-white mb-4 flex items-center gap-2">
               <app-icon name="layout-template" [size]="20" class="text-amber-400" />
               {{ 'settings.presets' | translate }}
@@ -586,8 +586,8 @@ const PERMISSION_KEYS: { key: keyof AgentRoleConfig['permissions']; labelKey: st
         }
 
         <!-- Agent Role Cards -->
-        @for (role of agentRoles; track role) {
-          <div class="glass rounded-3xl">
+        @for (role of agentRoles; track role; let i = $index) {
+          <div class="glass card-glow rounded-3xl animate-in" [style.animation-delay]="(0.3 + i * 0.05) + 's'">
             <!-- Role Header (clickable to expand) -->
             <button
               (click)="toggleRoleExpanded(role)"

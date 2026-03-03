@@ -55,10 +55,10 @@ type Tab = 'overview' | 'settings';
       <!-- Header -->
       <div class="flex items-start justify-between mb-6">
         <div>
-          <a routerLink="/" class="text-slate-500 text-sm hover:text-indigo-400 transition-colors flex items-center gap-1 mb-2">
+          <a routerLink="/" class="text-slate-500 text-sm hover:text-indigo-400 transition-colors flex items-center gap-1 mb-2 animate-in stagger-1">
             <app-icon name="arrow-left" [size]="14" /> {{ 'project.backToDashboard' | translate }}
           </a>
-          <h1 class="text-3xl font-bold tracking-tight bg-gradient-to-r from-white to-slate-500 bg-clip-text text-transparent">
+          <h1 class="text-3xl font-extrabold tracking-tight bg-gradient-to-r from-white via-indigo-200 to-slate-500 bg-clip-text text-transparent animate-in stagger-2">
             {{ p.name }}
           </h1>
           <p class="text-slate-500 mt-1">
@@ -80,11 +80,11 @@ type Tab = 'overview' | 'settings';
       </div>
 
       <!-- Tabs -->
-      <div class="flex gap-2 mb-6">
+      <div class="flex gap-2 mb-6 animate-in stagger-3">
         <button
           (click)="activeTab.set('overview')"
           class="px-4 py-2 rounded-xl text-sm font-medium transition-all"
-          [class]="activeTab() === 'overview' ? 'bg-indigo-600 text-white' : 'text-slate-400 hover:text-white hover:bg-white/5'"
+          [class]="activeTab() === 'overview' ? 'bg-indigo-600 text-white shadow-lg shadow-indigo-500/20' : 'text-slate-400 hover:text-white hover:bg-white/5'"
         >
           <app-icon name="layout-dashboard" [size]="16" class="inline mr-2" />
           {{ 'project.tabOverview' | translate }}
@@ -92,7 +92,7 @@ type Tab = 'overview' | 'settings';
         <button
           (click)="activeTab.set('settings')"
           class="px-4 py-2 rounded-xl text-sm font-medium transition-all"
-          [class]="activeTab() === 'settings' ? 'bg-indigo-600 text-white' : 'text-slate-400 hover:text-white hover:bg-white/5'"
+          [class]="activeTab() === 'settings' ? 'bg-indigo-600 text-white shadow-lg shadow-indigo-500/20' : 'text-slate-400 hover:text-white hover:bg-white/5'"
         >
           <app-icon name="settings" [size]="16" class="inline mr-2" />
           {{ 'project.tabSettings' | translate }}
@@ -102,7 +102,7 @@ type Tab = 'overview' | 'settings';
       <!-- ═══ TAB: Overview ═══ -->
       @if (activeTab() === 'overview') {
         <!-- Agent Pipeline -->
-        <div class="glass rounded-[2rem] p-6 mb-6 relative overflow-hidden">
+        <div class="glass card-glow rounded-[2rem] p-6 mb-6 relative overflow-hidden animate-in stagger-4">
           <div class="flex items-center justify-between mb-4">
             <h2 class="text-sm font-bold text-slate-500 uppercase tracking-widest">{{ 'project.agentPipeline' | translate }}</h2>
             @if (hasWorkingAgent()) {
@@ -162,7 +162,7 @@ type Tab = 'overview' | 'settings';
         <div class="grid grid-cols-1 lg:grid-cols-[280px_1fr] gap-4">
 
           <!-- Left: Issues (grouped by milestones) -->
-          <div class="glass rounded-3xl p-5 max-h-[65vh] overflow-y-auto">
+          <div class="glass rounded-3xl p-5 max-h-[65vh] overflow-y-auto animate-in stagger-5">
             <div class="flex items-center justify-between mb-4">
               <h3 class="text-sm font-bold text-slate-500 uppercase tracking-widest">{{ 'project.issues' | translate }}</h3>
               <span class="text-[10px] font-mono text-slate-600">{{ issues().length }}</span>
@@ -260,7 +260,7 @@ type Tab = 'overview' | 'settings';
           </div>
 
           <!-- Right: Chat Terminal -->
-          <div class="glass rounded-3xl flex flex-col max-h-[65vh]">
+          <div class="glass card-glow rounded-3xl flex flex-col max-h-[65vh] animate-in stagger-6">
             <!-- Session bar -->
             <div class="flex items-center justify-between px-5 py-3 border-b border-white/5">
               <div class="flex items-center gap-3">
@@ -385,7 +385,7 @@ type Tab = 'overview' | 'settings';
         <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
 
           <!-- Card 1: General -->
-          <div class="glass rounded-2xl p-6 border border-white/5">
+          <div class="glass card-glow rounded-2xl p-6 border border-white/5 animate-in stagger-1">
             <div class="flex items-center gap-3 mb-5">
               <div class="p-2 rounded-xl bg-indigo-500/20 text-indigo-400">
                 <app-icon name="info" [size]="18" />
@@ -424,7 +424,7 @@ type Tab = 'overview' | 'settings';
           </div>
 
           <!-- Card 2: Tech Stack -->
-          <div class="glass rounded-2xl p-6 border border-white/5">
+          <div class="glass card-glow rounded-2xl p-6 border border-white/5 animate-in stagger-2">
             <div class="flex items-center gap-3 mb-5">
               <div class="p-2 rounded-xl bg-violet-500/20 text-violet-400">
                 <app-icon name="layers" [size]="18" />
@@ -456,7 +456,7 @@ type Tab = 'overview' | 'settings';
           </div>
 
           <!-- Card 3: Deployment & Preview -->
-          <div class="glass rounded-2xl p-6 border border-white/5">
+          <div class="glass card-glow rounded-2xl p-6 border border-white/5 animate-in stagger-3">
             <div class="flex items-center gap-3 mb-5">
               <div class="p-2 rounded-xl bg-emerald-500/20 text-emerald-400">
                 <app-icon name="rocket" [size]="18" />
@@ -495,7 +495,7 @@ type Tab = 'overview' | 'settings';
           </div>
 
           <!-- Card 4: GitLab -->
-          <div class="glass rounded-2xl p-6 border border-white/5">
+          <div class="glass card-glow rounded-2xl p-6 border border-white/5 animate-in stagger-4">
             <div class="flex items-center gap-3 mb-5">
               <div class="p-2 rounded-xl bg-orange-500/20 text-orange-400">
                 <app-icon name="git-branch" [size]="18" />
@@ -515,7 +515,7 @@ type Tab = 'overview' | 'settings';
           </div>
 
           <!-- Card 5: Setup Commands -->
-          <div class="glass rounded-2xl p-6 border border-white/5">
+          <div class="glass card-glow rounded-2xl p-6 border border-white/5 animate-in stagger-5">
             <div class="flex items-center gap-3 mb-5">
               <div class="p-2 rounded-xl bg-amber-500/20 text-amber-400">
                 <app-icon name="terminal" [size]="18" />
@@ -535,7 +535,7 @@ type Tab = 'overview' | 'settings';
           </div>
 
           <!-- Card 6: Interview Results -->
-          <div class="glass rounded-2xl p-6 border border-white/5">
+          <div class="glass card-glow rounded-2xl p-6 border border-white/5 animate-in stagger-6">
             <div class="flex items-center gap-3 mb-5">
               <div class="p-2 rounded-xl bg-sky-500/20 text-sky-400">
                 <app-icon name="message-circle" [size]="18" />
@@ -574,11 +574,11 @@ type Tab = 'overview' | 'settings';
         </div>
 
         <!-- Save Button -->
-        <div class="flex items-center gap-4 mt-6">
+        <div class="flex items-center gap-4 mt-6 animate-in stagger-7">
           <button
             (click)="saveProjectSettings()"
             [disabled]="saving()"
-            class="px-6 py-2.5 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white text-sm font-medium transition-all disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
+            class="px-6 py-2.5 rounded-xl bg-indigo-600 hover:bg-indigo-500 hover:shadow-lg hover:shadow-indigo-500/25 hover:scale-[1.02] text-white text-sm font-medium transition-all disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
           >
             @if (saving()) {
               <app-icon name="loader-2" [size]="16" class="animate-spin" />
