@@ -392,6 +392,12 @@ Gespeichert als `agents.pipeline` (JSON):
 | Method | Endpoint | Auth | Beschreibung |
 |---|---|---|---|
 | `POST` | `/api/agents/interview/start` | Ja | Interview für ein Projekt starten |
+| `POST` | `/api/agents/coding/start` | Ja | Coder Agent für ein Projekt starten |
+| `POST` | `/api/agents/review/start` | Ja | Code Review für MR starten |
+| `POST` | `/api/agents/functional-test/start` | Ja | Functional Test für MR starten |
+| `POST` | `/api/agents/ui-test/start` | Ja | UI Test für MR starten |
+| `POST` | `/api/agents/pen-test/start` | Ja | Security Test für MR starten |
+| `POST` | `/api/agents/docs/start` | Ja | Documenter für MR starten |
 | `GET` | `/api/agents/status/:projectId` | Ja | Agent-Status für ein Projekt |
 
 ### DTOs
@@ -400,6 +406,36 @@ Gespeichert als `agents.pipeline` (JSON):
 ```typescript
 {
   projectId: string;  // Pflicht, 1-100 Zeichen
+}
+```
+
+**StartCodingDto**
+```typescript
+{
+  projectId: string;
+  chatSessionId: string;
+}
+```
+
+**StartReviewDto**
+```typescript
+{
+  projectId: string;
+  chatSessionId: string;
+  issueId: string;
+  mrIid: number;
+  gitlabProjectId: number;
+}
+```
+
+**StartTestDto** (für functional-test, ui-test, pen-test, docs)
+```typescript
+{
+  projectId: string;
+  chatSessionId: string;
+  issueId: string;
+  mrIid: number;
+  gitlabProjectId: number;
 }
 ```
 
@@ -622,6 +658,7 @@ map $hub_project $hub_upstream {
 
 | Datum | Änderung |
 |---|---|
+| 2026-03-03 | Phase 3 Testing + Documenter: Functional Tester (LLM Acceptance Criteria Check), UI Tester (Playwright + LLM), Pen Tester (npm audit + HTTP headers + LLM OWASP), Documenter (LLM + Git). Erweiterte Pipeline: Review APPROVED → Functional → UI → Pen → Docs → DONE. 4 neue manuelle Trigger-Endpoints, StartTestDto, Feedback Loops für alle Test-Agents |
 | 2026-03-03 | Coder Agent + Code Reviewer + Pipeline/User Feedback Loops: Komplette Coding-Pipeline von Issue→Code→Review→CI/CD→Fix. Qwen CLI --yolo, GitLab MRs, Issue Comments, Webhook-Expansion (note/pipeline/merge_request), IssueComment Model, .gitlab-ci.yml auto-generation, Frontend Issue-Detail Slide-over mit Comment-Timeline |
 | 2026-03-03 | Milestones: GET /api/milestones Endpunkt, Milestone-Modell (Prisma), Issue Compiler auto-grouping, GitLab-Sync (createMilestone, getMilestones, updateMilestone), Frontend collapsible Milestone-Gruppen |
 | 2026-03-03 | Issue Compiler Agent: Automatische Feature→Issues+Tasks Kompilierung nach DevOps, GitLab GraphQL WorkItem-API (Tasks als Children), Normalizer für LLM-Output |

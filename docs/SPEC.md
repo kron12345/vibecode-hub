@@ -56,10 +56,14 @@ VibCode Hub ist ein AI-Entwicklerteam-Portal. Der Nutzer agiert als "Chef" und s
 - [x] GitLab Webhook Expansion (note, pipeline, merge_request Events)
 - [x] Streaming (Token-für-Token im Chat via WebSocket)
 
-### Phase 3 — Erweiterung
-- [ ] UI Tester Agent
-- [ ] Pen Tester Agent
-- [ ] Dokumentierer Agent
+### Phase 3 — Testing Agents, Documenter, Extended Pipeline
+- [x] Functional Tester Agent (LLM-basiert, Acceptance Criteria Verification)
+- [x] UI Tester Agent (Playwright + LLM, Layout/Responsive/Accessibility/Visual/Interaction)
+- [x] Pen Tester Agent (npm audit + HTTP Headers + LLM OWASP Top 10)
+- [x] Documenter Agent (LLM → README/API-Docs/JSDoc, Git Commit)
+- [x] Extended Pipeline (Review APPROVED → Functional → UI → Pen → Docs → DONE)
+- [x] Feedback Loops für alle Test-Agents (fail → Coder fixIssue)
+- [x] Manuelle Trigger-Endpoints (POST /agents/{functional-test,ui-test,pen-test,docs}/start)
 - [ ] Erweitertes Live-Dashboard
 
 ### Phase 4 — Lokale LLMs

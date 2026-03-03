@@ -40,6 +40,26 @@ export class StartReviewDto {
   gitlabProjectId: number;
 }
 
+export class StartTestDto {
+  @IsString()
+  @MinLength(1)
+  projectId: string;
+
+  @IsString()
+  @MinLength(1)
+  chatSessionId: string;
+
+  @IsString()
+  @MinLength(1)
+  issueId: string;
+
+  @IsNumber()
+  mrIid: number;
+
+  @IsNumber()
+  gitlabProjectId: number;
+}
+
 @ApiTags('agents')
 @Controller('agents')
 export class AgentsController {
@@ -58,6 +78,34 @@ export class AgentsController {
   @Post('review/start')
   startReview(@Body() dto: StartReviewDto) {
     return this.orchestrator.startCodeReview(
+      dto.projectId, dto.chatSessionId, dto.issueId, dto.mrIid, dto.gitlabProjectId,
+    );
+  }
+
+  @Post('functional-test/start')
+  startFunctionalTest(@Body() dto: StartTestDto) {
+    return this.orchestrator.startFunctionalTest(
+      dto.projectId, dto.chatSessionId, dto.issueId, dto.mrIid, dto.gitlabProjectId,
+    );
+  }
+
+  @Post('ui-test/start')
+  startUiTest(@Body() dto: StartTestDto) {
+    return this.orchestrator.startUiTest(
+      dto.projectId, dto.chatSessionId, dto.issueId, dto.mrIid, dto.gitlabProjectId,
+    );
+  }
+
+  @Post('pen-test/start')
+  startPenTest(@Body() dto: StartTestDto) {
+    return this.orchestrator.startPenTest(
+      dto.projectId, dto.chatSessionId, dto.issueId, dto.mrIid, dto.gitlabProjectId,
+    );
+  }
+
+  @Post('docs/start')
+  startDocs(@Body() dto: StartTestDto) {
+    return this.orchestrator.startDocumenter(
       dto.projectId, dto.chatSessionId, dto.issueId, dto.mrIid, dto.gitlabProjectId,
     );
   }

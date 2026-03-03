@@ -146,7 +146,14 @@ Interview → agent.interviewComplete
       → Coder Agent (pro Issue im Milestone, sequenziell)
         → agent.codingComplete
           → Code Reviewer
-            → agent.reviewApproved → Issue TESTING
+            → agent.reviewApproved
+              → Functional Tester → agent.functionalTestComplete
+                → pass → UI Tester → agent.uiTestComplete
+                  → pass → Pen Tester → agent.penTestComplete
+                    → pass → Documenter → agent.docsComplete → Issue DONE
+                    → fail → Coder fixIssue(security feedback)
+                  → fail → Coder fixIssue(UI feedback)
+                → fail → Coder fixIssue(functional test feedback)
             → agent.reviewChangesRequested → Coder fixIssue()
 
 GitLab Webhooks:
@@ -163,9 +170,39 @@ GitLab Webhooks:
 ### Code Reviewer Agent
 - Nutzt **Ollama** (über BaseAgent.callLlm()) für Review
 - Holt MR-Diffs via GitLab API, baut Review-Prompt
-- APPROVED: ≤2 Warnings, keine Critical Findings → Issue TESTING
+- APPROVED: ≤2 Warnings, keine Critical Findings → Functional Tester
 - CHANGES REQUESTED: → Coder re-triggered mit Review-Findings
 - Postet Review als GitLab-Kommentar
+
+### Functional Tester Agent
+- **LLM-basiert** — nutzt BaseAgent.callLlm()
+- Holt Issue-Description + Acceptance Criteria (Sub-Issues) + MR-Diffs
+- LLM prüft ob Code die Criteria erfüllt
+- PASS: Alle Criteria adressiert, keine Critical Findings → UI Tester
+- FAIL: → Coder fixIssue() mit Test-Feedback
+- Postet Ergebnis als GitLab-Kommentar
+
+### UI Tester Agent
+- **Zweistufig**: Playwright (optional) + LLM
+- Wenn Preview-URL vorhanden: Headless Chromium Screenshots, DOM-Snapshot, Accessibility-Audit (axe-core), Responsive-Check
+- Wenn kein Preview: Nur Code-Analyse per LLM (Fallback)
+- Prüft: Layout, Responsivität, Accessibility (WCAG 2.1 AA), Visuals, Interaktionen
+- PASS: Keine Critical Findings, ≤3 Warnings → Pen Tester
+- FAIL: → Coder fixIssue() mit UI-Feedback
+
+### Pen Tester Agent
+- **Dreistufig**: npm audit + HTTP-Header-Check + LLM-Analyse
+- `npm audit --json` im Workspace → Dependency-Vulnerabilities
+- Security-Header-Check (CSP, HSTS, X-Frame-Options, etc.) gegen Preview-URL
+- LLM analysiert MR-Diffs auf OWASP Top 10
+- PASS: Keine Critical Findings, ≤3 Warnings → Documenter
+- FAIL: → Coder fixIssue() mit Security-Feedback
+
+### Documenter Agent
+- LLM analysiert MR-Diffs + bestehende Docs
+- Generiert/aktualisiert: README.md, API-Docs, JSDoc, CHANGELOG
+- Schreibt Dateien im Workspace, committed auf Feature-Branch
+- Issue → DONE nach Abschluss
 
 ### DevOps Agent — CI/CD
 - Generiert deterministische `.gitlab-ci.yml` basierend auf Tech-Stack

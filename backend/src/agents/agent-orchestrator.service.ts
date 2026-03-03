@@ -9,6 +9,10 @@ import { DevopsAgent } from './devops/devops.agent';
 import { IssueCompilerAgent } from './issue-compiler/issue-compiler.agent';
 import { CoderAgent } from './coder/coder.agent';
 import { CodeReviewerAgent } from './code-reviewer/code-reviewer.agent';
+import { FunctionalTesterAgent } from './functional-tester/functional-tester.agent';
+import { UiTesterAgent } from './ui-tester/ui-tester.agent';
+import { PenTesterAgent } from './pen-tester/pen-tester.agent';
+import { DocumenterAgent } from './documenter/documenter.agent';
 import {
   AgentRole,
   AgentStatus,
@@ -32,6 +36,10 @@ export class AgentOrchestratorService {
     private readonly issueCompiler: IssueCompilerAgent,
     private readonly coder: CoderAgent,
     private readonly codeReviewer: CodeReviewerAgent,
+    private readonly functionalTester: FunctionalTesterAgent,
+    private readonly uiTester: UiTesterAgent,
+    private readonly penTester: PenTesterAgent,
+    private readonly documenter: DocumenterAgent,
   ) {}
 
   /**
@@ -723,5 +731,343 @@ export class AgentOrchestratorService {
     this.coder.fixIssue(ctx, issueId, `User feedback from ${authorName}:\n\n${content}`, 'user').catch((err) => {
       this.logger.error(`Coder fix (user feedback) error: ${err.message}`);
     });
+  }
+
+  // ─── Review Approved → Functional Tester ─────────────────
+
+  /**
+   * Handle review approved — start functional testing.
+   */
+  @OnEvent('agent.reviewApproved')
+  async handleReviewApproved(payload: {
+    projectId: string;
+    chatSessionId: string;
+    issueId: string;
+    mrIid: number;
+    gitlabProjectId: number;
+  }) {
+    const { projectId, chatSessionId, issueId, mrIid, gitlabProjectId } = payload;
+    this.logger.log(`Review approved for issue ${issueId} — starting Functional Tester`);
+
+    try {
+      await this.startFunctionalTest(projectId, chatSessionId, issueId, mrIid, gitlabProjectId);
+    } catch (err) {
+      this.logger.error(`Failed to start Functional Tester: ${err.message}`);
+    }
+  }
+
+  async startFunctionalTest(
+    projectId: string,
+    chatSessionId: string,
+    issueId: string,
+    mrIid: number,
+    gitlabProjectId: number,
+  ) {
+    const config = this.settings.getAgentRoleConfig('FUNCTIONAL_TESTER');
+
+    const agentInstance = await this.prisma.agentInstance.create({
+      data: {
+        projectId,
+        role: AgentRole.FUNCTIONAL_TESTER,
+        provider: config.provider as any,
+        model: config.model,
+        status: AgentStatus.IDLE,
+      },
+    });
+
+    const agentTask = await this.prisma.agentTask.create({
+      data: {
+        agentId: agentInstance.id,
+        issueId,
+        type: AgentTaskType.TEST_FUNCTIONAL,
+        status: AgentTaskStatus.RUNNING,
+        startedAt: new Date(),
+        gitlabMrIid: mrIid,
+      },
+    });
+
+    const ctx = {
+      projectId,
+      agentInstanceId: agentInstance.id,
+      agentTaskId: agentTask.id,
+      chatSessionId,
+    };
+
+    this.functionalTester.testIssue(ctx, issueId, mrIid, gitlabProjectId).catch((err) => {
+      this.logger.error(`Functional Tester error: ${err.message}`);
+    });
+  }
+
+  // ─── Functional Test Complete → UI Tester ────────────────
+
+  @OnEvent('agent.functionalTestComplete')
+  async handleFunctionalTestComplete(payload: {
+    projectId: string;
+    chatSessionId: string;
+    issueId: string;
+    mrIid: number;
+    gitlabProjectId: number;
+    passed: boolean;
+    feedback?: string;
+  }) {
+    const { projectId, chatSessionId, issueId, mrIid, gitlabProjectId, passed, feedback } = payload;
+
+    if (passed) {
+      this.logger.log(`Functional test passed for issue ${issueId} — starting UI Tester`);
+      try {
+        await this.startUiTest(projectId, chatSessionId, issueId, mrIid, gitlabProjectId);
+      } catch (err) {
+        this.logger.error(`Failed to start UI Tester: ${err.message}`);
+      }
+    } else {
+      this.logger.log(`Functional test failed for issue ${issueId} — re-triggering Coder`);
+      await this.retriggerCoder(projectId, chatSessionId, issueId, feedback || 'Functional test failed', 'functional-test');
+    }
+  }
+
+  async startUiTest(
+    projectId: string,
+    chatSessionId: string,
+    issueId: string,
+    mrIid: number,
+    gitlabProjectId: number,
+  ) {
+    const config = this.settings.getAgentRoleConfig('UI_TESTER');
+
+    const agentInstance = await this.prisma.agentInstance.create({
+      data: {
+        projectId,
+        role: AgentRole.UI_TESTER,
+        provider: config.provider as any,
+        model: config.model,
+        status: AgentStatus.IDLE,
+      },
+    });
+
+    const agentTask = await this.prisma.agentTask.create({
+      data: {
+        agentId: agentInstance.id,
+        issueId,
+        type: AgentTaskType.TEST_UI,
+        status: AgentTaskStatus.RUNNING,
+        startedAt: new Date(),
+        gitlabMrIid: mrIid,
+      },
+    });
+
+    const ctx = {
+      projectId,
+      agentInstanceId: agentInstance.id,
+      agentTaskId: agentTask.id,
+      chatSessionId,
+    };
+
+    this.uiTester.testIssue(ctx, issueId, mrIid, gitlabProjectId).catch((err) => {
+      this.logger.error(`UI Tester error: ${err.message}`);
+    });
+  }
+
+  // ─── UI Test Complete → Pen Tester ───────────────────────
+
+  @OnEvent('agent.uiTestComplete')
+  async handleUiTestComplete(payload: {
+    projectId: string;
+    chatSessionId: string;
+    issueId: string;
+    mrIid: number;
+    gitlabProjectId: number;
+    passed: boolean;
+    feedback?: string;
+  }) {
+    const { projectId, chatSessionId, issueId, mrIid, gitlabProjectId, passed, feedback } = payload;
+
+    if (passed) {
+      this.logger.log(`UI test passed for issue ${issueId} — starting Pen Tester`);
+      try {
+        await this.startPenTest(projectId, chatSessionId, issueId, mrIid, gitlabProjectId);
+      } catch (err) {
+        this.logger.error(`Failed to start Pen Tester: ${err.message}`);
+      }
+    } else {
+      this.logger.log(`UI test failed for issue ${issueId} — re-triggering Coder`);
+      await this.retriggerCoder(projectId, chatSessionId, issueId, feedback || 'UI test failed', 'ui-test');
+    }
+  }
+
+  async startPenTest(
+    projectId: string,
+    chatSessionId: string,
+    issueId: string,
+    mrIid: number,
+    gitlabProjectId: number,
+  ) {
+    const config = this.settings.getAgentRoleConfig('PEN_TESTER');
+
+    const agentInstance = await this.prisma.agentInstance.create({
+      data: {
+        projectId,
+        role: AgentRole.PEN_TESTER,
+        provider: config.provider as any,
+        model: config.model,
+        status: AgentStatus.IDLE,
+      },
+    });
+
+    const agentTask = await this.prisma.agentTask.create({
+      data: {
+        agentId: agentInstance.id,
+        issueId,
+        type: AgentTaskType.TEST_SECURITY,
+        status: AgentTaskStatus.RUNNING,
+        startedAt: new Date(),
+        gitlabMrIid: mrIid,
+      },
+    });
+
+    const ctx = {
+      projectId,
+      agentInstanceId: agentInstance.id,
+      agentTaskId: agentTask.id,
+      chatSessionId,
+    };
+
+    this.penTester.testIssue(ctx, issueId, mrIid, gitlabProjectId).catch((err) => {
+      this.logger.error(`Pen Tester error: ${err.message}`);
+    });
+  }
+
+  // ─── Pen Test Complete → Documenter ─────────────────────
+
+  @OnEvent('agent.penTestComplete')
+  async handlePenTestComplete(payload: {
+    projectId: string;
+    chatSessionId: string;
+    issueId: string;
+    mrIid: number;
+    gitlabProjectId: number;
+    passed: boolean;
+    feedback?: string;
+  }) {
+    const { projectId, chatSessionId, issueId, mrIid, gitlabProjectId, passed, feedback } = payload;
+
+    if (passed) {
+      this.logger.log(`Pen test passed for issue ${issueId} — starting Documenter`);
+      try {
+        await this.startDocumenter(projectId, chatSessionId, issueId, mrIid, gitlabProjectId);
+      } catch (err) {
+        this.logger.error(`Failed to start Documenter: ${err.message}`);
+      }
+    } else {
+      this.logger.log(`Pen test failed for issue ${issueId} — re-triggering Coder`);
+      await this.retriggerCoder(projectId, chatSessionId, issueId, feedback || 'Security test failed', 'security');
+    }
+  }
+
+  async startDocumenter(
+    projectId: string,
+    chatSessionId: string,
+    issueId: string,
+    mrIid: number,
+    gitlabProjectId: number,
+  ) {
+    const config = this.settings.getAgentRoleConfig('DOCUMENTER');
+
+    const agentInstance = await this.prisma.agentInstance.create({
+      data: {
+        projectId,
+        role: AgentRole.DOCUMENTER,
+        provider: config.provider as any,
+        model: config.model,
+        status: AgentStatus.IDLE,
+      },
+    });
+
+    const agentTask = await this.prisma.agentTask.create({
+      data: {
+        agentId: agentInstance.id,
+        issueId,
+        type: AgentTaskType.WRITE_DOCS,
+        status: AgentTaskStatus.RUNNING,
+        startedAt: new Date(),
+        gitlabMrIid: mrIid,
+      },
+    });
+
+    const ctx = {
+      projectId,
+      agentInstanceId: agentInstance.id,
+      agentTaskId: agentTask.id,
+      chatSessionId,
+    };
+
+    this.documenter.documentIssue(ctx, issueId, mrIid, gitlabProjectId).catch((err) => {
+      this.logger.error(`Documenter error: ${err.message}`);
+    });
+  }
+
+  // ─── Docs Complete → Issue DONE ─────────────────────────
+
+  @OnEvent('agent.docsComplete')
+  async handleDocsComplete(payload: {
+    projectId: string;
+    chatSessionId: string;
+    issueId: string;
+    mrIid: number;
+    gitlabProjectId: number;
+  }) {
+    const { issueId } = payload;
+    this.logger.log(`Documentation complete for issue ${issueId} — pipeline finished`);
+  }
+
+  // ─── Shared: Re-trigger Coder ──────────────────────────
+
+  private async retriggerCoder(
+    projectId: string,
+    chatSessionId: string,
+    issueId: string,
+    feedback: string,
+    feedbackSource: 'review' | 'pipeline' | 'user' | 'functional-test' | 'ui-test' | 'security',
+  ): Promise<void> {
+    try {
+      let coderInstance = await this.prisma.agentInstance.findFirst({
+        where: { projectId, role: AgentRole.CODER, status: { in: [AgentStatus.IDLE, AgentStatus.WORKING] } },
+      });
+
+      if (!coderInstance) {
+        const config = this.settings.getAgentRoleConfig('CODER');
+        coderInstance = await this.prisma.agentInstance.create({
+          data: {
+            projectId,
+            role: AgentRole.CODER,
+            provider: config.provider as any,
+            model: config.model,
+            status: AgentStatus.IDLE,
+          },
+        });
+      }
+
+      const agentTask = await this.prisma.agentTask.create({
+        data: {
+          agentId: coderInstance.id,
+          issueId,
+          type: AgentTaskType.FIX_CODE,
+          status: AgentTaskStatus.RUNNING,
+          startedAt: new Date(),
+        },
+      });
+
+      const ctx = {
+        projectId,
+        agentInstanceId: coderInstance.id,
+        agentTaskId: agentTask.id,
+        chatSessionId,
+      };
+
+      this.coder.fixIssue(ctx, issueId, feedback, feedbackSource as any).catch((err) => {
+        this.logger.error(`Coder fix (${feedbackSource}) error: ${err.message}`);
+      });
+    } catch (err) {
+      this.logger.error(`retriggerCoder error: ${err.message}`);
+    }
   }
 }

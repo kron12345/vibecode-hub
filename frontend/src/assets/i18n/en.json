@@ -71,6 +71,13 @@
     "pipelineStatus": "Pipeline Status",
     "coderWorking": "Coder working...",
     "reviewerWorking": "Reviewer checking...",
+    "functionalTesting": "Running functional tests...",
+    "uiTesting": "Running UI tests...",
+    "penTesting": "Running security tests...",
+    "documenting": "Generating documentation...",
+    "pipelineComplete": "Pipeline complete",
+    "statusTesting": "Testing",
+    "statusDone": "Done",
     "tabOverview": "Overview",
     "tabSettings": "Settings",
     "settings": {

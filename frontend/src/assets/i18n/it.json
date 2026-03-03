@@ -71,6 +71,13 @@
     "pipelineStatus": "Stato Pipeline",
     "coderWorking": "Coder in esecuzione...",
     "reviewerWorking": "Revisore in esecuzione...",
+    "functionalTesting": "Test funzionali in corso...",
+    "uiTesting": "Test UI in corso...",
+    "penTesting": "Test di sicurezza in corso...",
+    "documenting": "Generazione documentazione...",
+    "pipelineComplete": "Pipeline completata",
+    "statusTesting": "In test",
+    "statusDone": "Completato",
     "tabOverview": "Panoramica",
     "tabSettings": "Impostazioni",
     "settings": {
