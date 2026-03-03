@@ -2,6 +2,7 @@ import { Injectable, Logger, ConflictException } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { GitlabService } from '../gitlab/gitlab.service';
 import { PreviewService } from '../preview/preview.service';
+import { SystemSettingsService } from '../settings/system-settings.service';
 import { CreateProjectDto, UpdateProjectDto } from './projects.dto';
 import { ProjectStatus, Prisma } from '@prisma/client';
 
@@ -13,6 +14,7 @@ export class ProjectsService {
     private prisma: PrismaService,
     private gitlab: GitlabService,
     private preview: PreviewService,
+    private systemSettings: SystemSettingsService,
   ) {}
 
   findAll() {
@@ -50,6 +52,9 @@ export class ProjectsService {
         dto.gitlabProjectId = glProject.id;
         dto.gitlabUrl = glProject.web_url;
         this.logger.log(`GitLab repo created: ${glProject.web_url}`);
+
+        // Auto-add owner as Maintainer
+        await this.autoAddOwnerMember(glProject.id);
       } catch (err) {
         this.logger.warn(`Could not create GitLab repo: ${err.message}`);
         // Project still gets created locally, just without GitLab link
@@ -157,5 +162,17 @@ export class ProjectsService {
     }
 
     return this.prisma.project.delete({ where: { id } });
+  }
+
+  /** Auto-add the configured owner user as Maintainer to a GitLab project */
+  async autoAddOwnerMember(gitlabProjectId: number): Promise<void> {
+    const ownerUserId = this.systemSettings.gitlabOwnerUserId;
+    if (!ownerUserId) return;
+
+    try {
+      await this.gitlab.addProjectMember(gitlabProjectId, ownerUserId, 40);
+    } catch (err) {
+      this.logger.warn(`Could not auto-add owner (user ${ownerUserId}) to GitLab project: ${err.message}`);
+    }
   }
 }

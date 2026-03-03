@@ -166,6 +166,16 @@ export class DevopsAgent extends BaseAgent {
           },
         });
         this.logger.log(`GitLab repo created by DevOps agent: ${glProject.web_url}`);
+
+        // Auto-add owner as Maintainer
+        const ownerUserId = this.settings.gitlabOwnerUserId;
+        if (ownerUserId) {
+          try {
+            await this.gitlabService.addProjectMember(glProject.id, ownerUserId, 40);
+          } catch (err) {
+            this.logger.warn(`Could not auto-add owner to GitLab project: ${err.message}`);
+          }
+        }
       }
 
       const gitlabProject = await this.gitlabService.getProject(

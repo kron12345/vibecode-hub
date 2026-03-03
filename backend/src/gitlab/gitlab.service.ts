@@ -401,6 +401,36 @@ export class GitlabService {
     return hierarchy?.children?.nodes ?? [];
   }
 
+  // ─── Members ─────────────────────────────────────────────────
+
+  /**
+   * Add a user as member to a GitLab project.
+   * access_level: 10=Guest, 20=Reporter, 30=Developer, 40=Maintainer, 50=Owner
+   */
+  async addProjectMember(
+    projectId: number,
+    userId: number,
+    accessLevel: number = 40,
+  ): Promise<void> {
+    try {
+      await firstValueFrom(
+        this.httpService.post(
+          `${this.apiUrl}/projects/${projectId}/members`,
+          { user_id: userId, access_level: accessLevel },
+          { headers: this.headers },
+        ),
+      );
+      this.logger.log(`Added user ${userId} as member (level ${accessLevel}) to project ${projectId}`);
+    } catch (err: any) {
+      // 409 = already a member — that's fine
+      if (err?.response?.status === 409) {
+        this.logger.debug(`User ${userId} already member of project ${projectId}`);
+        return;
+      }
+      throw err;
+    }
+  }
+
   // ─── Webhooks ────────────────────────────────────────────────
 
   async addWebhook(projectId: number, url: string, secretToken: string): Promise<void> {

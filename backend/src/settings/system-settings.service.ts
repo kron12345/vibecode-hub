@@ -98,6 +98,12 @@ export class SystemSettingsService implements OnModuleInit {
     return this.get('gitlab.webhook_secret', 'GITLAB_WEBHOOK_SECRET', '');
   }
 
+  /** GitLab user ID to auto-add as Maintainer to new projects (0 = disabled) */
+  get gitlabOwnerUserId(): number {
+    const val = this.get('gitlab.owner_user_id', 'GITLAB_OWNER_USER_ID', '0');
+    return parseInt(val, 10) || 0;
+  }
+
   get ollamaUrl(): string {
     return this.get('llm.ollama.url', 'OLLAMA_URL', 'http://127.0.0.1:11434');
   }
