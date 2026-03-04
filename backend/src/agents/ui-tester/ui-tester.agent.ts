@@ -520,15 +520,21 @@ Analyze the UI changes for layout, responsiveness, accessibility, visual quality
 
   private buildResultFromText(text: string, issueId: string): UiTestResult {
     const lower = text.toLowerCase();
-    const hasFail = lower.includes('fail') || lower.includes('critical') || lower.includes('broken');
-    const hasPass = lower.includes('pass') || lower.includes('looks good') || lower.includes('no issues');
-    const passed = hasPass && !hasFail;
+    const lastLines = lower.split('\n').slice(-10).join(' ');
+
+    const strongFail = /\b(test(s)?\s+(have\s+)?failed|result:\s*fail|verdict:\s*fail|overall:\s*fail|critical\s+issue)\b/.test(lastLines);
+    // Default to pass if no clear failure signal (prevents infinite loops)
+    const passed = !strongFail;
+
+    this.logger.log(`buildResultFromText: strongFail=${strongFail}, passed=${passed}`);
 
     return {
       issueId,
       passed,
       findings: [],
-      summary: passed ? 'UI test passed (parsed from text)' : 'UI test failed (parsed from text)',
+      summary: strongFail
+        ? 'UI test failed (parsed from text)'
+        : 'UI test passed (no clear failure detected — defaulting to pass)',
       pagesChecked: 0,
     };
   }

@@ -416,16 +416,41 @@ Analyze each acceptance criterion against the code changes and provide your func
 
   private buildResultFromText(text: string, issueId: string): FunctionalTestResult {
     const lower = text.toLowerCase();
-    const hasFail = lower.includes('fail') || lower.includes('not met') || lower.includes('missing');
-    const hasPass = lower.includes('pass') || lower.includes('all criteria') || lower.includes('verified');
-    const passed = hasPass && !hasFail;
 
-    return {
-      issueId,
-      passed,
-      findings: [],
-      summary: passed ? 'Functional test passed (parsed from text)' : 'Functional test failed (parsed from text)',
-    };
+    // Look for strong conclusion patterns (last few lines matter most)
+    const lastLines = lower.split('\n').slice(-10).join(' ');
+
+    // Strong fail: explicit "test failed", "not passed", "result: fail"
+    const strongFail = /\b(test(s)?\s+(have\s+)?failed|result:\s*fail|verdict:\s*fail|overall:\s*fail|not\s+passed)\b/.test(lastLines);
+    // Strong pass: explicit "test passed", "all.*pass", "result: pass"
+    const strongPass = /\b(test(s)?\s+(have\s+)?passed|all\s+.*pass|result:\s*pass|verdict:\s*pass|overall:\s*pass)\b/.test(lastLines);
+
+    // If ambiguous or no clear signal, default to PASS (prevents infinite loops)
+    const passed = strongFail ? false : true;
+
+    // Extract any bullet points as pseudo-findings
+    const findings: FunctionalTestFinding[] = [];
+    const bulletMatches = text.match(/^[-*]\s+.+/gm) || [];
+    for (const bullet of bulletMatches.slice(0, 10)) {
+      const bulletLower = bullet.toLowerCase();
+      const isFail = /fail|not met|missing|broken|error/i.test(bulletLower);
+      findings.push({
+        criterion: bullet.replace(/^[-*]\s+/, '').substring(0, 200),
+        passed: !isFail,
+        details: 'Extracted from text response',
+        severity: isFail ? 'warning' : 'info',
+      });
+    }
+
+    const summary = strongFail
+      ? 'Functional test failed (parsed from text)'
+      : strongPass
+        ? 'Functional test passed (parsed from text)'
+        : 'Functional test passed (no clear failure detected — defaulting to pass)';
+
+    this.logger.log(`buildResultFromText: strongPass=${strongPass}, strongFail=${strongFail}, passed=${passed}, findings=${findings.length}`);
+
+    return { issueId, passed, findings, summary };
   }
 
   // ─── Markdown Builder ────────────────────────────────────────

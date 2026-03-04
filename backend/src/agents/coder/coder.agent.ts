@@ -658,7 +658,7 @@ export class CoderAgent extends BaseAgent {
   private async getChangedFiles(cwd: string): Promise<string[]> {
     const { stdout } = await execFileAsync(
       'git', ['status', '--porcelain'],
-      { cwd, timeout: GIT_TIMEOUT_MS },
+      { cwd, timeout: GIT_TIMEOUT_MS, maxBuffer: 10 * 1024 * 1024 },
     );
     return stdout
       .trim()
@@ -668,13 +668,13 @@ export class CoderAgent extends BaseAgent {
   }
 
   private async gitCommitAndPush(cwd: string, branch: string, message: string): Promise<string> {
-    await execFileAsync('git', ['add', '.'], { cwd, timeout: GIT_TIMEOUT_MS });
-    await execFileAsync('git', ['commit', '-m', message], { cwd, timeout: GIT_TIMEOUT_MS });
+    await execFileAsync('git', ['add', '.'], { cwd, timeout: GIT_TIMEOUT_MS, maxBuffer: 10 * 1024 * 1024 });
+    await execFileAsync('git', ['commit', '-m', message], { cwd, timeout: GIT_TIMEOUT_MS, maxBuffer: 10 * 1024 * 1024 });
     const { stdout } = await execFileAsync('git', ['rev-parse', 'HEAD'], { cwd, timeout: GIT_TIMEOUT_MS });
     const commitSha = stdout.trim();
     await execFileAsync(
       'git', ['push', '-u', 'origin', branch],
-      { cwd, timeout: GIT_TIMEOUT_MS },
+      { cwd, timeout: GIT_TIMEOUT_MS, maxBuffer: 10 * 1024 * 1024 },
     );
     return commitSha;
   }

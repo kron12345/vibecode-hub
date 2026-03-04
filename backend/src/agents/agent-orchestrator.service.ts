@@ -1028,7 +1028,25 @@ export class AgentOrchestratorService {
     feedback: string,
     feedbackSource: 'review' | 'pipeline' | 'user' | 'functional-test' | 'ui-test' | 'security',
   ): Promise<void> {
+    const MAX_FIX_ATTEMPTS = 5;
     try {
+      // Check how many FIX_CODE tasks already exist for this issue
+      const fixCount = await this.prisma.agentTask.count({
+        where: { issueId, type: AgentTaskType.FIX_CODE },
+      });
+
+      if (fixCount >= MAX_FIX_ATTEMPTS) {
+        this.logger.warn(`Issue ${issueId} has ${fixCount} fix attempts — stopping to prevent infinite loop`);
+        // Move issue to a reviewable state instead of looping
+        await this.prisma.issue.update({
+          where: { id: issueId },
+          data: { status: IssueStatus.IN_REVIEW },
+        });
+        return;
+      }
+
+      this.logger.log(`Re-triggering Coder for issue ${issueId} (attempt ${fixCount + 1}/${MAX_FIX_ATTEMPTS})`);
+
       let coderInstance = await this.prisma.agentInstance.findFirst({
         where: { projectId, role: AgentRole.CODER, status: { in: [AgentStatus.IDLE, AgentStatus.WORKING] } },
       });
