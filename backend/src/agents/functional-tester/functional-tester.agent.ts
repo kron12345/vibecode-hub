@@ -8,12 +8,12 @@ import { LlmService } from '../../llm/llm.service';
 import { GitlabService } from '../../gitlab/gitlab.service';
 import { LlmMessage } from '../../llm/llm.interfaces';
 import { BaseAgent, AgentContext } from '../agent-base';
+import { postAgentComment, getAgentCommentHistory } from '../agent-comment.utils';
 import { FunctionalTestResult, FunctionalTestFinding } from './functional-test-result.interface';
 import {
   AgentRole,
   AgentStatus,
   AgentTaskStatus,
-  CommentAuthorType,
 } from '@prisma/client';
 
 const COMPLETION_MARKER = ':::TEST_COMPLETE:::';
@@ -138,11 +138,17 @@ export class FunctionalTesterAgent extends BaseAgent {
         return `### ${prefix} ${d.new_path}\n\`\`\`diff\n${truncated}\n\`\`\``;
       }).join('\n\n');
 
+      // Inject previous agent comments as context
+      const commentHistory = await getAgentCommentHistory({ prisma: this.prisma, issueId });
+      const historySection = commentHistory
+        ? `\n## Previous Agent Comments on this Issue\n${commentHistory}\n`
+        : '';
+
       const userPrompt = `Verify the following merge request implements the issue requirements:
 
 **Issue:** ${issue.title}
 **Description:** ${issue.description || 'N/A'}
-
+${historySection}
 ## Acceptance Criteria:
 ${acceptanceCriteria || '_No sub-issues / acceptance criteria defined — verify based on issue description._'}
 
@@ -177,18 +183,17 @@ Analyze each acceptance criterion against the code changes and provide your func
         return;
       }
 
-      // Post result as GitLab comment
-      await this.postTestComment(gitlabProjectId, issue.gitlabIid!, testResult);
-
-      // Save comment locally
-      await this.prisma.issueComment.create({
-        data: {
-          issueId,
-          authorType: CommentAuthorType.AGENT,
-          authorName: 'Functional Tester',
-          content: `Functional Test: ${testResult.passed ? 'PASSED' : 'FAILED'} — ${testResult.summary}. ${testResult.findings.length} finding(s).`,
-          agentTaskId: ctx.agentTaskId,
-        },
+      // Post unified comment (same rich markdown for local + GitLab)
+      const testMarkdown = this.buildTestMarkdown(testResult);
+      await postAgentComment({
+        prisma: this.prisma,
+        gitlabService: this.gitlabService,
+        issueId,
+        gitlabProjectId,
+        issueIid: issue.gitlabIid!,
+        agentTaskId: ctx.agentTaskId,
+        authorName: 'Functional Tester',
+        markdownContent: testMarkdown,
       });
 
       if (testResult.passed) {
@@ -423,13 +428,9 @@ Analyze each acceptance criterion against the code changes and provide your func
     };
   }
 
-  // ─── GitLab Comment ────────────────────────────────────────
+  // ─── Markdown Builder ────────────────────────────────────────
 
-  private async postTestComment(
-    gitlabProjectId: number,
-    issueIid: number,
-    result: FunctionalTestResult,
-  ): Promise<void> {
+  private buildTestMarkdown(result: FunctionalTestResult): string {
     const icon = result.passed ? '✅' : '❌';
     const status = result.passed ? 'PASSED' : 'FAILED';
 
@@ -450,12 +451,7 @@ Analyze each acceptance criterion against the code changes and provide your func
     }
 
     parts.push('---', '_Tested by Functional Tester Agent_');
-
-    try {
-      await this.gitlabService.createIssueNote(gitlabProjectId, issueIid, parts.join('\n'));
-    } catch (err) {
-      this.logger.warn(`Failed to post functional test comment: ${err.message}`);
-    }
+    return parts.join('\n');
   }
 
   // ─── Diff Fetching ──────────────────────────────────────

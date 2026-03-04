@@ -8,13 +8,13 @@ import { LlmService } from '../../llm/llm.service';
 import { GitlabService } from '../../gitlab/gitlab.service';
 import { LlmMessage } from '../../llm/llm.interfaces';
 import { BaseAgent, AgentContext } from '../agent-base';
+import { postAgentComment, getAgentCommentHistory } from '../agent-comment.utils';
 import { UiTestResult, UiTestFinding } from './ui-test-result.interface';
 import { PlaywrightRunner, PageCapture, A11yResult } from './playwright-runner';
 import {
   AgentRole,
   AgentStatus,
   AgentTaskStatus,
-  CommentAuthorType,
 } from '@prisma/client';
 
 const COMPLETION_MARKER = ':::UI_TEST_COMPLETE:::';
@@ -185,12 +185,18 @@ export class UiTesterAgent extends BaseAgent {
         return `### ${prefix} ${d.new_path}\n\`\`\`diff\n${truncated}\n\`\`\``;
       }).join('\n\n');
 
+      // Inject previous agent comments as context
+      const commentHistory = await getAgentCommentHistory({ prisma: this.prisma, issueId });
+      const historySection = commentHistory
+        ? `\n## Previous Agent Comments on this Issue\n${commentHistory}\n`
+        : '';
+
       const userPrompt = `Analyze the UI changes in this merge request:
 
 **Issue:** ${issue.title}
 **Description:** ${issue.description || 'N/A'}
 ${previewUrl ? `**Preview URL:** ${previewUrl}` : ''}
-
+${historySection}
 ## Code Changes (${reviewDiffs.length} UI-related file(s)):
 
 ${diffText || '_No UI-related files changed._'}
@@ -224,18 +230,17 @@ Analyze the UI changes for layout, responsiveness, accessibility, visual quality
         return;
       }
 
-      // Post GitLab comment
-      await this.postTestComment(gitlabProjectId, issue.gitlabIid!, testResult);
-
-      // Save comment locally
-      await this.prisma.issueComment.create({
-        data: {
-          issueId,
-          authorType: CommentAuthorType.AGENT,
-          authorName: 'UI Tester',
-          content: `UI Test: ${testResult.passed ? 'PASSED' : 'FAILED'} — ${testResult.summary}. ${testResult.findings.length} finding(s).`,
-          agentTaskId: ctx.agentTaskId,
-        },
+      // Post unified comment (same rich markdown for local + GitLab)
+      const testMarkdown = this.buildTestMarkdown(testResult);
+      await postAgentComment({
+        prisma: this.prisma,
+        gitlabService: this.gitlabService,
+        issueId,
+        gitlabProjectId,
+        issueIid: issue.gitlabIid!,
+        agentTaskId: ctx.agentTaskId,
+        authorName: 'UI Tester',
+        markdownContent: testMarkdown,
       });
 
       if (testResult.passed) {
@@ -528,13 +533,9 @@ Analyze the UI changes for layout, responsiveness, accessibility, visual quality
     };
   }
 
-  // ─── GitLab Comment ────────────────────────────────────────
+  // ─── Markdown Builder ────────────────────────────────────────
 
-  private async postTestComment(
-    gitlabProjectId: number,
-    issueIid: number,
-    result: UiTestResult,
-  ): Promise<void> {
+  private buildTestMarkdown(result: UiTestResult): string {
     const icon = result.passed ? '✅' : '❌';
     const status = result.passed ? 'PASSED' : 'FAILED';
 
@@ -556,12 +557,7 @@ Analyze the UI changes for layout, responsiveness, accessibility, visual quality
     }
 
     parts.push('---', '_Tested by UI Tester Agent_');
-
-    try {
-      await this.gitlabService.createIssueNote(gitlabProjectId, issueIid, parts.join('\n'));
-    } catch (err) {
-      this.logger.warn(`Failed to post UI test comment: ${err.message}`);
-    }
+    return parts.join('\n');
   }
 
   // ─── Diff Fetching ──────────────────────────────────────

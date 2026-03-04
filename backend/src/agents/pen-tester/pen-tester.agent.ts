@@ -11,12 +11,12 @@ import { LlmService } from '../../llm/llm.service';
 import { GitlabService } from '../../gitlab/gitlab.service';
 import { LlmMessage } from '../../llm/llm.interfaces';
 import { BaseAgent, AgentContext } from '../agent-base';
+import { postAgentComment, getAgentCommentHistory } from '../agent-comment.utils';
 import { PenTestResult, SecurityFinding } from './pen-test-result.interface';
 import {
   AgentRole,
   AgentStatus,
   AgentTaskStatus,
-  CommentAuthorType,
 } from '@prisma/client';
 
 const execFileAsync = promisify(execFile);
@@ -180,11 +180,17 @@ export class PenTesterAgent extends BaseAgent {
       const config = this.getRoleConfig();
       const systemPrompt = config.systemPrompt || DEFAULT_SYSTEM_PROMPT;
 
+      // Inject previous agent comments as context
+      const commentHistory = await getAgentCommentHistory({ prisma: this.prisma, issueId });
+      const historySection = commentHistory
+        ? `\n## Previous Agent Comments on this Issue\n${commentHistory}\n`
+        : '';
+
       const userPrompt = `Perform a security analysis of this merge request:
 
 **Issue:** ${issue.title}
 **Description:** ${issue.description || 'N/A'}
-
+${historySection}
 ## MR Diffs (${reviewDiffs.length} of ${diffs.length} file(s)):
 
 ${diffText || '_No diffs available._'}
@@ -219,18 +225,17 @@ Analyze the code for OWASP Top 10 vulnerabilities and provide your security asse
         return;
       }
 
-      // Post GitLab comment
-      await this.postTestComment(gitlabProjectId, issue.gitlabIid!, testResult);
-
-      // Save comment locally
-      await this.prisma.issueComment.create({
-        data: {
-          issueId,
-          authorType: CommentAuthorType.AGENT,
-          authorName: 'Pen Tester',
-          content: `Security Test: ${testResult.passed ? 'PASSED' : 'FAILED'} — ${testResult.summary}. ${testResult.findings.length} finding(s).`,
-          agentTaskId: ctx.agentTaskId,
-        },
+      // Post unified comment (same rich markdown for local + GitLab)
+      const testMarkdown = this.buildTestMarkdown(testResult);
+      await postAgentComment({
+        prisma: this.prisma,
+        gitlabService: this.gitlabService,
+        issueId,
+        gitlabProjectId,
+        issueIid: issue.gitlabIid!,
+        agentTaskId: ctx.agentTaskId,
+        authorName: 'Pen Tester',
+        markdownContent: testMarkdown,
       });
 
       if (testResult.passed) {
@@ -543,13 +548,9 @@ Analyze the code for OWASP Top 10 vulnerabilities and provide your security asse
     };
   }
 
-  // ─── GitLab Comment ────────────────────────────────────────
+  // ─── Markdown Builder ────────────────────────────────────────
 
-  private async postTestComment(
-    gitlabProjectId: number,
-    issueIid: number,
-    result: PenTestResult,
-  ): Promise<void> {
+  private buildTestMarkdown(result: PenTestResult): string {
     const icon = result.passed ? '✅' : '❌';
     const status = result.passed ? 'PASSED' : 'FAILED';
 
@@ -581,12 +582,7 @@ Analyze the code for OWASP Top 10 vulnerabilities and provide your security asse
     }
 
     parts.push('---', '_Tested by Pen Tester Agent_');
-
-    try {
-      await this.gitlabService.createIssueNote(gitlabProjectId, issueIid, parts.join('\n'));
-    } catch (err) {
-      this.logger.warn(`Failed to post security test comment: ${err.message}`);
-    }
+    return parts.join('\n');
   }
 
   // ─── Diff Fetching ──────────────────────────────────────

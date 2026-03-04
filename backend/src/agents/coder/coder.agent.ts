@@ -11,6 +11,7 @@ import { LlmService } from '../../llm/llm.service';
 import { GitlabService } from '../../gitlab/gitlab.service';
 import { IssuesService } from '../../issues/issues.service';
 import { BaseAgent, AgentContext } from '../agent-base';
+import { postAgentComment } from '../agent-comment.utils';
 import { CoderIssueResult, CoderMilestoneResult } from './coder-result.interface';
 import {
   AgentRole,
@@ -18,7 +19,6 @@ import {
   AgentTaskStatus,
   AgentTaskType,
   IssueStatus,
-  CommentAuthorType,
 } from '@prisma/client';
 
 const execFileAsync = promisify(execFile);
@@ -198,13 +198,18 @@ export class CoderAgent extends BaseAgent {
         `🔨 Coding issue #${issue.gitlabIid ?? '?'}: **${issue.title}**`,
       );
 
-      // Post GitLab comment
+      // Post start comment
       if (issue.gitlabIid && gitlabProjectId) {
-        await this.postGitlabComment(
+        await postAgentComment({
+          prisma: this.prisma,
+          gitlabService: this.gitlabService,
+          issueId: issue.id,
           gitlabProjectId,
-          issue.gitlabIid,
-          `🤖 **Coder Agent** starting work on this issue.\n\nBranch: \`${branchName}\``,
-        );
+          issueIid: issue.gitlabIid,
+          agentTaskId: agentTask.id,
+          authorName: 'Coder Agent',
+          markdownContent: `## 🤖 Coder Agent Starting\n\nBranch: \`${branchName}\``,
+        });
       }
 
       // Checkout default branch and create feature branch
@@ -275,31 +280,32 @@ export class CoderAgent extends BaseAgent {
       result.commitSha = commitSha;
       result.commitUrl = commitUrl;
 
-      // Post summary as GitLab comment with commit link
+      // Post implementation-complete comment (same rich markdown for local + GitLab)
       if (issue.gitlabIid && gitlabProjectId) {
         const commentBody = [
-          `✅ **Coder Agent** completed implementation.`,
+          `## 🔨 Implementation Complete`,
           '',
           `**Commit:** [\`${commitShort}\`](${commitUrl}) — [View Diff](${commitUrl})`,
           `**Branch:** \`${branchName}\``,
           result.mrUrl ? `**MR:** [!${result.mrIid}](${result.mrUrl})` : '',
           `**Changed files (${changedFiles.length}):**`,
           ...changedFiles.map(f => `- \`${f}\``),
+          '',
+          '---',
+          '_Implemented by Coder Agent_',
         ].filter(Boolean).join('\n');
 
-        await this.postGitlabComment(gitlabProjectId, issue.gitlabIid, commentBody);
-      }
-
-      // Save comment to local DB too
-      await this.prisma.issueComment.create({
-        data: {
+        await postAgentComment({
+          prisma: this.prisma,
+          gitlabService: this.gitlabService,
           issueId: issue.id,
-          authorType: CommentAuthorType.AGENT,
-          authorName: 'Coder Agent',
-          content: `Implementation complete. Commit: [${commitShort}](${commitUrl}), Branch: ${branchName}, ${changedFiles.length} file(s) changed.${result.mrUrl ? ` MR: ${result.mrUrl}` : ''}`,
+          gitlabProjectId,
+          issueIid: issue.gitlabIid,
           agentTaskId: agentTask.id,
-        },
-      });
+          authorName: 'Coder Agent',
+          markdownContent: commentBody,
+        });
+      }
 
       // Complete the task
       await this.prisma.agentTask.update({
@@ -408,13 +414,18 @@ export class CoderAgent extends BaseAgent {
         `🔧 Fixing issue #${issue.gitlabIid ?? '?'}: **${issue.title}** (${sourceLabel})`,
       );
 
-      // Post GitLab comment
+      // Post fix-start comment
       if (issue.gitlabIid) {
-        await this.postGitlabComment(
-          issue.project.gitlabProjectId,
-          issue.gitlabIid,
-          `🔧 **Coder Agent** fixing based on ${sourceLabel}:\n\n> ${feedback.substring(0, 500)}`,
-        );
+        await postAgentComment({
+          prisma: this.prisma,
+          gitlabService: this.gitlabService,
+          issueId,
+          gitlabProjectId: issue.project.gitlabProjectId,
+          issueIid: issue.gitlabIid,
+          agentTaskId: agentTask.id,
+          authorName: 'Coder Agent',
+          markdownContent: `## 🔧 Fix in Progress (${sourceLabel})\n\n> ${feedback.substring(0, 500)}`,
+        });
       }
 
       // Checkout existing feature branch
@@ -460,31 +471,29 @@ export class CoderAgent extends BaseAgent {
         },
       });
 
-      // Save comment
-      await this.prisma.issueComment.create({
-        data: {
-          issueId,
-          authorType: CommentAuthorType.AGENT,
-          authorName: 'Coder Agent',
-          content: `Fix applied (${sourceLabel}). ${changedFiles.length} file(s) changed.${commitUrl ? ` Commit: [${commitShort}](${commitUrl})` : ''}`,
-          agentTaskId: agentTask.id,
-        },
-      });
-
+      // Post fix-complete comment
       if (issue.gitlabIid) {
         const fixComment = [
-          `✅ **Coder Agent** applied fix (${sourceLabel}).`,
+          `## ✅ Fix Applied (${sourceLabel})`,
           '',
           commitUrl ? `**Commit:** [\`${commitShort}\`](${commitUrl}) — [View Diff](${commitUrl})` : '',
           `**Changed files (${changedFiles.length}):**`,
           ...changedFiles.map(f => `- \`${f}\``),
+          '',
+          '---',
+          '_Fixed by Coder Agent_',
         ].filter(Boolean).join('\n');
 
-        await this.postGitlabComment(
-          issue.project.gitlabProjectId,
-          issue.gitlabIid,
-          fixComment,
-        );
+        await postAgentComment({
+          prisma: this.prisma,
+          gitlabService: this.gitlabService,
+          issueId,
+          gitlabProjectId: issue.project.gitlabProjectId,
+          issueIid: issue.gitlabIid,
+          agentTaskId: agentTask.id,
+          authorName: 'Coder Agent',
+          markdownContent: fixComment,
+        });
       }
 
       await this.sendAgentMessage(
@@ -671,18 +680,6 @@ export class CoderAgent extends BaseAgent {
   }
 
   // ─── Utility ──────────────────────────────────────────────
-
-  private async postGitlabComment(
-    projectId: number,
-    issueIid: number,
-    body: string,
-  ): Promise<void> {
-    try {
-      await this.gitlabService.createIssueNote(projectId, issueIid, body);
-    } catch (err) {
-      this.logger.warn(`GitLab comment failed: ${err.message}`);
-    }
-  }
 
   /** Slug from issue title for branch names */
   private slugify(text: string): string {

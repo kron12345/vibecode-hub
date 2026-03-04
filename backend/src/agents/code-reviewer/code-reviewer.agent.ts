@@ -8,13 +8,13 @@ import { LlmService } from '../../llm/llm.service';
 import { GitlabService } from '../../gitlab/gitlab.service';
 import { LlmMessage } from '../../llm/llm.interfaces';
 import { BaseAgent, AgentContext } from '../agent-base';
+import { postAgentComment } from '../agent-comment.utils';
 import { ReviewResult, ReviewFinding } from './review-result.interface';
 import {
   AgentRole,
   AgentStatus,
   AgentTaskStatus,
   IssueStatus,
-  CommentAuthorType,
 } from '@prisma/client';
 
 /** Marker the LLM emits when review is done */
@@ -186,18 +186,17 @@ Provide your review analysis and end with the completion marker and JSON result.
         return;
       }
 
-      // Post review as GitLab comment
-      await this.postReviewComment(gitlabProjectId, issue.gitlabIid!, reviewResult);
-
-      // Save comment to local DB
-      await this.prisma.issueComment.create({
-        data: {
-          issueId,
-          authorType: CommentAuthorType.AGENT,
-          authorName: 'Code Reviewer',
-          content: `Review: ${reviewResult.approved ? 'APPROVED' : 'CHANGES REQUESTED'} — ${reviewResult.summary}. ${reviewResult.findings.length} finding(s).`,
-          agentTaskId: ctx.agentTaskId,
-        },
+      // Post unified review comment (same rich markdown for local + GitLab)
+      const reviewMarkdown = this.buildReviewMarkdown(reviewResult);
+      await postAgentComment({
+        prisma: this.prisma,
+        gitlabService: this.gitlabService,
+        issueId,
+        gitlabProjectId,
+        issueIid: issue.gitlabIid!,
+        agentTaskId: ctx.agentTaskId,
+        authorName: 'Code Reviewer',
+        markdownContent: reviewMarkdown,
       });
 
       if (reviewResult.approved) {
@@ -552,13 +551,9 @@ Provide your review analysis and end with the completion marker and JSON result.
     return null;
   }
 
-  // ─── GitLab Comment ────────────────────────────────────────
+  // ─── Markdown Builder ────────────────────────────────────────
 
-  private async postReviewComment(
-    gitlabProjectId: number,
-    issueIid: number,
-    review: ReviewResult,
-  ): Promise<void> {
+  private buildReviewMarkdown(review: ReviewResult): string {
     const statusEmoji = review.approved ? '✅' : '⚠️';
     const statusText = review.approved ? 'APPROVED' : 'CHANGES REQUESTED';
 
@@ -582,16 +577,7 @@ Provide your review analysis and end with the completion marker and JSON result.
     }
 
     parts.push('---', '_Reviewed by Code Reviewer Agent_');
-
-    try {
-      await this.gitlabService.createIssueNote(
-        gitlabProjectId,
-        issueIid,
-        parts.join('\n'),
-      );
-    } catch (err) {
-      this.logger.warn(`Failed to post review comment: ${err.message}`);
-    }
+    return parts.join('\n');
   }
 
   // ─── Diff Fetching ──────────────────────────────────────

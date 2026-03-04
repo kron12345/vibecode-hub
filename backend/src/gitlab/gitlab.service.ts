@@ -106,6 +106,13 @@ export interface GitLabTreeItem {
   mode: string;
 }
 
+export interface GitLabWikiPage {
+  slug: string;
+  title: string;
+  content: string;
+  format: string;
+}
+
 export interface GitLabWorkItem {
   id: string;       // "gid://gitlab/WorkItem/123"
   iid: string;      // Project-scoped IID
@@ -688,6 +695,94 @@ export class GitlabService {
       if (err?.response?.status === 409) {
         this.logger.debug(`User ${userId} already member of project ${projectId}`);
         return;
+      }
+      throw err;
+    }
+  }
+
+  // ─── Wiki ──────────────────────────────────────────────────────
+
+  async listWikiPages(projectId: number): Promise<GitLabWikiPage[]> {
+    const { data } = await firstValueFrom(
+      this.httpService.get<GitLabWikiPage[]>(
+        `${this.apiUrl}/projects/${projectId}/wikis`,
+        { headers: this.headers },
+      ),
+    );
+    return data;
+  }
+
+  async getWikiPage(projectId: number, slug: string): Promise<GitLabWikiPage> {
+    const { data } = await firstValueFrom(
+      this.httpService.get<GitLabWikiPage>(
+        `${this.apiUrl}/projects/${projectId}/wikis/${encodeURIComponent(slug)}`,
+        { headers: this.headers },
+      ),
+    );
+    return data;
+  }
+
+  async createWikiPage(
+    projectId: number,
+    title: string,
+    content: string,
+    format: 'markdown' | 'rdoc' | 'asciidoc' = 'markdown',
+  ): Promise<GitLabWikiPage> {
+    const { data } = await firstValueFrom(
+      this.httpService.post<GitLabWikiPage>(
+        `${this.apiUrl}/projects/${projectId}/wikis`,
+        { title, content, format },
+        { headers: this.headers },
+      ),
+    );
+    this.logger.log(`Created wiki page "${title}" in project ${projectId}`);
+    return data;
+  }
+
+  async updateWikiPage(
+    projectId: number,
+    slug: string,
+    title: string,
+    content: string,
+  ): Promise<GitLabWikiPage> {
+    const { data } = await firstValueFrom(
+      this.httpService.put<GitLabWikiPage>(
+        `${this.apiUrl}/projects/${projectId}/wikis/${encodeURIComponent(slug)}`,
+        { title, content },
+        { headers: this.headers },
+      ),
+    );
+    this.logger.log(`Updated wiki page "${slug}" in project ${projectId}`);
+    return data;
+  }
+
+  async deleteWikiPage(projectId: number, slug: string): Promise<void> {
+    await firstValueFrom(
+      this.httpService.delete(
+        `${this.apiUrl}/projects/${projectId}/wikis/${encodeURIComponent(slug)}`,
+        { headers: this.headers },
+      ),
+    );
+    this.logger.log(`Deleted wiki page "${slug}" in project ${projectId}`);
+  }
+
+  /**
+   * Create or update a wiki page. Tries create first;
+   * on conflict (page exists), falls back to update.
+   */
+  async upsertWikiPage(
+    projectId: number,
+    title: string,
+    content: string,
+  ): Promise<GitLabWikiPage> {
+    const slug = title.toLowerCase().replace(/\s+/g, '-');
+    try {
+      return await this.createWikiPage(projectId, title, content);
+    } catch (err: any) {
+      // 400 or 409 = page already exists → update
+      const status = err?.response?.status ?? err?.status;
+      if (status === 400 || status === 409) {
+        return this.updateWikiPage(projectId, slug, title, content);
       }
       throw err;
     }

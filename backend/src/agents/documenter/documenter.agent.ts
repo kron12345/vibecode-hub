@@ -12,13 +12,13 @@ import { LlmService } from '../../llm/llm.service';
 import { GitlabService } from '../../gitlab/gitlab.service';
 import { LlmMessage } from '../../llm/llm.interfaces';
 import { BaseAgent, AgentContext } from '../agent-base';
+import { postAgentComment, getAgentCommentHistory } from '../agent-comment.utils';
 import { DocumenterResult, DocFile } from './documenter-result.interface';
 import {
   AgentRole,
   AgentStatus,
   AgentTaskStatus,
   IssueStatus,
-  CommentAuthorType,
 } from '@prisma/client';
 
 const execFileAsync = promisify(execFile);
@@ -156,11 +156,17 @@ export class DocumenterAgent extends BaseAgent {
         ? existingDocs.map(d => `### ${d.path}\n\`\`\`\n${d.content.substring(0, 3000)}\n\`\`\``).join('\n\n')
         : '_No existing documentation found._';
 
+      // Inject previous agent comments as context
+      const commentHistory = await getAgentCommentHistory({ prisma: this.prisma, issueId });
+      const historySection = commentHistory
+        ? `\n## Previous Agent Comments on this Issue\n${commentHistory}\n`
+        : '';
+
       const userPrompt = `Generate or update documentation for this merge request:
 
 **Issue:** ${issue.title}
 **Description:** ${issue.description || 'N/A'}
-
+${historySection}
 ## MR Diffs (${reviewDiffs.length} of ${diffs.length} file(s)):
 
 ${diffText || '_No diffs available._'}
@@ -169,7 +175,9 @@ ${diffText || '_No diffs available._'}
 
 ${docsText}
 
-Based on the code changes, create or update relevant documentation files.`;
+Based on the code changes, create or update relevant documentation files.
+For high-level documentation (project overview, getting started, architecture), set \`wikiPage: true\` in the file entry.
+For code-level docs (README, API, JSDoc), keep \`wikiPage: false\` or omit it.`;
 
       const messages: LlmMessage[] = [
         { role: 'system', content: systemPrompt },
@@ -237,27 +245,49 @@ Based on the code changes, create or update relevant documentation files.`;
         this.logger.warn(`Git commit/push failed: ${err.message}`);
       }
 
-      // Post GitLab comment
-      const filesListText = writtenFiles.map(f => `- \`${f}\``).join('\n');
-      try {
-        await this.gitlabService.createIssueNote(
-          gitlabProjectId,
-          issue.gitlabIid!,
-          `## 📝 Documentation Updated\n\n${docResult.summary}\n\n### Files:\n${filesListText}\n\n${commitSha ? `Commit: \`${commitSha.substring(0, 8)}\`` : ''}\n\n---\n_Updated by Documenter Agent_`,
-        );
-      } catch (err) {
-        this.logger.warn(`Failed to post doc comment: ${err.message}`);
+      // Sync wiki pages
+      const wikiFiles = docResult.files.filter(f => f.wikiPage);
+      const wikiPages: string[] = [];
+      for (const wf of wikiFiles) {
+        try {
+          const title = wf.path.replace(/\.md$/i, '').replace(/\//g, '-');
+          await this.gitlabService.upsertWikiPage(gitlabProjectId, title, wf.content);
+          wikiPages.push(title);
+          this.logger.log(`Wiki page synced: ${title}`);
+        } catch (err) {
+          this.logger.warn(`Wiki sync failed for ${wf.path}: ${err.message}`);
+        }
       }
 
-      // Save comment locally
-      await this.prisma.issueComment.create({
-        data: {
-          issueId,
-          authorType: CommentAuthorType.AGENT,
-          authorName: 'Documenter',
-          content: `Docs updated: ${writtenFiles.join(', ')}. ${docResult.summary}`,
-          agentTaskId: ctx.agentTaskId,
-        },
+      // Post unified comment (same rich markdown for local + GitLab)
+      const filesListText = writtenFiles.map(f => `- \`${f}\``).join('\n');
+      const wikiNote = wikiPages.length > 0
+        ? `\n\n### Wiki Pages Updated:\n${wikiPages.map(p => `- ${p}`).join('\n')}`
+        : '';
+
+      const docComment = [
+        `## 📝 Documentation Updated`,
+        '',
+        docResult.summary,
+        '',
+        '### Files:',
+        filesListText,
+        commitSha ? `\nCommit: \`${commitSha.substring(0, 8)}\`` : '',
+        wikiNote,
+        '',
+        '---',
+        '_Updated by Documenter Agent_',
+      ].filter(Boolean).join('\n');
+
+      await postAgentComment({
+        prisma: this.prisma,
+        gitlabService: this.gitlabService,
+        issueId,
+        gitlabProjectId,
+        issueIid: issue.gitlabIid!,
+        agentTaskId: ctx.agentTaskId,
+        authorName: 'Documenter',
+        markdownContent: docComment,
       });
 
       await this.handleComplete(ctx, issueId, mrIid, gitlabProjectId, {
@@ -394,6 +424,7 @@ Based on the code changes, create or update relevant documentation files.`;
           path: String(f.path),
           content: String(f.content),
           action: f.action === 'create' ? 'create' : 'update',
+          wikiPage: f.wikiPage === true,
         }));
 
       return { summary, files };
