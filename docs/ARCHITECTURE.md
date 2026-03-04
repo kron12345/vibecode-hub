@@ -100,7 +100,7 @@ Dev-Server auf localhost:{port}
 - **Project** → hat Issues, ChatSessions, AgentInstances. Status: `INTERVIEWING` | `SETTING_UP` | `READY` | `ARCHIVED`. Optional: `techStack` (JSON, Interview-Ergebnis), `previewPort` (unique, für Subdomain-Preview)
 - **Milestone** → Gruppierung von Issues pro Projekt, optional GitLab-gespiegelt (`gitlabMilestoneId`). Felder: title, description, sortOrder, startDate, dueDate. Wird vom Issue Compiler Agent automatisch erzeugt.
 - **Issue** → hierarchisch (parent/sub-issues), gespiegelt von GitLab, optional einem Milestone zugeordnet (`milestoneId`), `sortOrder` für Reihenfolge
-- **IssueComment** → Kommentare auf Issues, Typ: AGENT/USER/SYSTEM, optional mit GitLab-Note-ID gespiegelt, optional an AgentTask gebunden
+- **IssueComment** → Kommentare auf Issues, Typ: AGENT/USER/SYSTEM, GitLab-Note-ID (`gitlabNoteId`) für 2-Wege-Sync, gleicher rich Markdown wie GitLab-Note, optional an AgentTask gebunden. Agent-Kommentare bilden einen sichtbaren "Chat" auf jedem Issue (Coder → Reviewer → Functional → UI → Pen → Docs)
 - **ChatSession** → pro Projekt, enthält ChatMessages
 - **AgentInstance** → konfigurierter Agent pro Projekt (Rolle + Provider + Model)
 - **AgentTask** → einzelner Arbeitsschritt eines Agenten (11 Task-Typen)
@@ -167,25 +167,31 @@ GitLab Webhooks:
 - Fix-Modus: Bestehenden Branch auschecken, Feedback in Prompt, Push auf MR
 - 10 Minuten Timeout, 50 MB max Buffer
 
+### Agent Comment System
+- **Utility**: `agent-comment.utils.ts` — `postAgentComment()` speichert identischen rich Markdown in lokaler DB UND als GitLab Issue Note. `gitlabNoteId` wird gespeichert für 2-Wege-Sync.
+- **Context Injection**: `getAgentCommentHistory()` lädt alle bisherigen Agent-Kommentare eines Issues als formatierten String. Wird in die LLM-Prompts von Functional Tester, UI Tester, Pen Tester und Documenter injiziert.
+- **Agent-Chat**: Jeder Agent in der Pipeline sieht was seine Vorgänger geschrieben haben → weniger Redundanz, bessere Analyse.
+
 ### Code Reviewer Agent
 - Nutzt **Ollama** (über BaseAgent.callLlm()) für Review
 - Holt MR-Diffs via GitLab API, baut Review-Prompt
 - APPROVED: ≤2 Warnings, keine Critical Findings → Functional Tester
 - CHANGES REQUESTED: → Coder re-triggered mit Review-Findings
-- Postet Review als GitLab-Kommentar
+- Postet Review als unified Agent-Kommentar (lokal + GitLab)
 
 ### Functional Tester Agent
 - **LLM-basiert** — nutzt BaseAgent.callLlm()
 - Holt Issue-Description + Acceptance Criteria (Sub-Issues) + MR-Diffs
+- **Kontext-Injection**: Bekommt Kommentare von Coder + Code Reviewer als LLM-Kontext
 - LLM prüft ob Code die Criteria erfüllt
 - PASS: Alle Criteria adressiert, keine Critical Findings → UI Tester
 - FAIL: → Coder fixIssue() mit Test-Feedback
-- Postet Ergebnis als GitLab-Kommentar
 
 ### UI Tester Agent
 - **Zweistufig**: Playwright (optional) + LLM
 - Wenn Preview-URL vorhanden: Headless Chromium Screenshots, DOM-Snapshot, Accessibility-Audit (axe-core), Responsive-Check
 - Wenn kein Preview: Nur Code-Analyse per LLM (Fallback)
+- **Kontext-Injection**: Bekommt Kommentare von Coder + Code Reviewer + Functional Tester als LLM-Kontext
 - Prüft: Layout, Responsivität, Accessibility (WCAG 2.1 AA), Visuals, Interaktionen
 - PASS: Keine Critical Findings, ≤3 Warnings → Pen Tester
 - FAIL: → Coder fixIssue() mit UI-Feedback
@@ -194,13 +200,16 @@ GitLab Webhooks:
 - **Dreistufig**: npm audit + HTTP-Header-Check + LLM-Analyse
 - `npm audit --json` im Workspace → Dependency-Vulnerabilities
 - Security-Header-Check (CSP, HSTS, X-Frame-Options, etc.) gegen Preview-URL
+- **Kontext-Injection**: Bekommt alle bisherigen Agent-Kommentare als LLM-Kontext
 - LLM analysiert MR-Diffs auf OWASP Top 10
 - PASS: Keine Critical Findings, ≤3 Warnings → Documenter
 - FAIL: → Coder fixIssue() mit Security-Feedback
 
 ### Documenter Agent
 - LLM analysiert MR-Diffs + bestehende Docs
+- **Kontext-Injection**: Bekommt alle bisherigen Agent-Kommentare als LLM-Kontext
 - Generiert/aktualisiert: README.md, API-Docs, JSDoc, CHANGELOG
+- **Wiki-Sync**: Dateien mit `wikiPage: true` werden nach GitLab Wiki gesynct (Upsert)
 - Schreibt Dateien im Workspace, committed auf Feature-Branch
 - Issue → DONE nach Abschluss
 

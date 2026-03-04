@@ -610,6 +610,12 @@ Der `GitlabService` wird intern vom `ProjectsService` genutzt:
 - `createMilestone(projectId, title, description, startDate, dueDate)` → Milestone in GitLab erstellen
 - `getMilestones(projectId)` → Milestones eines GitLab-Projekts auflisten
 - `updateMilestone(projectId, milestoneId, data)` → Milestone in GitLab aktualisieren
+- `listWikiPages(projectId)` → Alle Wiki-Seiten eines Projekts auflisten
+- `getWikiPage(projectId, slug)` → Einzelne Wiki-Seite lesen
+- `createWikiPage(projectId, title, content, format?)` → Wiki-Seite erstellen
+- `updateWikiPage(projectId, slug, title, content)` → Wiki-Seite aktualisieren
+- `deleteWikiPage(projectId, slug)` → Wiki-Seite löschen
+- `upsertWikiPage(projectId, title, content)` → Wiki-Seite erstellen oder aktualisieren (409-Fallback)
 
 ---
 
@@ -658,6 +664,7 @@ map $hub_project $hub_upstream {
 
 | Datum | Änderung |
 |---|---|
+| 2026-03-04 | Agent Comment Chat: Unified postAgentComment() utility (same rich markdown for local DB + GitLab, gitlabNoteId stored). Context injection: test agents receive previous agent comments in LLM prompts. GitLab Wiki CRUD (6 methods). Documenter Wiki sync (wikiPage flag in DocFile). |
 | 2026-03-03 | Phase 3 Testing + Documenter: Functional Tester (LLM Acceptance Criteria Check), UI Tester (Playwright + LLM), Pen Tester (npm audit + HTTP headers + LLM OWASP), Documenter (LLM + Git). Erweiterte Pipeline: Review APPROVED → Functional → UI → Pen → Docs → DONE. 4 neue manuelle Trigger-Endpoints, StartTestDto, Feedback Loops für alle Test-Agents |
 | 2026-03-03 | Coder Agent + Code Reviewer + Pipeline/User Feedback Loops: Komplette Coding-Pipeline von Issue→Code→Review→CI/CD→Fix. Qwen CLI --yolo, GitLab MRs, Issue Comments, Webhook-Expansion (note/pipeline/merge_request), IssueComment Model, .gitlab-ci.yml auto-generation, Frontend Issue-Detail Slide-over mit Comment-Timeline |
 | 2026-03-03 | Milestones: GET /api/milestones Endpunkt, Milestone-Modell (Prisma), Issue Compiler auto-grouping, GitLab-Sync (createMilestone, getMilestones, updateMilestone), Frontend collapsible Milestone-Gruppen |

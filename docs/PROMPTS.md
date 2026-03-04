@@ -389,3 +389,25 @@ Dokumentation aller Prompts/Anforderungen die zur Entwicklung genutzt wurden.
 
 **Commands:** `npx nest build`, `npx ng build`
 **Status:** Phase 2 komplett ✅ — Streaming implementiert, alle Builds grün
+
+---
+
+## Session 8 — 2026-03-04 — Agent-Kommentare als Chat + GitLab Wiki
+
+### Prompt: Agent Comments als Chat + GitLab Wiki
+> Implement: Unified agent comment utility (postAgentComment + getAgentCommentHistory), refactor 6 agents to use it, context injection in test agents' LLM prompts, GitLab Wiki CRUD (6 methods), Documenter Wiki sync.
+
+**Ergebnis — Unified Agent Comment System:**
+- `agent-comment.utils.ts` (NEU): `postAgentComment()` speichert identischen rich Markdown in lokaler DB + GitLab Issue Note, `gitlabNoteId` wird gespeichert. `getAgentCommentHistory()` formatiert bisherige Agent-Kommentare als Konversations-String für LLM-Prompts (~4000 Chars Limit).
+- 6 Agents refactored (Coder, Code Reviewer, Functional Tester, UI Tester, Pen Tester, Documenter): Separate GitLab + DB Aufrufe mit unterschiedlichem Content → ein `postAgentComment()` Call mit gleichem Markdown.
+- Coder Agent postet jetzt rich "Implementation Complete" Kommentar mit Branch, MR, Commit, Changed Files.
+- Context Injection: Functional, UI, Pen Tester + Documenter bekommen bisherige Agent-Kommentare im LLM-Prompt → Agents "reden" miteinander.
+
+**Ergebnis — GitLab Wiki:**
+- 6 neue Methoden in `GitlabService`: `listWikiPages`, `getWikiPage`, `createWikiPage`, `updateWikiPage`, `deleteWikiPage`, `upsertWikiPage`
+- `DocFile` Interface erweitert mit `wikiPage?: boolean` Flag
+- Documenter Agent synct Dateien mit `wikiPage: true` nach GitLab Wiki (Upsert)
+- System Prompt ergänzt: High-level Docs → Wiki, Code-level Docs → Repo
+
+**Commands:** `npx nest build` (grün)
+**Status:** Agent-Comment-System implementiert ✅, Wiki CRUD ✅, Build grün ✅
