@@ -71,7 +71,7 @@ export abstract class BaseAgent {
   /** Call the LLM with the configured provider/model for this role */
   protected async callLlm(
     messages: LlmMessage[],
-    overrides?: { temperature?: number; maxTokens?: number },
+    overrides?: { temperature?: number; maxTokens?: number; timeoutMs?: number },
   ) {
     const config = this.getRoleConfig();
 
@@ -81,6 +81,7 @@ export abstract class BaseAgent {
       messages,
       temperature: overrides?.temperature ?? config.parameters.temperature,
       maxTokens: overrides?.maxTokens ?? config.parameters.maxTokens,
+      timeoutMs: overrides?.timeoutMs,
     });
   }
 

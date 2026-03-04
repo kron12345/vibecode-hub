@@ -156,7 +156,14 @@ ${acceptanceCriteria || '_No sub-issues / acceptance criteria defined — verify
 
 ${diffText}
 
-Analyze each acceptance criterion against the code changes and provide your functional test result.`;
+Analyze each acceptance criterion against the code changes.
+
+IMPORTANT: You MUST end your response with the JSON result in this EXACT format:
+${COMPLETION_MARKER}
+\`\`\`json
+{"passed": true/false, "summary": "...", "findings": [{"criterion": "...", "passed": true/false, "details": "...", "severity": "info/warning/critical"}]}
+\`\`\`
+Do NOT omit the JSON block.`;
 
       const messages: LlmMessage[] = [
         { role: 'system', content: systemPrompt },

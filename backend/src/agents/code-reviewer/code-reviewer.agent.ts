@@ -166,8 +166,8 @@ Provide your review analysis and end with the completion marker and JSON result.
         { role: 'user', content: userPrompt },
       ];
 
-      // Call LLM
-      const result = await this.callLlm(messages);
+      // deepseek-r1 needs extra time for large diffs
+      const result = await this.callLlm(messages, { timeoutMs: 900_000 });
 
       if (result.finishReason === 'error') {
         await this.sendAgentMessage(ctx, '❌ Code Reviewer LLM call failed');

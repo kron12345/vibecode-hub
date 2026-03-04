@@ -545,7 +545,6 @@ export class CoderAgent extends BaseAgent {
       '-m', model,
       '--openai-base-url', 'http://localhost:11434/v1',
       '--auth-type', 'openai',
-      prompt,
     ];
 
     this.logger.debug(`Running Qwen CLI in ${cwd} with model ${model}`);
@@ -577,7 +576,10 @@ export class CoderAgent extends BaseAgent {
         },
       );
 
-      // No stdin for Qwen in --yolo mode — prompt is passed as argument
+      // Pass prompt via stdin to avoid CLI argument injection from special characters
+      // (feedback text may contain markdown, brackets, backticks etc.)
+      child.stdin?.write(prompt);
+      child.stdin?.end();
     });
   }
 

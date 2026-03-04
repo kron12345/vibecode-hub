@@ -52,8 +52,8 @@ export class OllamaProvider implements LlmStreamingProvider {
       `Ollama request: model=${options.model}, messages=${options.messages.length}`,
     );
 
-    // 10 minutes timeout — large models (deepseek-r1:32b) need time to load + generate long reviews
-    const timeoutMs = 600_000;
+    // Default 10 min; callers can override via options.timeoutMs for slow models
+    const timeoutMs = options.timeoutMs ?? 600_000;
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), timeoutMs);
 

@@ -164,8 +164,8 @@ export class PenTesterAgent extends BaseAgent {
       // ─── Phase 3: MR Diffs ──────────────────
       const diffs = await this.fetchDiffsWithRetry(gitlabProjectId, mrIid, 3, 5000);
 
-      const MAX_DIFFS = 25;
-      const MAX_DIFF_CHARS = 2000;
+      const MAX_DIFFS = 15; // fewer diffs than other agents — security model (deepseek-r1) is slow
+      const MAX_DIFF_CHARS = 1500;
       const reviewDiffs = diffs.slice(0, MAX_DIFFS);
 
       const diffText = reviewDiffs.map(d => {
@@ -199,14 +199,22 @@ ${auditReport ? `## npm audit Results:\n\n${auditReport}` : ''}
 
 ${headerReport ? `## Security Headers Check:\n\n${headerReport}` : ''}
 
-Analyze the code for OWASP Top 10 vulnerabilities and provide your security assessment.`;
+Analyze the code for OWASP Top 10 vulnerabilities.
+
+IMPORTANT: You MUST end your response with the JSON result in this EXACT format:
+${COMPLETION_MARKER}
+\`\`\`json
+{"passed": true/false, "summary": "...", "findings": [{"category": "A03:2021", "severity": "critical/warning/info", "title": "...", "details": "...", "remediation": "..."}]}
+\`\`\`
+Do NOT omit the JSON block.`;
 
       const messages: LlmMessage[] = [
         { role: 'system', content: systemPrompt },
         { role: 'user', content: userPrompt },
       ];
 
-      const result = await this.callLlm(messages);
+      // deepseek-r1 needs extra time for security reasoning
+      const result = await this.callLlm(messages, { timeoutMs: 900_000 });
 
       if (result.finishReason === 'error') {
         await this.sendAgentMessage(ctx, 'Pen Tester LLM call failed');

@@ -26,6 +26,8 @@ export interface LlmCompletionOptions {
   tools?: LlmToolDefinition[];
   /** Working directory for CLI-based providers */
   cwd?: string;
+  /** Custom timeout in ms (default: provider-specific, e.g. 600s for Ollama) */
+  timeoutMs?: number;
 }
 
 export interface LlmCompletionResult {

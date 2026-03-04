@@ -203,7 +203,14 @@ ${diffText || '_No UI-related files changed._'}
 
 ${browserData ? `## Browser Test Results:\n\n${browserData}` : ''}
 
-Analyze the UI changes for layout, responsiveness, accessibility, visual quality, and interactions.`;
+Analyze the UI changes for layout, responsiveness, accessibility, visual quality, and interactions.
+
+IMPORTANT: You MUST end your response with the JSON result in this EXACT format:
+${COMPLETION_MARKER}
+\`\`\`json
+{"passed": true/false, "summary": "...", "findings": [{"criterion": "...", "passed": true/false, "details": "...", "severity": "info/warning/critical"}]}
+\`\`\`
+Do NOT omit the JSON block.`;
 
       const messages: LlmMessage[] = [
         { role: 'system', content: systemPrompt },
