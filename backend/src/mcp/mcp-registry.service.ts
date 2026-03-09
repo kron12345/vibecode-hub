@@ -330,6 +330,7 @@ export class McpRegistryService implements OnModuleInit {
         args: ['@modelcontextprotocol/server-filesystem'],
         argTemplate: '{allowedPaths}',
         defaultRoles: [
+          AgentRole.ARCHITECT,
           AgentRole.CODER,
           AgentRole.CODE_REVIEWER,
           AgentRole.DOCUMENTER,
@@ -475,6 +476,29 @@ export class McpRegistryService implements OnModuleInit {
         command: 'npx',
         args: ['-y', '@modelcontextprotocol/server-memory'],
         defaultRoles: [AgentRole.ARCHITECT, AgentRole.DOCUMENTER],
+      },
+
+      // ─── Web & Search ────────────────
+      {
+        name: 'fetch',
+        displayName: 'Web Fetch',
+        description: 'Fetch web pages and return content as markdown. Useful for reading documentation and API references.',
+        category: 'knowledge',
+        command: 'npx',
+        args: ['-y', '@modelcontextprotocol/server-fetch'],
+        defaultRoles: [AgentRole.ARCHITECT, AgentRole.CODER, AgentRole.DOCUMENTER],
+      },
+      {
+        name: 'brave-search',
+        displayName: 'Brave Search',
+        description: 'Web search via Brave Search API. Find documentation, examples, best practices, and solutions.',
+        category: 'knowledge',
+        command: 'npx',
+        args: ['-y', '@modelcontextprotocol/server-brave-search'],
+        envTemplate: {
+          BRAVE_API_KEY: '{settings:search.brave_api_key}',
+        },
+        defaultRoles: [AgentRole.ARCHITECT],
       },
     ];
 

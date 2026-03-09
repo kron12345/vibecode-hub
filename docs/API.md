@@ -784,6 +784,7 @@ map $hub_project $hub_upstream {
 
 | Datum | Änderung |
 |---|---|
+| 2026-03-09 | 2 neue MCP Server: web-fetch (@modelcontextprotocol/server-fetch) für Doku-Abruf, brave-search (@modelcontextprotocol/server-brave-search, envTemplate: search.brave_api_key) für Web-Recherche. Architect bekommt auch filesystem-Zugriff. Gesamt: 15 Built-in Server. |
 | 2026-03-09 | Architect Agent: 2-Phasen-Architektur (Phase A: Design nach DevOps, Phase B: Issue Grounding nach Issue Compiler). MCP-basierte Code-Analyse, Grounding-Kommentare auf Issues via postAgentComment(). Pipeline: DevOps→Architect(A)→IssueCompiler→Architect(B)→Coder. Neuer TaskType ANALYZE_ISSUES. |
 | 2026-03-09 | Ollama VRAM Management: `keep_alive` basierend auf `pipeline.maxParallelOllamaModels` (default: 1 → sofort entladen). Max Fix Attempts: `pipeline.maxFixAttempts` (default: 20), alle fixIssue-Pfade konsolidiert über `retriggerCoder()`, neuer IssueStatus `NEEDS_REVIEW` + GitLab Label `status::needs-review`. PipelineConfig um 2 Felder erweitert. |
 | 2026-03-09 | Stuck Task Cleanup jetzt Activity-Based: Prüft AgentLog + ChatMessage Recency statt reinem Zeitlimit. Agenten dürfen beliebig lange laufen — nur bei fehlender Aktivität (default: 30 Min) wird aufgeräumt. |
