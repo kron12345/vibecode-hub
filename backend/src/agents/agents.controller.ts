@@ -75,6 +75,11 @@ export class AgentsController {
     return this.orchestrator.startArchitectDesign(dto.projectId, dto.chatSessionId);
   }
 
+  @Post('issue-compiler/start')
+  startIssueCompiler(@Body() dto: StartCodingDto) {
+    return this.orchestrator.startIssueCompilation(dto.projectId, dto.chatSessionId);
+  }
+
   @Post('coding/start')
   startCoding(@Body() dto: StartCodingDto) {
     return this.orchestrator.startCoding(dto.projectId, dto.chatSessionId);
