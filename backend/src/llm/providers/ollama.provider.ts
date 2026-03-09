@@ -15,14 +15,14 @@ export class OllamaProvider implements LlmStreamingProvider {
   private readonly logger = new Logger(OllamaProvider.name);
 
   /**
-   * Custom Undici agent with no timeouts.
-   * Large models (deepseek-r1:32b, qwen3.5:35b) can take very long to load + generate.
-   * We rely on Ollama's own keep_alive for cleanup, not network timeouts.
+   * Custom Undici agent with generous timeouts.
+   * Large models (deepseek-r1:32b, qwen3.5:35b) need long load + generation time,
+   * but we still need a safety net for dead connections.
    */
   private readonly dispatcher = new Agent({
-    headersTimeout: 0,    // no timeout
-    bodyTimeout: 0,       // no timeout
-    connectTimeout: 60_000, // 60s connect is plenty
+    headersTimeout: 30 * 60_000, // 30 min — model loading + first token
+    bodyTimeout: 30 * 60_000,    // 30 min — full generation
+    connectTimeout: 60_000,      // 60s connect
   });
 
   constructor(private readonly settings: SystemSettingsService) {}
