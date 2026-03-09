@@ -232,6 +232,9 @@ export class McpRegistryService implements OnModuleInit {
           resolvedArgs.push(...(context.allowedPaths || [context.workspace]));
         } else if (part === '{shellServerPath}') {
           resolvedArgs.push(SHELL_SERVER_PATH);
+        } else if (part === '{postgresConnectionString}') {
+          const connStr = this.buildPostgresConnectionString();
+          if (connStr) resolvedArgs.push(connStr);
         } else {
           resolvedArgs.push(part);
         }
@@ -266,6 +269,21 @@ export class McpRegistryService implements OnModuleInit {
       args: resolvedArgs,
       env: resolvedEnv,
     };
+  }
+
+  /** Build a PostgreSQL connection string from settings/env for project DBs */
+  private buildPostgresConnectionString(): string | null {
+    const url = this.settings.get('database.url', 'DATABASE_URL', '');
+    if (url) return url;
+    // Fallback: build from individual parts
+    const host = this.settings.get('database.host', 'DB_HOST', 'localhost');
+    const port = this.settings.get('database.port', 'DB_PORT', '5432');
+    const user = this.settings.get('database.user', 'DB_USER', '');
+    const pass = this.settings.get('database.password', 'DB_PASSWORD', '');
+    const name = this.settings.get('database.name', 'DB_NAME', '');
+    if (!user || !name) return null;
+    const auth = pass ? `${user}:${pass}` : user;
+    return `postgresql://${auth}@${host}:${port}/${name}`;
   }
 
   /** Fallback: hardcoded servers matching previous behavior (safety net) */
@@ -416,6 +434,47 @@ export class McpRegistryService implements OnModuleInit {
         command: 'npx',
         args: ['@qianniuspace/mcp-security-audit@latest'],
         defaultRoles: [AgentRole.PEN_TESTER],
+      },
+
+      // ─── Infrastructure ──────────────
+      {
+        name: 'postgres',
+        displayName: 'PostgreSQL Server',
+        description: 'Database schema inspection and read-only SQL queries',
+        category: 'coding',
+        command: 'npx',
+        args: ['-y', '@modelcontextprotocol/server-postgres'],
+        argTemplate: '{postgresConnectionString}',
+        defaultRoles: [AgentRole.CODER, AgentRole.ARCHITECT],
+      },
+      {
+        name: 'docker',
+        displayName: 'Docker Server',
+        description: 'Docker container management: list, inspect, logs, exec',
+        category: 'execution',
+        command: 'npx',
+        args: ['-y', 'mcp-server-docker'],
+        defaultRoles: [AgentRole.DEVOPS],
+      },
+
+      // ─── Reasoning & Knowledge ────────
+      {
+        name: 'sequential-thinking',
+        displayName: 'Sequential Thinking',
+        description: 'Structured step-by-step reasoning for complex problem solving and debugging',
+        category: 'knowledge',
+        command: 'npx',
+        args: ['-y', '@modelcontextprotocol/server-sequential-thinking'],
+        defaultRoles: [AgentRole.ARCHITECT, AgentRole.CODER, AgentRole.CODE_REVIEWER],
+      },
+      {
+        name: 'memory',
+        displayName: 'Memory (Knowledge Graph)',
+        description: 'Persistent knowledge graph for entities and relationships across sessions',
+        category: 'knowledge',
+        command: 'npx',
+        args: ['-y', '@modelcontextprotocol/server-memory'],
+        defaultRoles: [AgentRole.ARCHITECT, AgentRole.DOCUMENTER],
       },
     ];
 

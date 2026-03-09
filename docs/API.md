@@ -736,10 +736,10 @@ map $hub_project $hub_upstream {
 ```
 
 ### Verhalten
-- **Built-in Server** (9 Stück: filesystem, git, gitlab, prisma, angular-cli, shell, playwright, eslint, security-audit) werden beim API-Start automatisch geseeded und können nicht gelöscht werden
+- **Built-in Server** (13 Stück: filesystem, git, gitlab, prisma, angular-cli, shell, playwright, eslint, security-audit, postgres, docker, sequential-thinking, memory) werden beim API-Start automatisch geseeded und können nicht gelöscht werden
 - **Rollen-Zuordnung**: Many-to-many über `McpServerOnRole` — ein Server kann mehreren Rollen zugeordnet sein, eine Rolle kann mehrere Server haben
 - **Project Overrides**: `McpServerProjectOverride` erlaubt pro Projekt+Rolle Overrides (ENABLE/DISABLE) gegenüber der globalen Konfiguration
-- **Runtime Resolution**: `resolveServersForRole(role, context)` löst `argTemplate`-Platzhalter auf (`{workspace}` → Workspace-Pfad) und `envTemplate` Platzhalter (`{settings:key}` → SystemSettings-Wert, z.B. GitLab Token)
+- **Runtime Resolution**: `resolveServersForRole(role, context)` löst `argTemplate`-Platzhalter auf (`{workspace}`, `{allowedPaths}`, `{shellServerPath}`, `{postgresConnectionString}`) und `envTemplate` Platzhalter (`{settings:key}` → SystemSettings-Wert)
 - **Coder Agent**: Lädt MCP-Server dynamisch aus der Registry, inkl. projectId für Override-Auflösung
 
 ### Datenmodell
@@ -784,6 +784,7 @@ map $hub_project $hub_upstream {
 
 | Datum | Änderung |
 |---|---|
+| 2026-03-09 | 4 neue Built-in MCP Server: postgres (DB-Schema + read-only SQL), docker (Container-Management), sequential-thinking (strukturiertes Reasoning), memory (Knowledge Graph). Gesamt: 13 Built-in Server. |
 | 2026-03-09 | MCP Project Overrides: Per-project ENABLE/DISABLE overrides (3 Endpoints /api/projects/:id/mcp-overrides), envTemplate resolution ({settings:key} → SystemSettings), 9 built-in servers (filesystem, git, gitlab, prisma, angular-cli, shell, playwright, eslint, security-audit), Frontend Override-Matrix in Projekt-Settings |
 | 2026-03-09 | MCP Server Registry: Admin CRUD + Role Assignment API (6 Endpoints unter /api/mcp-servers), Built-in Server Seeding (filesystem, shell), Coder Agent dynamische MCP-Server-Auflösung, Frontend Settings-Integration |
 | 2026-03-09 | GitLab Status Labels: `status::*` labels synced on every issue status transition (6 color-coded labels, idempotent). Shell MCP Server for Coder Agent (`shell-server.mjs`, whitelisted commands, security-hardened). |

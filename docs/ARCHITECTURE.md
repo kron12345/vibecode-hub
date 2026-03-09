@@ -183,7 +183,7 @@ GitLab Webhooks:
 - **McpRegistryService**: CRUD für MCP-Server-Definitionen, Rollen-Zuordnung, Runtime-Auflösung, Project Overrides
 - **McpRegistryController**: 6 REST-Endpoints unter `/api/mcp-servers` (Admin only)
 - **McpProjectOverrideController**: 3 REST-Endpoints unter `/api/projects/:projectId/mcp-overrides` (Admin, PM)
-- **9 Built-in Server**: filesystem, git, gitlab, prisma, angular-cli, shell, playwright, eslint, security-audit — beim Start geseeded, nicht löschbar
+- **13 Built-in Server**: filesystem, git, gitlab, prisma, angular-cli, shell, playwright, eslint, security-audit, postgres, docker, sequential-thinking, memory — beim Start geseeded, nicht löschbar
 - **Custom Server**: Admins können eigene MCP-Server registrieren
 - **Rollen-Zuordnung**: Many-to-many (`McpServerOnRole`) — pro Agent-Rolle konfigurierbar welche Server verfügbar sind
 - **Project Overrides**: `McpServerProjectOverride` erlaubt pro Projekt+Rolle Server zu ENABLE/DISABLE (überschreibt Global-Config)
