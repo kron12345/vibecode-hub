@@ -784,6 +784,7 @@ map $hub_project $hub_upstream {
 
 | Datum | Änderung |
 |---|---|
+| 2026-03-09 | Pen Tester Kalibrierung: npm audit --omit=dev (nur Prod-Deps), Tech-Stack-Kontext im LLM-Prompt, konfigurierbare Schwellen (pentester.maxWarnings, pentester.skipHeaderCheck), server-seitige PASS/FAIL-Berechnung. Stuck Task Cleanup: Automatischer 5-Min-Check für hängende Tasks (pipeline.stuckTimeoutMinutes), Agent-Reset, Issue-Reset, Orphaned-Agent-Erkennung. |
 | 2026-03-09 | 4 neue Built-in MCP Server: postgres (DB-Schema + read-only SQL), docker (Container-Management), sequential-thinking (strukturiertes Reasoning), memory (Knowledge Graph). Gesamt: 13 Built-in Server. |
 | 2026-03-09 | MCP Project Overrides: Per-project ENABLE/DISABLE overrides (3 Endpoints /api/projects/:id/mcp-overrides), envTemplate resolution ({settings:key} → SystemSettings), 9 built-in servers (filesystem, git, gitlab, prisma, angular-cli, shell, playwright, eslint, security-audit), Frontend Override-Matrix in Projekt-Settings |
 | 2026-03-09 | MCP Server Registry: Admin CRUD + Role Assignment API (6 Endpoints unter /api/mcp-servers), Built-in Server Seeding (filesystem, shell), Coder Agent dynamische MCP-Server-Auflösung, Frontend Settings-Integration |

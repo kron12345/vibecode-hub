@@ -240,12 +240,20 @@ Eigener MCP-Server, der dem Coder Agent sichere Shell-Befehle im Workspace ermö
 
 ### Pen Tester Agent
 - **Dreistufig**: npm audit + HTTP-Header-Check + LLM-Analyse
-- `npm audit --json` im Workspace → Dependency-Vulnerabilities
-- Security-Header-Check (CSP, HSTS, X-Frame-Options, etc.) gegen Preview-URL
+- `npm audit --omit=dev --json` — nur Production-Dependencies (Dev-Deps gefiltert, reduziert false positives)
+- Security-Header-Check (CSP, HSTS, X-Frame-Options, etc.) gegen Preview-URL — abschaltbar via `pentester.skipHeaderCheck`
+- **Tech-Stack-Kontext**: Project techStack (Framework, Backend, Projekttyp) wird ins LLM-Prompt injiziert → kontextbewusste Analyse
 - **Kontext-Injection**: Bekommt alle bisherigen Agent-Kommentare als LLM-Kontext
 - LLM analysiert MR-Diffs auf OWASP Top 10
-- PASS: Keine Critical Findings, ≤3 Warnings → Documenter
+- **Konfigurierbare Schwellen**: `pentester.maxWarnings` (default: 3) — PASS/FAIL wird server-seitig anhand der Findings berechnet, nicht blind dem LLM vertraut
+- PASS: Keine Critical Findings, Warnings ≤ maxWarnings → Documenter
 - FAIL: → Coder fixIssue() mit Security-Feedback
+
+### Stuck Task Cleanup
+- **Automatisch**: Alle 5 Minuten prüft der Orchestrator auf RUNNING Tasks die älter als X Minuten sind
+- **Timeout**: Konfigurierbar via `pipeline.stuckTimeoutMinutes` (default: 30)
+- **Cleanup**: Stuck Tasks → FAILED, Agent → IDLE, Issue → OPEN (für Retry)
+- **Orphaned Agents**: WORKING/WAITING Agents ohne RUNNING Task → IDLE
 
 ### Documenter Agent
 - LLM analysiert MR-Diffs + bestehende Docs

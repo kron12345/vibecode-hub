@@ -1,4 +1,4 @@
-import { Injectable, Logger, NotFoundException } from '@nestjs/common';
+import { Injectable, Logger, NotFoundException, OnModuleInit, OnModuleDestroy } from '@nestjs/common';
 import { OnEvent } from '@nestjs/event-emitter';
 import { PrismaService } from '../prisma/prisma.service';
 import { ChatService } from '../chat/chat.service';
@@ -22,9 +22,15 @@ import {
   ProjectStatus,
 } from '@prisma/client';
 
+/** Default: check for stuck tasks every 5 minutes */
+const STUCK_CHECK_INTERVAL_MS = 5 * 60 * 1000;
+/** Default: tasks running > 30 minutes are considered stuck */
+const DEFAULT_STUCK_TIMEOUT_MINUTES = 30;
+
 @Injectable()
-export class AgentOrchestratorService {
+export class AgentOrchestratorService implements OnModuleInit, OnModuleDestroy {
   private readonly logger = new Logger(AgentOrchestratorService.name);
+  private stuckCheckTimer: ReturnType<typeof setInterval> | null = null;
 
   constructor(
     private readonly prisma: PrismaService,
@@ -41,6 +47,22 @@ export class AgentOrchestratorService {
     private readonly penTester: PenTesterAgent,
     private readonly documenter: DocumenterAgent,
   ) {}
+
+  onModuleInit() {
+    this.stuckCheckTimer = setInterval(() => {
+      this.cleanupStuckTasks().catch((err) => {
+        this.logger.error(`Stuck task cleanup failed: ${err.message}`);
+      });
+    }, STUCK_CHECK_INTERVAL_MS);
+    this.logger.log('Stuck task cleanup scheduled (every 5 min)');
+  }
+
+  onModuleDestroy() {
+    if (this.stuckCheckTimer) {
+      clearInterval(this.stuckCheckTimer);
+      this.stuckCheckTimer = null;
+    }
+  }
 
   /**
    * Guard: Check if there's already an active agent of the given role for a project.
@@ -1155,6 +1177,92 @@ export class AgentOrchestratorService {
       });
     } catch (err) {
       this.logger.error(`retriggerCoder error: ${err.message}`);
+    }
+  }
+
+  // ─── Stuck Task Cleanup ──────────────────────────────────
+
+  /**
+   * Periodically checks for tasks that have been RUNNING for too long
+   * and marks them as FAILED. Also resets the agent status and issue status.
+   */
+  async cleanupStuckTasks(): Promise<void> {
+    const timeoutMinutes = parseInt(
+      this.settings.get('pipeline.stuckTimeoutMinutes', '', String(DEFAULT_STUCK_TIMEOUT_MINUTES)),
+      10,
+    ) || DEFAULT_STUCK_TIMEOUT_MINUTES;
+
+    const cutoff = new Date(Date.now() - timeoutMinutes * 60 * 1000);
+
+    // Find tasks that have been RUNNING since before the cutoff
+    const stuckTasks = await this.prisma.agentTask.findMany({
+      where: {
+        status: AgentTaskStatus.RUNNING,
+        startedAt: { lt: cutoff },
+      },
+      include: {
+        agent: { select: { id: true, role: true, projectId: true } },
+        issue: { select: { id: true, title: true, gitlabIid: true, status: true } },
+      },
+    });
+
+    if (stuckTasks.length === 0) return;
+
+    this.logger.warn(`Found ${stuckTasks.length} stuck task(s) (running > ${timeoutMinutes} min)`);
+
+    for (const task of stuckTasks) {
+      try {
+        // Mark task as FAILED
+        await this.prisma.agentTask.update({
+          where: { id: task.id },
+          data: {
+            status: AgentTaskStatus.FAILED,
+            completedAt: new Date(),
+            output: { error: `Task timed out after ${timeoutMinutes} minutes` } as any,
+          },
+        });
+
+        // Reset agent instance to IDLE
+        if (task.agent) {
+          await this.prisma.agentInstance.update({
+            where: { id: task.agent.id },
+            data: { status: AgentStatus.IDLE },
+          });
+        }
+
+        // Reset issue to OPEN if it was IN_PROGRESS (so it can be retried)
+        if (task.issue && task.issue.status === IssueStatus.IN_PROGRESS) {
+          await this.prisma.issue.update({
+            where: { id: task.issue.id },
+            data: { status: IssueStatus.OPEN },
+          });
+        }
+
+        this.logger.warn(
+          `Cleaned up stuck task ${task.id} (${task.type}, agent: ${task.agent?.role ?? '?'}, ` +
+          `issue: ${task.issue?.title ?? 'N/A'}, started: ${task.startedAt?.toISOString()})`,
+        );
+      } catch (err) {
+        this.logger.error(`Failed to cleanup stuck task ${task.id}: ${err.message}`);
+      }
+    }
+
+    // Also reset any WORKING/WAITING agents that have no RUNNING tasks
+    const orphanedAgents = await this.prisma.agentInstance.findMany({
+      where: {
+        status: { in: [AgentStatus.WORKING, AgentStatus.WAITING] },
+        tasks: {
+          none: { status: AgentTaskStatus.RUNNING },
+        },
+      },
+    });
+
+    for (const agent of orphanedAgents) {
+      await this.prisma.agentInstance.update({
+        where: { id: agent.id },
+        data: { status: AgentStatus.IDLE },
+      });
+      this.logger.warn(`Reset orphaned agent ${agent.id} (${agent.role}) from ${agent.status} to IDLE`);
     }
   }
 }

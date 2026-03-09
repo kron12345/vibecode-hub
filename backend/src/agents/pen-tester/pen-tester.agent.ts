@@ -35,6 +35,9 @@ const SECURITY_HEADERS = [
   'permissions-policy',
 ];
 
+/** Default max warning threshold — configurable via SystemSetting pentester.maxWarnings */
+const DEFAULT_MAX_WARNINGS = 3;
+
 const DEFAULT_SYSTEM_PROMPT = `You are the Pen Tester Agent for VibCode Hub — an AI development team platform.
 
 ## Your Role
@@ -54,18 +57,26 @@ You perform security analysis on merge request code changes, focusing on OWASP T
 
 ## Input
 You will receive:
-1. MR code diffs
-2. npm audit results (if available)
-3. HTTP security header check results (if available)
+1. **Project context** (tech stack, framework, type of project)
+2. MR code diffs
+3. npm audit results (production dependencies only — if available)
+4. HTTP security header check results (if available)
+
+## Important: Context-Aware Analysis
+- Consider the project's tech stack and type when evaluating findings
+- A missing CSP header on a local dev server or static site is LOW priority (info, not warning)
+- npm audit results only include production dependencies — dev-only vulns are excluded
+- Focus on ACTUAL exploitable issues in the code diffs, not theoretical concerns
+- Frontend-only changes rarely have backend security implications (no injection, no auth bypass)
 
 ## Severity Levels
-- **critical**: Exploitable vulnerability (injection, auth bypass, RCE, data exposure)
-- **warning**: Potential vulnerability needing review (weak validation, missing headers)
-- **info**: Best practice suggestion, minor hardening opportunity
+- **critical**: Exploitable vulnerability with direct impact (injection, auth bypass, RCE, data exposure)
+- **warning**: Real potential vulnerability needing review (weak validation, missing auth on sensitive endpoint)
+- **info**: Best practice suggestion, minor hardening, missing non-critical headers
 
 ## Decision Rules
-- **PASS** if: No critical findings AND ≤3 warnings
-- **FAIL** if: Any critical finding OR >3 warnings
+- **PASS** if: No critical findings AND warnings ≤ threshold (provided in prompt)
+- **FAIL** if: Any critical finding OR warnings > threshold
 
 ## Completion Format
 End your analysis with EXACTLY this format:
@@ -108,6 +119,18 @@ export class PenTesterAgent extends BaseAgent {
     super(prisma, settings, chatService, chatGateway, llmService);
   }
 
+  /** Get the max warnings threshold from settings (default: 3) */
+  private getMaxWarnings(): number {
+    const val = this.settings.get('pentester.maxWarnings', '', String(DEFAULT_MAX_WARNINGS));
+    const num = parseInt(val, 10);
+    return isNaN(num) ? DEFAULT_MAX_WARNINGS : num;
+  }
+
+  /** Check if header checks should be skipped (configurable per-project via settings) */
+  private shouldSkipHeaderCheck(): boolean {
+    return this.settings.get('pentester.skipHeaderCheck', '', 'false') === 'true';
+  }
+
   /**
    * Security test a merge request.
    */
@@ -139,7 +162,7 @@ export class PenTesterAgent extends BaseAgent {
         `**Pen Tester** analyzing MR !${mrIid} for issue #${issue.gitlabIid ?? '?'}: **${issue.title}**`,
       );
 
-      // ─── Phase 1: npm audit ──────────────────
+      // ─── Phase 1: npm audit (production deps only) ──────
       let auditReport = '';
       let auditResult: PenTestResult['auditResult'] | undefined;
 
@@ -150,21 +173,23 @@ export class PenTesterAgent extends BaseAgent {
         auditResult = audit.summary;
       }
 
-      // ─── Phase 2: HTTP Header Check ──────────
+      // ─── Phase 2: HTTP Header Check (skippable) ──────
       let headerReport = '';
-      const previewDomain = this.settings.get('preview.domain', '');
-      const previewUrl = project?.previewPort && project?.slug && previewDomain
-        ? `https://${project.slug}.${previewDomain}`
-        : null;
+      if (!this.shouldSkipHeaderCheck()) {
+        const previewDomain = this.settings.get('preview.domain', '');
+        const previewUrl = project?.previewPort && project?.slug && previewDomain
+          ? `https://${project.slug}.${previewDomain}`
+          : null;
 
-      if (previewUrl) {
-        headerReport = await this.checkSecurityHeaders(previewUrl);
+        if (previewUrl) {
+          headerReport = await this.checkSecurityHeaders(previewUrl);
+        }
       }
 
       // ─── Phase 3: MR Diffs ──────────────────
       const diffs = await this.fetchDiffsWithRetry(gitlabProjectId, mrIid, 3, 5000);
 
-      const MAX_DIFFS = 15; // fewer diffs than other agents — security model (deepseek-r1) is slow
+      const MAX_DIFFS = 15;
       const MAX_DIFF_CHARS = 1500;
       const reviewDiffs = diffs.slice(0, MAX_DIFFS);
 
@@ -176,7 +201,10 @@ export class PenTesterAgent extends BaseAgent {
         return `### ${prefix} ${d.new_path}\n\`\`\`diff\n${truncated}\n\`\`\``;
       }).join('\n\n');
 
-      // ─── Phase 4: LLM Analysis ──────────────
+      // ─── Phase 4: Build tech stack context ──────
+      const techStackContext = this.buildTechStackContext(project);
+
+      // ─── Phase 5: LLM Analysis ──────────────
       const config = this.getRoleConfig();
       const systemPrompt = config.systemPrompt || DEFAULT_SYSTEM_PROMPT;
 
@@ -186,20 +214,27 @@ export class PenTesterAgent extends BaseAgent {
         ? `\n## Previous Agent Comments on this Issue\n${commentHistory}\n`
         : '';
 
+      const maxWarnings = this.getMaxWarnings();
+
       const userPrompt = `Perform a security analysis of this merge request:
 
 **Issue:** ${issue.title}
 **Description:** ${issue.description || 'N/A'}
+
+## Project Context
+${techStackContext}
+
+**Warning threshold:** PASS if ≤${maxWarnings} warnings and 0 critical findings.
 ${historySection}
 ## MR Diffs (${reviewDiffs.length} of ${diffs.length} file(s)):
 
 ${diffText || '_No diffs available._'}
 
-${auditReport ? `## npm audit Results:\n\n${auditReport}` : ''}
+${auditReport ? `## npm audit Results (production dependencies only):\n\n${auditReport}` : ''}
 
 ${headerReport ? `## Security Headers Check:\n\n${headerReport}` : ''}
 
-Analyze the code for OWASP Top 10 vulnerabilities.
+Analyze the code for OWASP Top 10 vulnerabilities. Be context-aware: consider the tech stack and project type.
 
 IMPORTANT: You MUST end your response with the JSON result in this EXACT format:
 ${COMPLETION_MARKER}
@@ -259,17 +294,59 @@ Do NOT omit the JSON block.`;
     }
   }
 
-  // ─── npm audit ──────────────────────────────────────────
+  // ─── Tech Stack Context Builder ────────────────────────────
+
+  private buildTechStackContext(project: any): string {
+    if (!project?.techStack) {
+      return '_No tech stack information available._';
+    }
+
+    const ts = project.techStack as Record<string, unknown>;
+    const parts: string[] = [];
+
+    const stack = ts['techStack'] as Record<string, unknown> | undefined;
+    if (stack) {
+      if (stack['framework']) parts.push(`- **Framework:** ${stack['framework']}`);
+      if (stack['language']) parts.push(`- **Language:** ${stack['language']}`);
+      if (stack['backend']) parts.push(`- **Backend:** ${stack['backend']}`);
+      if (stack['database']) parts.push(`- **Database:** ${stack['database']}`);
+    }
+
+    const deploy = ts['deployment'] as Record<string, unknown> | undefined;
+    if (deploy) {
+      parts.push(`- **Web Project:** ${deploy['isWebProject'] ? 'Yes' : 'No'}`);
+      if (deploy['devServerCommand']) parts.push(`- **Dev Server:** ${deploy['devServerCommand']}`);
+    }
+
+    if (parts.length === 0) return '_Minimal tech stack info._';
+
+    // Determine project type for LLM context
+    const framework = String(stack?.['framework'] ?? '').toLowerCase();
+    const backend = String(stack?.['backend'] ?? '').toLowerCase();
+
+    let projectType = 'Full-Stack Application';
+    if (!backend && (framework.includes('angular') || framework.includes('react') || framework.includes('vue'))) {
+      projectType = 'Frontend-Only SPA (no backend)';
+    } else if (!framework && (backend.includes('nest') || backend.includes('express') || backend.includes('fastify'))) {
+      projectType = 'Backend API (no frontend)';
+    } else if (framework === 'static' || framework === 'html') {
+      projectType = 'Static Site';
+    }
+
+    parts.unshift(`- **Project Type:** ${projectType}`);
+    return parts.join('\n');
+  }
+
+  // ─── npm audit (production deps only) ────────────────────
 
   private async runNpmAudit(workspace: string): Promise<{
     report: string;
     summary: PenTestResult['auditResult'];
   }> {
     try {
-      // npm audit returns non-zero exit code when vulnerabilities found,
-      // so we need to handle both stdout and stderr
+      // --omit=dev: Only audit production dependencies to reduce false positives
       const { stdout } = await execFileAsync(
-        'npm', ['audit', '--json'],
+        'npm', ['audit', '--omit=dev', '--json'],
         { cwd: workspace, timeout: AUDIT_TIMEOUT_MS, maxBuffer: 10 * 1024 * 1024 },
       ).catch(err => {
         // npm audit exits with code 1 when vulnerabilities found — still has useful stdout
@@ -287,7 +364,12 @@ Do NOT omit the JSON block.`;
       };
 
       // Format report for LLM
-      const lines = [`Total vulnerabilities: ${summary.vulnerabilities}`, `Critical: ${summary.critical}`, `High: ${summary.high}`];
+      const lines = [
+        `**Scope:** Production dependencies only (dev excluded)`,
+        `Total vulnerabilities: ${summary.vulnerabilities}`,
+        `Critical: ${summary.critical}`,
+        `High: ${summary.high}`,
+      ];
 
       // List top advisories
       const advisories = auditData.advisories || auditData.vulnerabilities || {};
@@ -331,6 +413,8 @@ Do NOT omit the JSON block.`;
           lines.push(`- ❌ \`${header}\`: **MISSING**`);
         }
       }
+
+      lines.push('', '_Note: Missing headers on dev/preview servers are typically info-level, not warnings._');
 
       return lines.join('\n');
 
@@ -445,15 +529,19 @@ Do NOT omit the JSON block.`;
         .replace(/[\x00-\x1F\x7F]/g, ' ');
 
       const parsed = JSON.parse(fixed);
-      const passed = this.normalizePass(parsed);
       const findings = this.parseFindings(parsed.findings || parsed.vulnerabilities || parsed.issues || []);
+
+      // Apply configurable threshold instead of trusting LLM decision blindly
+      const maxWarnings = this.getMaxWarnings();
+      const criticalCount = findings.filter(f => f.severity === 'critical').length;
+      const warningCount = findings.filter(f => f.severity === 'warning').length;
+      const passed = criticalCount === 0 && warningCount <= maxWarnings;
 
       let summary = parsed.summary || '';
       if (!summary || summary.length < 5) {
-        const criticalCount = findings.filter(f => f.severity === 'critical').length;
         summary = passed
-          ? `Security test passed (${findings.length} finding(s))`
-          : `Security test failed (${criticalCount} critical finding(s))`;
+          ? `Security test passed (${findings.length} finding(s), ${warningCount} warning(s))`
+          : `Security test failed (${criticalCount} critical, ${warningCount} warning(s))`;
       }
 
       return {
@@ -575,7 +663,7 @@ Do NOT omit the JSON block.`;
     ];
 
     if (result.auditResult) {
-      parts.push('', '### Dependency Audit:');
+      parts.push('', '### Dependency Audit (production only):');
       parts.push(`- Vulnerabilities: ${result.auditResult.vulnerabilities}`);
       parts.push(`- Critical: ${result.auditResult.critical}`);
       parts.push(`- High: ${result.auditResult.high}`);
