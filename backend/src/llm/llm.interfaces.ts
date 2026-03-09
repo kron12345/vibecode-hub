@@ -1,8 +1,12 @@
 /** Shared types for the LLM abstraction layer */
 
 export interface LlmMessage {
-  role: 'system' | 'user' | 'assistant';
+  role: 'system' | 'user' | 'assistant' | 'tool';
   content: string;
+  /** Tool calls requested by the assistant (only for role='assistant') */
+  toolCalls?: LlmToolCall[];
+  /** Identifies which tool call this result belongs to (only for role='tool') */
+  toolCallId?: string;
 }
 
 export interface LlmToolDefinition {

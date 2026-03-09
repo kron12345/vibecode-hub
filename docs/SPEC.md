@@ -48,7 +48,7 @@ VibCode Hub ist ein AI-Entwicklerteam-Portal. Der Nutzer agiert als "Chef" und s
 - [x] WebSocket-basierte Live-Updates (agentStatus, projectUpdated)
 - [x] Milestone-Support (Issue Compiler auto-grouping)
 - [x] DevOps-Agent (Projekt einrichten, CI/CD generieren, .mcp.json, Git-Push)
-- [x] Coder Agent (Issue → Feature-Branch → Qwen CLI → Commit → MR)
+- [x] Coder Agent (Issue → Feature-Branch → MCP Agent Loop → Commit → MR)
 - [x] Code Reviewer Agent (MR-Diffs → Ollama Review → Approve/Request Changes)
 - [x] Issue Comments (IssueComment Model, CRUD API, GitLab-Sync, Frontend Detail-Panel)
 - [x] Pipeline Feedback Loop (CI/CD Failure → Job-Logs → Coder fixIssue)
@@ -66,8 +66,15 @@ VibCode Hub ist ein AI-Entwicklerteam-Portal. Der Nutzer agiert als "Chef" und s
 - [x] Manuelle Trigger-Endpoints (POST /agents/{functional-test,ui-test,pen-test,docs}/start)
 - [ ] Erweitertes Live-Dashboard
 
-### Phase 4 — Lokale LLMs
-- [ ] Ollama-Integration für alle Agenten-Rollen
+### Phase 4 — MCP + Lokale LLMs
+- [x] MCP Client Integration (@modelcontextprotocol/sdk)
+- [x] MCP Filesystem Server für Coder Agent (14 Tools)
+- [x] Ollama Tool-Calling Support (native function calling)
+- [x] MCP Agent Loop (generisch, LLM ↔ Tool-Calls ↔ MCP)
+- [x] Coder Agent umgebaut: Qwen CLI → MCP Agent Loop
+- [ ] MCP Git Server anbinden
+- [ ] MCP Angular CLI Server anbinden
+- [ ] MCP Prisma Server anbinden
 - [ ] Model-Auswahl pro Agent konfigurierbar
 - [ ] GPU-Monitoring (RTX 3090 Auslastung)
 

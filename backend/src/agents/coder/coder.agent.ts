@@ -10,6 +10,8 @@ import { ChatGateway } from '../../chat/chat.gateway';
 import { LlmService } from '../../llm/llm.service';
 import { GitlabService } from '../../gitlab/gitlab.service';
 import { IssuesService } from '../../issues/issues.service';
+import { McpAgentLoopService } from '../../mcp/mcp-agent-loop.service';
+import { MCP_SERVERS, McpServerConfig } from '../../mcp/mcp.interfaces';
 import { BaseAgent, AgentContext } from '../agent-base';
 import { postAgentComment } from '../agent-comment.utils';
 import { CoderIssueResult, CoderMilestoneResult } from './coder-result.interface';
@@ -23,8 +25,8 @@ import {
 
 const execFileAsync = promisify(execFile);
 
-/** Timeout for Qwen CLI execution (10 minutes) */
-const QWEN_TIMEOUT_MS = 10 * 60 * 1000;
+/** Timeout for MCP agent loop (10 minutes) */
+const AGENT_LOOP_TIMEOUT_MS = 10 * 60 * 1000;
 /** Timeout for git operations */
 const GIT_TIMEOUT_MS = 60_000;
 
@@ -42,6 +44,7 @@ export class CoderAgent extends BaseAgent {
     private readonly gitlabService: GitlabService,
     private readonly issuesService: IssuesService,
     private readonly eventEmitter: EventEmitter2,
+    private readonly mcpAgentLoop: McpAgentLoopService,
   ) {
     super(prisma, settings, chatService, chatGateway, llmService);
   }
@@ -220,16 +223,16 @@ export class CoderAgent extends BaseAgent {
       // Build the coding prompt
       const prompt = this.buildCodingPrompt(issue);
 
-      // Run Qwen CLI
-      await this.log(agentTask.id, 'INFO', `Running Qwen CLI for issue: ${issue.title}`);
-      await this.runQwenCli(workspace, prompt);
+      // Run MCP agent loop (LLM + filesystem tools)
+      await this.log(agentTask.id, 'INFO', `Running MCP agent loop for issue: ${issue.title}`);
+      await this.runMcpAgentLoop(workspace, prompt, agentTask.id);
 
       // Check what changed
       const changedFiles = await this.getChangedFiles(workspace);
       result.filesChanged = changedFiles;
 
       if (changedFiles.length === 0) {
-        await this.sendAgentMessage(ctx, `⚠️ Qwen produced no file changes for #${issue.gitlabIid ?? '?'}`);
+        await this.sendAgentMessage(ctx, `⚠️ Agent produced no file changes for #${issue.gitlabIid ?? '?'}`);
         result.status = 'skipped';
         await this.gitCheckout(workspace, defaultBranch);
         await this.prisma.agentTask.update({
@@ -439,8 +442,8 @@ export class CoderAgent extends BaseAgent {
       // Build fix prompt with feedback context
       const fixPrompt = this.buildFixPrompt(issue, feedback, feedbackSource);
 
-      // Run Qwen CLI
-      await this.runQwenCli(workspace, fixPrompt);
+      // Run MCP agent loop (LLM + filesystem tools)
+      await this.runMcpAgentLoop(workspace, fixPrompt, agentTask.id);
 
       // Check changes
       const changedFiles = await this.getChangedFiles(workspace);
@@ -540,56 +543,69 @@ export class CoderAgent extends BaseAgent {
     }
   }
 
-  // ─── Qwen CLI Execution ───────────────────────────────────
+  // ─── MCP Agent Loop Execution ─────────────────────────────
 
-  private async runQwenCli(cwd: string, prompt: string): Promise<string> {
-    const qwenPath = '/home/sebastian/.npm-global/bin/qwen';
+  /**
+   * Run the MCP agent loop: LLM + filesystem tools.
+   * The LLM reads, writes, and edits files via MCP server.
+   * Returns the final LLM summary.
+   */
+  private async runMcpAgentLoop(workspace: string, prompt: string, agentTaskId: string): Promise<string> {
+    const config = this.getRoleConfig();
+    const model = config.model || 'qwen3.5:35b';
 
-    // Resolve model from CODER role config
-    const config = this.settings.getAgentRoleConfig('CODER');
-    const model = config.model || 'qwen3-coder:30b';
-
-    const args = [
-      '--yolo',
-      '-m', model,
-      '--openai-base-url', 'http://localhost:11434/v1',
-      '--auth-type', 'openai',
+    const mcpServers: McpServerConfig[] = [
+      MCP_SERVERS.filesystem([workspace]),
     ];
 
-    this.logger.debug(`Running Qwen CLI in ${cwd} with model ${model}`);
+    const systemPrompt = [
+      'You are a skilled software developer. Your task is to implement features by reading and modifying files in the project.',
+      '',
+      'Available tools let you browse the project directory, read files, write files, and edit files.',
+      '',
+      'Workflow:',
+      '1. First, explore the project structure using list_directory and directory_tree',
+      '2. Read relevant files to understand existing code patterns',
+      '3. Implement the requested changes by writing or editing files',
+      '4. Verify your changes are consistent with the existing codebase',
+      '',
+      'Rules:',
+      '- Follow existing code patterns and conventions',
+      '- Add error handling where appropriate',
+      '- Do NOT create test files unless the task specifically asks for tests',
+      '- Do NOT modify unrelated files',
+      '- When done, respond with a brief summary of what you changed',
+    ].join('\n');
 
-    return new Promise((resolve, reject) => {
-      const child = execFile(
-        qwenPath,
-        args,
-        {
-          cwd,
-          timeout: QWEN_TIMEOUT_MS,
-          maxBuffer: 50 * 1024 * 1024, // 50 MB — Qwen can be verbose
-          env: { ...process.env, OPENAI_API_KEY: 'ollama' },
-        },
-        (error, stdout, stderr) => {
-          if (error) {
-            // Timeout is not necessarily fatal — Qwen may have made changes before timing out
-            if (error.killed) {
-              this.logger.warn(`Qwen CLI timed out after ${QWEN_TIMEOUT_MS}ms — checking for partial changes`);
-              resolve(stdout || '');
-              return;
-            }
-            this.logger.error(`Qwen CLI failed: ${error.message}`);
-            if (stderr) this.logger.debug(`Qwen stderr: ${stderr.substring(0, 1000)}`);
-            reject(new Error(`Qwen CLI failed: ${error.message}`));
-            return;
-          }
-          resolve(stdout);
-        },
-      );
+    this.logger.log(`Starting MCP agent loop in ${workspace} with model ${model}`);
 
-      // Pass prompt via stdin to avoid CLI argument injection from special characters
-      // (feedback text may contain markdown, brackets, backticks etc.)
-      child.stdin?.write(prompt);
-      child.stdin?.end();
+    const result = await this.mcpAgentLoop.run({
+      provider: config.provider,
+      model,
+      systemPrompt,
+      userPrompt: prompt,
+      mcpServers,
+      maxIterations: 30,
+      timeoutMs: AGENT_LOOP_TIMEOUT_MS,
+      temperature: config.parameters.temperature,
+      maxTokens: config.parameters.maxTokens,
+      onToolCall: (name, args) => {
+        this.logger.debug(`Tool call: ${name}(${JSON.stringify(args).substring(0, 150)})`);
+      },
+      onIteration: (iteration) => {
+        this.logger.debug(`Agent loop iteration ${iteration}`);
+      },
     });
+
+    this.logger.log(
+      `MCP agent loop finished: ${result.finishReason}, ${result.iterations} iterations, ${result.toolCallsExecuted} tool calls, ${result.durationMs}ms`,
+    );
+
+    if (result.finishReason === 'error') {
+      throw new Error('MCP agent loop failed — LLM returned no usable output');
+    }
+
+    return result.content;
   }
 
   // ─── Prompt Builders ──────────────────────────────────────
@@ -610,16 +626,6 @@ export class CoderAgent extends BaseAgent {
       }
     }
 
-    parts.push(
-      '',
-      '## Instructions:',
-      '- Implement the feature completely',
-      '- Follow existing code patterns and conventions',
-      '- Add error handling where appropriate',
-      '- Do NOT create test files unless the task specifically asks for tests',
-      '- Do NOT modify unrelated files',
-    );
-
     return parts.join('\n');
   }
 
@@ -633,11 +639,6 @@ export class CoderAgent extends BaseAgent {
       '',
       `## Feedback to address:`,
       feedback,
-      '',
-      '## Instructions:',
-      '- Address ALL points in the feedback',
-      '- Do NOT introduce new features — only fix the reported issues',
-      '- Follow existing code patterns',
     ];
 
     return parts.join('\n');

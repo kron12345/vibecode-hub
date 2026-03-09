@@ -162,10 +162,18 @@ GitLab Webhooks:
 ```
 
 ### Coder Agent
-- Nutzt **Qwen CLI** (`/home/sebastian/.npm-global/bin/qwen`) im `--yolo` Mode mit Ollama Backend
-- Pro Issue: Feature-Branch erstellen → Qwen CLI → Commit & Push → GitLab MR → Issue IN_REVIEW
+- Nutzt **MCP Agent Loop**: Ollama (Tool-Calling) + MCP Filesystem Server
+- LLM liest/schreibt/editiert Dateien selbst über MCP-Tools (read_file, write_file, edit_file, search_files, directory_tree etc.)
+- Pro Issue: Feature-Branch erstellen → Agent Loop (LLM ↔ Tools) → Commit & Push → GitLab MR → Issue IN_REVIEW
 - Fix-Modus: Bestehenden Branch auschecken, Feedback in Prompt, Push auf MR
-- 10 Minuten Timeout, 50 MB max Buffer
+- 10 Minuten Timeout, max 30 Iterationen
+
+### MCP Integration (McpModule)
+- **McpClientService**: Startet MCP-Server als Subprozesse, verwaltet Connections, Tool-Discovery
+- **McpAgentLoopService**: Generischer Agent-Loop (LLM-Call → tool_calls → MCP-Execution → Repeat)
+- **Filesystem MCP Server**: `@modelcontextprotocol/server-filesystem` — 14 Tools (read, write, edit, search, tree etc.)
+- **Sandboxing**: MCP-Server erhält nur Zugriff auf den Workspace-Ordner des Projekts
+- **Erweiterbar**: Weitere MCP-Server (Git, Angular CLI, Prisma) können später ergänzt werden
 
 ### Agent Comment System
 - **Utility**: `agent-comment.utils.ts` — `postAgentComment()` speichert identischen rich Markdown in lokaler DB UND als GitLab Issue Note. `gitlabNoteId` wird gespeichert für 2-Wege-Sync.
@@ -294,7 +302,8 @@ Agent → LlmService.completeStream() → Provider.streamComplete()
 ```
 
 - **Streaming-Provider**: Ollama (NDJSON), Anthropic (SSE), OpenAI (SSE), Google (SSE)
-- **Fallback**: CLI-Provider (Claude Code, Codex, Qwen) → Single-Chunk nach Completion
+- **Tool-Calling**: Ollama unterstützt native Tool-Calls (`tool_calls` in Response), genutzt vom MCP Agent Loop
+- **Fallback**: CLI-Provider (Claude Code, Codex) → Single-Chunk nach Completion
 - **Frontend**: Token-Akkumulation mit Live-Cursor (▊) im Terminal-Chat
 
 ## MCP-Server (Entwicklungs-Tooling)

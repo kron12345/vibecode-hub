@@ -11,6 +11,7 @@ import { GitlabModule } from './gitlab/gitlab.module';
 import { IssuesModule } from './issues/issues.module';
 import { ChatModule } from './chat/chat.module';
 import { LlmModule } from './llm/llm.module';
+import { McpModule } from './mcp/mcp.module';
 import { AgentsModule } from './agents/agents.module';
 import { PreviewModule } from './preview/preview.module';
 
@@ -26,6 +27,7 @@ import { PreviewModule } from './preview/preview.module';
     IssuesModule,
     ChatModule,
     LlmModule,
+    McpModule,
     AgentsModule,
     PreviewModule,
   ],

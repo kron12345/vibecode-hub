@@ -6,6 +6,7 @@ import {
   LlmCompletionOptions,
   LlmCompletionResult,
   LlmStreamChunk,
+  LlmToolCall,
 } from '../llm.interfaces';
 
 @Injectable()
@@ -30,12 +31,19 @@ export class OllamaProvider implements LlmStreamingProvider {
     const baseUrl = this.settings.ollamaUrl;
     const url = `${baseUrl}/api/chat`;
 
-    const body = {
+    const body: Record<string, unknown> = {
       model: options.model,
-      messages: options.messages.map((m) => ({
-        role: m.role,
-        content: m.content,
-      })),
+      messages: options.messages.map((m) => {
+        const msg: Record<string, unknown> = { role: m.role, content: m.content };
+        // Preserve tool_calls on assistant messages (needed for multi-turn tool conversations)
+        if (m.role === 'assistant' && m.toolCalls?.length) {
+          msg.tool_calls = m.toolCalls.map((tc) => ({
+            id: tc.id,
+            function: { name: tc.name, arguments: tc.arguments },
+          }));
+        }
+        return msg;
+      }),
       stream: false,
       think: false, // Disable thinking mode (qwen3.5, deepseek-r1) — we don't use the output
       options: {
@@ -47,6 +55,18 @@ export class OllamaProvider implements LlmStreamingProvider {
         }),
       },
     };
+
+    // Add tool definitions when provided (Ollama uses OpenAI-compatible format)
+    if (options.tools?.length) {
+      body.tools = options.tools.map((t) => ({
+        type: 'function',
+        function: {
+          name: t.name,
+          description: t.description,
+          parameters: t.parameters,
+        },
+      }));
+    }
 
     this.logger.debug(
       `Ollama request: model=${options.model}, messages=${options.messages.length}`,
@@ -89,11 +109,29 @@ export class OllamaProvider implements LlmStreamingProvider {
         );
       }
 
-      this.logger.debug(`Ollama response: ${content.length} chars, ${data.eval_count ?? 0} tokens`);
+      // Parse tool calls from response (Ollama returns OpenAI-compatible format)
+      const rawToolCalls: any[] = data.message?.tool_calls ?? [];
+      let toolCalls: LlmToolCall[] | undefined;
+      if (rawToolCalls.length > 0) {
+        toolCalls = rawToolCalls.map((tc: any, i: number) => ({
+          id: tc.id ?? `call_${Date.now()}_${i}`,
+          name: tc.function?.name ?? '',
+          arguments: typeof tc.function?.arguments === 'string'
+            ? JSON.parse(tc.function.arguments)
+            : tc.function?.arguments ?? {},
+        }));
+        this.logger.debug(`Ollama tool_calls: ${toolCalls.map(t => t.name).join(', ')}`);
+      }
+
+      const hasToolCalls = toolCalls && toolCalls.length > 0;
+      this.logger.debug(
+        `Ollama response: ${content.length} chars, ${data.eval_count ?? 0} tokens${hasToolCalls ? `, ${toolCalls!.length} tool_calls` : ''}`,
+      );
 
       return {
         content,
-        finishReason: data.done ? 'stop' : 'length',
+        finishReason: hasToolCalls ? 'tool_calls' : (data.done ? 'stop' : 'length'),
+        toolCalls,
         usage: data.eval_count
           ? {
               promptTokens: data.prompt_eval_count ?? 0,
