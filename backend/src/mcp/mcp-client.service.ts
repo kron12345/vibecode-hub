@@ -83,12 +83,21 @@ export class McpClientService implements OnModuleDestroy {
           ListToolsResultSchema,
         );
 
+        // Filter out deprecated/unnecessary tools to reduce token overhead
+        const EXCLUDED_TOOLS = new Set([
+          'read_file',               // deprecated, use read_text_file
+          'read_media_file',         // not needed for code tasks
+          'list_directory_with_sizes', // redundant with list_directory
+        ]);
+
         // Convert MCP tool schemas to our LlmToolDefinition format
-        const tools: LlmToolDefinition[] = mcpTools.map((t: any) => ({
-          name: t.name,
-          description: t.description ?? '',
-          parameters: t.inputSchema ?? { type: 'object', properties: {} },
-        }));
+        const tools: LlmToolDefinition[] = mcpTools
+          .filter((t: any) => !EXCLUDED_TOOLS.has(t.name))
+          .map((t: any) => ({
+            name: t.name,
+            description: t.description ?? '',
+            parameters: this.stripSchemaKey(t.inputSchema ?? { type: 'object', properties: {} }),
+          }));
 
         this.logger.log(
           `MCP server "${config.name}" connected — ${tools.length} tools: ${tools.map(t => t.name).join(', ')}`,
@@ -163,6 +172,23 @@ export class McpClientService implements OnModuleDestroy {
       this.logger.warn(`Tool "${toolName}" failed: ${err.message}`);
       return `Error executing tool "${toolName}": ${err.message}`;
     }
+  }
+
+  /**
+   * Recursively strip $schema keys from JSON Schema objects.
+   * Ollama's internal XML template parser chokes on these.
+   */
+  private stripSchemaKey(schema: Record<string, unknown>): Record<string, unknown> {
+    const result: Record<string, unknown> = {};
+    for (const [key, value] of Object.entries(schema)) {
+      if (key === '$schema') continue;
+      if (value && typeof value === 'object' && !Array.isArray(value)) {
+        result[key] = this.stripSchemaKey(value as Record<string, unknown>);
+      } else {
+        result[key] = value;
+      }
+    }
+    return result;
   }
 
   /**

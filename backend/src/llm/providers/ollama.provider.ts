@@ -63,7 +63,7 @@ export class OllamaProvider implements LlmStreamingProvider {
         function: {
           name: t.name,
           description: t.description,
-          parameters: t.parameters,
+          parameters: this.cleanSchema(t.parameters),
         },
       }));
     }
@@ -151,6 +151,29 @@ export class OllamaProvider implements LlmStreamingProvider {
     } finally {
       clearTimeout(timeout);
     }
+  }
+
+  /**
+   * Strip $schema and other JSON-Schema meta keys that confuse Ollama's
+   * internal XML template parser. Recursively cleans nested objects.
+   */
+  private cleanSchema(schema: Record<string, unknown>): Record<string, unknown> {
+    const cleaned: Record<string, unknown> = {};
+    for (const [key, value] of Object.entries(schema)) {
+      if (key === '$schema') continue;
+      if (value && typeof value === 'object' && !Array.isArray(value)) {
+        cleaned[key] = this.cleanSchema(value as Record<string, unknown>);
+      } else if (Array.isArray(value)) {
+        cleaned[key] = value.map((item) =>
+          item && typeof item === 'object' && !Array.isArray(item)
+            ? this.cleanSchema(item as Record<string, unknown>)
+            : item,
+        );
+      } else {
+        cleaned[key] = value;
+      }
+    }
+    return cleaned;
   }
 
   async *streamComplete(options: LlmCompletionOptions): AsyncGenerator<LlmStreamChunk> {

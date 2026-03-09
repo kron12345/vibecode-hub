@@ -125,7 +125,16 @@ export class McpAgentLoopService {
           return this.buildResult(finalContent, iterations, totalToolCalls, start, 'complete');
         }
 
-        // Case 3: Empty response — error
+        // Case 3: Empty response — if we already executed tools, treat as "complete" (files were written)
+        if (totalToolCalls > 0) {
+          this.logger.warn(
+            `Agent loop: LLM returned empty response on iteration ${iterations} — but ${totalToolCalls} tools were executed, treating as complete`,
+          );
+          return this.buildResult(
+            `(Agent completed ${totalToolCalls} tool operations)`,
+            iterations, totalToolCalls, start, 'complete',
+          );
+        }
         this.logger.warn(`Agent loop: LLM returned empty response on iteration ${iterations}`);
         return this.buildResult('', iterations, totalToolCalls, start, 'error');
       }

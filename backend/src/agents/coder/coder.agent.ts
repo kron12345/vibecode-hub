@@ -601,7 +601,7 @@ export class CoderAgent extends BaseAgent {
       `MCP agent loop finished: ${result.finishReason}, ${result.iterations} iterations, ${result.toolCallsExecuted} tool calls, ${result.durationMs}ms`,
     );
 
-    if (result.finishReason === 'error') {
+    if (result.finishReason === 'error' && result.toolCallsExecuted === 0) {
       throw new Error('MCP agent loop failed — LLM returned no usable output');
     }
 
