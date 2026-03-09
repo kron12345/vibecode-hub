@@ -33,6 +33,27 @@ export class AgentOrchestratorService implements OnModuleInit, OnModuleDestroy {
   private readonly logger = new Logger(AgentOrchestratorService.name);
   private stuckCheckTimer: ReturnType<typeof setInterval> | null = null;
 
+  /**
+   * In-memory lock to prevent race conditions when starting agents.
+   * JS is single-threaded, so synchronous Set operations are atomic.
+   * The lock is held between hasActiveAgent() check and agent creation.
+   */
+  private readonly startingAgents = new Set<string>();
+
+  private acquireStartLock(projectId: string, role: AgentRole): boolean {
+    const key = `${projectId}:${role}`;
+    if (this.startingAgents.has(key)) {
+      this.logger.warn(`${role} start already in progress for project ${projectId} — skipping duplicate`);
+      return false;
+    }
+    this.startingAgents.add(key);
+    return true;
+  }
+
+  private releaseStartLock(projectId: string, role: AgentRole): void {
+    this.startingAgents.delete(`${projectId}:${role}`);
+  }
+
   constructor(
     private readonly prisma: PrismaService,
     private readonly chatService: ChatService,
@@ -240,14 +261,15 @@ export class AgentOrchestratorService implements OnModuleInit, OnModuleDestroy {
   }) {
     const { projectId, chatSessionId } = payload;
 
-    if (await this.hasActiveAgent(projectId, AgentRole.DEVOPS)) return;
-
-    this.logger.log(`Interview complete for project ${projectId} — starting DevOps setup`);
-
+    if (!this.acquireStartLock(projectId, AgentRole.DEVOPS)) return;
     try {
+      if (await this.hasActiveAgent(projectId, AgentRole.DEVOPS)) return;
+      this.logger.log(`Interview complete for project ${projectId} — starting DevOps setup`);
       await this.startDevopsSetup(projectId, chatSessionId);
     } catch (err) {
       this.logger.error(`Failed to start DevOps setup: ${err.message}`);
+    } finally {
+      this.releaseStartLock(projectId, AgentRole.DEVOPS);
     }
   }
 
@@ -318,14 +340,15 @@ export class AgentOrchestratorService implements OnModuleInit, OnModuleDestroy {
   }) {
     const { projectId, chatSessionId } = payload;
 
-    if (await this.hasActiveAgent(projectId, AgentRole.ARCHITECT)) return;
-
-    this.logger.log(`DevOps complete for project ${projectId} — starting Architect (Phase A)`);
-
+    if (!this.acquireStartLock(projectId, AgentRole.ARCHITECT)) return;
     try {
+      if (await this.hasActiveAgent(projectId, AgentRole.ARCHITECT)) return;
+      this.logger.log(`DevOps complete for project ${projectId} — starting Architect (Phase A)`);
       await this.startArchitectDesign(projectId, chatSessionId);
     } catch (err) {
       this.logger.error(`Failed to start Architect: ${err.message}`);
+    } finally {
+      this.releaseStartLock(projectId, AgentRole.ARCHITECT);
     }
   }
 
@@ -376,14 +399,15 @@ export class AgentOrchestratorService implements OnModuleInit, OnModuleDestroy {
   }) {
     const { projectId, chatSessionId } = payload;
 
-    if (await this.hasActiveAgent(projectId, AgentRole.ISSUE_COMPILER)) return;
-
-    this.logger.log(`Architecture design complete for project ${projectId} — starting Issue Compiler`);
-
+    if (!this.acquireStartLock(projectId, AgentRole.ISSUE_COMPILER)) return;
     try {
+      if (await this.hasActiveAgent(projectId, AgentRole.ISSUE_COMPILER)) return;
+      this.logger.log(`Architecture design complete for project ${projectId} — starting Issue Compiler`);
       await this.startIssueCompilation(projectId, chatSessionId);
     } catch (err) {
       this.logger.error(`Failed to start Issue Compiler: ${err.message}`);
+    } finally {
+      this.releaseStartLock(projectId, AgentRole.ISSUE_COMPILER);
     }
   }
 
@@ -456,14 +480,15 @@ export class AgentOrchestratorService implements OnModuleInit, OnModuleDestroy {
   }) {
     const { projectId, chatSessionId } = payload;
 
-    if (await this.hasActiveAgent(projectId, AgentRole.ARCHITECT)) return;
-
-    this.logger.log(`Issue compilation complete for project ${projectId} — starting Architect (Phase B: Grounding)`);
-
+    if (!this.acquireStartLock(projectId, AgentRole.ARCHITECT)) return;
     try {
+      if (await this.hasActiveAgent(projectId, AgentRole.ARCHITECT)) return;
+      this.logger.log(`Issue compilation complete for project ${projectId} — starting Architect (Phase B: Grounding)`);
       await this.startArchitectGrounding(projectId, chatSessionId);
     } catch (err) {
       this.logger.error(`Failed to start Architect grounding: ${err.message}`);
+    } finally {
+      this.releaseStartLock(projectId, AgentRole.ARCHITECT);
     }
   }
 
@@ -514,14 +539,15 @@ export class AgentOrchestratorService implements OnModuleInit, OnModuleDestroy {
   }) {
     const { projectId, chatSessionId } = payload;
 
-    if (await this.hasActiveAgent(projectId, AgentRole.CODER)) return;
-
-    this.logger.log(`Architect grounding complete for project ${projectId} — starting Coder Agent`);
-
+    if (!this.acquireStartLock(projectId, AgentRole.CODER)) return;
     try {
+      if (await this.hasActiveAgent(projectId, AgentRole.CODER)) return;
+      this.logger.log(`Architect grounding complete for project ${projectId} — starting Coder Agent`);
       await this.startCoding(projectId, chatSessionId);
     } catch (err) {
       this.logger.error(`Failed to start Coder Agent: ${err.message}`);
+    } finally {
+      this.releaseStartLock(projectId, AgentRole.CODER);
     }
   }
 

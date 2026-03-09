@@ -286,6 +286,12 @@ export class ArchitectAgent extends BaseAgent {
     const config = this.getRoleConfig();
     const systemPrompt = config.systemPrompt || DEFAULT_DESIGN_PROMPT;
 
+    // Skip MCP entirely if model doesn't support tools (e.g. deepseek-r1)
+    if (!this.modelSupportsTools()) {
+      this.logger.log('Model does not support tools — skipping MCP, using direct LLM');
+      return this.designWithLlm(ctx, userPrompt);
+    }
+
     const mcpServers = await this.mcpRegistry.resolveServersForRole(
       AgentRole.ARCHITECT,
       { workspace, allowedPaths: [workspace], projectId: ctx.projectId },
@@ -372,8 +378,8 @@ export class ArchitectAgent extends BaseAgent {
       'Use the filesystem tools to read relevant files.',
     ].filter(Boolean).join('\n');
 
-    // Check if workspace has code — use MCP if yes, plain LLM if not
-    if (this.workspaceHasCode(workspace)) {
+    // Check if workspace has code AND model supports tools — use MCP if both, plain LLM otherwise
+    if (this.workspaceHasCode(workspace) && this.modelSupportsTools()) {
       const mcpServers = await this.mcpRegistry.resolveServersForRole(
         AgentRole.ARCHITECT,
         { workspace, allowedPaths: [workspace], projectId: ctx.projectId },
@@ -413,6 +419,18 @@ export class ArchitectAgent extends BaseAgent {
   }
 
   // ─── Private: Helpers ────────────────────────────────────────
+
+  /**
+   * Check if the configured model supports tool/function calling.
+   * Models like deepseek-r1 do NOT support tools — MCP loops are useless for them.
+   */
+  private modelSupportsTools(): boolean {
+    const config = this.getRoleConfig();
+    const model = (config.model || '').toLowerCase();
+    // Known non-tool models
+    const noToolModels = ['deepseek-r1', 'deepseek-r2', 'llama2', 'llama3'];
+    return !noToolModels.some((m) => model.includes(m));
+  }
 
   /**
    * Check if the workspace directory has meaningful code (not just config files).

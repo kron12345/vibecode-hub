@@ -89,6 +89,15 @@ export class SettingsController {
     return this.settingsService.getAllSystemSettings();
   }
 
+  @Post('system/refresh')
+  @UseGuards(RolesGuard)
+  @Roles('admin')
+  @ApiOperation({ summary: 'Refresh system settings cache from DB (admin)' })
+  async refreshSystemCache() {
+    await this.systemSettingsService.refreshCache();
+    return { refreshed: true };
+  }
+
   // ─── Agent Role Configs ───────────────────────────────────
 
   @Get('agents/roles')

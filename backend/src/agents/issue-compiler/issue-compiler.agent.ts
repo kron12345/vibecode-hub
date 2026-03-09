@@ -476,6 +476,17 @@ Create well-structured milestones with issues and actionable tasks. Group logica
       // Create issues within this milestone
       for (const compiledIssue of milestone.issues) {
         try {
+          // Deduplication: skip if issue with same title already exists in this project
+          const existing = await this.prisma.issue.findFirst({
+            where: { projectId: project.id, title: compiledIssue.title },
+          });
+          if (existing) {
+            await this.log(ctx.agentTaskId, 'INFO', `Skipped duplicate issue: ${compiledIssue.title}`, {
+              existingIssueId: existing.id,
+            });
+            continue;
+          }
+
           const issue = await this.issuesService.create({
             projectId: project.id,
             title: compiledIssue.title,

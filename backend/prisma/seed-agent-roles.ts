@@ -67,30 +67,30 @@ const PRESETS: Record<Preset, Record<string, ProviderOverride>> = {
   //   qwen3.5 + deepseek-r1 = 42GB, qwen3.5 + qwen3-coder = 41GB
   //   deepseek-r1 + qwen3-coder = 39GB, same model = shared VRAM!
   local: {
-    INTERVIEWER:       { provider: 'OLLAMA', model: 'qwen3.5:35b',      temperature: 0.7, maxTokens: 4096 },
-    ARCHITECT:         { provider: 'OLLAMA', model: 'deepseek-r1:32b',  temperature: 0.5, maxTokens: 4096 },
-    ISSUE_COMPILER:    { provider: 'OLLAMA', model: 'qwen3.5:35b',      temperature: 0.3, maxTokens: 4096 },
+    INTERVIEWER:       { provider: 'OLLAMA', model: 'qwen3.5:35b',      temperature: 0.7, maxTokens: 8192 },
+    ARCHITECT:         { provider: 'OLLAMA', model: 'deepseek-r1:32b',  temperature: 0.5, maxTokens: 16384 },
+    ISSUE_COMPILER:    { provider: 'OLLAMA', model: 'qwen3.5:35b',      temperature: 0.3, maxTokens: 16384 },
     CODER:             { provider: 'OLLAMA', model: 'qwen3-coder:30b',  temperature: 0.2, maxTokens: 8192 },
-    CODE_REVIEWER:     { provider: 'OLLAMA', model: 'deepseek-r1:32b',  temperature: 0.1, maxTokens: 4096 },
-    UI_TESTER:         { provider: 'OLLAMA', model: 'qwen3-coder:30b',  temperature: 0.2, maxTokens: 4096 },
-    FUNCTIONAL_TESTER: { provider: 'OLLAMA', model: 'qwen3-coder:30b',  temperature: 0.1, maxTokens: 4096 },
-    PEN_TESTER:        { provider: 'OLLAMA', model: 'deepseek-r1:32b',  temperature: 0.1, maxTokens: 4096 },
-    DOCUMENTER:        { provider: 'OLLAMA', model: 'qwen3.5:35b',      temperature: 0.3, maxTokens: 4096 },
+    CODE_REVIEWER:     { provider: 'OLLAMA', model: 'deepseek-r1:32b',  temperature: 0.1, maxTokens: 16384 },
+    UI_TESTER:         { provider: 'OLLAMA', model: 'qwen3-coder:30b',  temperature: 0.2, maxTokens: 8192 },
+    FUNCTIONAL_TESTER: { provider: 'OLLAMA', model: 'qwen3-coder:30b',  temperature: 0.1, maxTokens: 8192 },
+    PEN_TESTER:        { provider: 'OLLAMA', model: 'deepseek-r1:32b',  temperature: 0.1, maxTokens: 16384 },
+    DOCUMENTER:        { provider: 'OLLAMA', model: 'qwen3.5:35b',      temperature: 0.3, maxTokens: 16384 },
     DEVOPS:            { provider: 'OLLAMA', model: 'qwen3-coder:30b',  temperature: 0.1, maxTokens: 4096 },
   },
 
   // ── CLI Tools (Remote API via CLI subprocesses) ──
   // Claude Code for general/review/security, Codex CLI for code/ops, Qwen3 Coder for testing
   cli: {
-    INTERVIEWER:       { provider: 'CLAUDE_CODE',  model: 'claude-sonnet-4-6', temperature: 0.7, maxTokens: 4096 },
-    ARCHITECT:         { provider: 'CLAUDE_CODE',  model: 'claude-sonnet-4-6', temperature: 0.5, maxTokens: 4096 },
-    ISSUE_COMPILER:    { provider: 'CLAUDE_CODE',  model: 'claude-sonnet-4-6', temperature: 0.3, maxTokens: 4096 },
+    INTERVIEWER:       { provider: 'CLAUDE_CODE',  model: 'claude-sonnet-4-6', temperature: 0.7, maxTokens: 8192 },
+    ARCHITECT:         { provider: 'CLAUDE_CODE',  model: 'claude-sonnet-4-6', temperature: 0.5, maxTokens: 16384 },
+    ISSUE_COMPILER:    { provider: 'CLAUDE_CODE',  model: 'claude-sonnet-4-6', temperature: 0.3, maxTokens: 16384 },
     CODER:             { provider: 'CODEX_CLI',    model: 'o4-mini',           temperature: 0.2, maxTokens: 8192 },
-    CODE_REVIEWER:     { provider: 'CLAUDE_CODE',  model: 'claude-sonnet-4-6', temperature: 0.1, maxTokens: 4096 },
-    UI_TESTER:         { provider: 'QWEN3_CODER',  model: 'qwen3-coder',      temperature: 0.2, maxTokens: 4096 },
-    FUNCTIONAL_TESTER: { provider: 'CODEX_CLI',    model: 'o4-mini',           temperature: 0.1, maxTokens: 4096 },
-    PEN_TESTER:        { provider: 'CLAUDE_CODE',  model: 'claude-sonnet-4-6', temperature: 0.1, maxTokens: 4096 },
-    DOCUMENTER:        { provider: 'CLAUDE_CODE',  model: 'claude-sonnet-4-6', temperature: 0.3, maxTokens: 4096 },
+    CODE_REVIEWER:     { provider: 'CLAUDE_CODE',  model: 'claude-sonnet-4-6', temperature: 0.1, maxTokens: 16384 },
+    UI_TESTER:         { provider: 'QWEN3_CODER',  model: 'qwen3-coder',      temperature: 0.2, maxTokens: 8192 },
+    FUNCTIONAL_TESTER: { provider: 'CODEX_CLI',    model: 'o4-mini',           temperature: 0.1, maxTokens: 8192 },
+    PEN_TESTER:        { provider: 'CLAUDE_CODE',  model: 'claude-sonnet-4-6', temperature: 0.1, maxTokens: 16384 },
+    DOCUMENTER:        { provider: 'CLAUDE_CODE',  model: 'claude-sonnet-4-6', temperature: 0.3, maxTokens: 16384 },
     DEVOPS:            { provider: 'CODEX_CLI',    model: 'o4-mini',           temperature: 0.1, maxTokens: 4096 },
   },
 };

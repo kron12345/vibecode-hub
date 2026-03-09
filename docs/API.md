@@ -242,6 +242,7 @@
 | `GET` | `/api/settings/system` | Admin | Alle System-Settings (API-Keys maskiert) |
 | `GET` | `/api/settings/system/:category` | Admin | Settings nach Kategorie filtern |
 | `PUT` | `/api/settings/system` | Admin | Bulk-Upsert + Cache-Refresh |
+| `POST` | `/api/settings/system/refresh` | Admin | In-Memory Settings-Cache aus DB neu laden |
 
 ### DTOs
 
@@ -844,6 +845,7 @@ map $hub_project $hub_upstream {
 
 | Datum | Änderung |
 |---|---|
+| 2026-03-09 | Pipeline Bugfixes (8 total): Atomic start-lock für Agent-Duplikat-Verhinderung, Architect modelSupportsTools() für deepseek-r1, fetch MCP-Server deaktiviert (npm removed), maxTokens hochgesetzt (8K-16K je Rolle), Issue-Deduplizierung im Issue Compiler (title-check), Cache-Refresh Endpoint POST /settings/system/refresh. |
 | 2026-03-09 | LLM Timeouts entfernt: Alle Provider (Ollama, Anthropic, OpenAI, Google, CLI) ohne Timeout — Agenten dürfen unbegrenzt arbeiten. Ollama keep_alive von '0' auf '2m' geändert. MCP Agent Loop nur durch maxIterations (30) begrenzt. Neuer Endpoint: POST /agents/architect/start für manuelles Triggern. |
 | 2026-03-09 | Phase 4: MonitorModule (HardwareService + MonitorGateway + MonitorController). Live GPU/CPU/RAM via nvtop/sysfs/proc. WebSocket /monitor Namespace. 3 neue Frontend-Pages: /projects (Tabelle), /agents (Rollen-Overview), /live-feed (Unified Activity Stream). Dashboard Hardware-Widget ersetzt statische Placeholder. Sidebar-Links alle aktiv. 4 neue i18n-Sektionen (monitor, liveFeed, projectsList, agentsPage). |
 | 2026-03-09 | 2 neue MCP Server: fetch (@modelcontextprotocol/server-fetch) für Doku-Abruf, searxng (mcp-searxng, lokale SearXNG-Instanz auf :8088, envTemplate: search.searxng_url) für Web-Recherche. Architect bekommt auch filesystem-Zugriff. Gesamt: 15 Built-in Server. |
