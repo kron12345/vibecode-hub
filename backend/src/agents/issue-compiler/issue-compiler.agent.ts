@@ -9,6 +9,7 @@ import { GitlabService } from '../../gitlab/gitlab.service';
 import { IssuesService } from '../../issues/issues.service';
 import { LlmMessage } from '../../llm/llm.interfaces';
 import { BaseAgent, AgentContext } from '../agent-base';
+import { MonitorGateway } from '../../monitor/monitor.gateway';
 import { InterviewResult } from '../interviewer/interview-result.interface';
 import {
   CompiledIssue,
@@ -150,9 +151,10 @@ export class IssueCompilerAgent extends BaseAgent {
     llmService: LlmService,
     private readonly gitlabService: GitlabService,
     private readonly issuesService: IssuesService,
+    monitorGateway: MonitorGateway,
     private readonly eventEmitter: EventEmitter2,
   ) {
-    super(prisma, settings, chatService, chatGateway, llmService);
+    super(prisma, settings, chatService, chatGateway, llmService, monitorGateway);
   }
 
   /** Run the full issue compilation pipeline */

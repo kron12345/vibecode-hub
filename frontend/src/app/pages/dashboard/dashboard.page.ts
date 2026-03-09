@@ -3,43 +3,17 @@ import { Router, RouterLink } from '@angular/router';
 import { FormsModule } from '@angular/forms';
 import { ApiService, Project } from '../../services/api.service';
 import { IconComponent } from '../../components/icon.component';
+import { HardwareMonitorComponent } from '../../components/hardware-monitor.component';
 import { TranslatePipe } from '../../pipes/translate.pipe';
 import { TranslateService } from '../../services/translate.service';
 
 @Component({
   selector: 'app-dashboard',
-  imports: [RouterLink, FormsModule, IconComponent, TranslatePipe],
+  imports: [RouterLink, FormsModule, IconComponent, HardwareMonitorComponent, TranslatePipe],
   template: `
     <!-- Hardware Stats Bar -->
-    <div class="flex flex-wrap gap-4 mb-8">
-      <div class="glass flex-1 min-w-[200px] p-4 rounded-2xl flex items-center justify-between animate-in stagger-1">
-        <div>
-          <p class="text-slate-500 text-xs uppercase tracking-widest font-bold">{{ 'dashboard.gpuTemp' | translate }}</p>
-          <p class="text-xl font-mono text-emerald-400">--°C</p>
-        </div>
-        <app-icon name="thermometer" [size]="20" class="text-slate-600" />
-      </div>
-      <div class="glass flex-1 min-w-[200px] p-4 rounded-2xl flex items-center justify-between animate-in stagger-2">
-        <div>
-          <p class="text-slate-500 text-xs uppercase tracking-widest font-bold">{{ 'dashboard.vramLoad' | translate }}</p>
-          <p class="text-xl font-mono text-indigo-400">-- / 48 GB</p>
-        </div>
-        <app-icon name="cpu" [size]="20" class="text-slate-600" />
-      </div>
-      <div class="glass flex-1 min-w-[200px] p-4 rounded-2xl flex items-center justify-between animate-in stagger-3">
-        <div>
-          <p class="text-slate-500 text-xs uppercase tracking-widest font-bold">{{ 'dashboard.gitlab' | translate }}</p>
-          <p class="text-xl font-mono text-white">{{ 'common.online' | translate }}</p>
-        </div>
-        <app-icon name="git-branch" [size]="20" class="text-orange-500" />
-      </div>
-      <div class="glass flex-1 min-w-[200px] p-4 rounded-2xl flex items-center justify-between animate-in stagger-4">
-        <div>
-          <p class="text-slate-500 text-xs uppercase tracking-widest font-bold">{{ 'dashboard.activeAgents' | translate }}</p>
-          <p class="text-xl font-mono text-violet-400">0 / 6</p>
-        </div>
-        <app-icon name="bot" [size]="20" class="text-slate-600" />
-      </div>
+    <div class="mb-8 animate-in stagger-1">
+      <app-hardware-monitor layout="horizontal" />
     </div>
 
     <!-- Header -->

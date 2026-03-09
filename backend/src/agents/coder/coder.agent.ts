@@ -13,6 +13,7 @@ import { IssuesService } from '../../issues/issues.service';
 import { McpAgentLoopService } from '../../mcp/mcp-agent-loop.service';
 import { McpRegistryService } from '../../mcp/mcp-registry.service';
 import { BaseAgent, AgentContext } from '../agent-base';
+import { MonitorGateway } from '../../monitor/monitor.gateway';
 import { postAgentComment } from '../agent-comment.utils';
 import { CoderIssueResult, CoderMilestoneResult } from './coder-result.interface';
 import {
@@ -43,11 +44,12 @@ export class CoderAgent extends BaseAgent {
     llmService: LlmService,
     private readonly gitlabService: GitlabService,
     private readonly issuesService: IssuesService,
+    monitorGateway: MonitorGateway,
     private readonly eventEmitter: EventEmitter2,
     private readonly mcpAgentLoop: McpAgentLoopService,
     private readonly mcpRegistry: McpRegistryService,
   ) {
-    super(prisma, settings, chatService, chatGateway, llmService);
+    super(prisma, settings, chatService, chatGateway, llmService, monitorGateway);
   }
 
   // ─── Main Entry: Milestone Coding ──────────────────────────

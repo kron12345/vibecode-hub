@@ -11,6 +11,7 @@ import { ChatGateway } from '../../chat/chat.gateway';
 import { LlmService } from '../../llm/llm.service';
 import { GitlabService } from '../../gitlab/gitlab.service';
 import { BaseAgent, AgentContext } from '../agent-base';
+import { MonitorGateway } from '../../monitor/monitor.gateway';
 import { InterviewResult } from '../interviewer/interview-result.interface';
 import {
   DevopsSetupResult,
@@ -60,9 +61,10 @@ export class DevopsAgent extends BaseAgent {
     chatGateway: ChatGateway,
     llmService: LlmService,
     private readonly gitlabService: GitlabService,
+    monitorGateway: MonitorGateway,
     private readonly eventEmitter: EventEmitter2,
   ) {
-    super(prisma, settings, chatService, chatGateway, llmService);
+    super(prisma, settings, chatService, chatGateway, llmService, monitorGateway);
   }
 
   /**

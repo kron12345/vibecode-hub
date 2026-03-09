@@ -780,10 +780,69 @@ map $hub_project $hub_upstream {
 
 ---
 
+## Monitor
+
+| Method | Endpoint | Auth | Beschreibung |
+|---|---|---|---|
+| `GET` | `/api/monitor/hardware` | Public | Aktueller Hardware-Snapshot (GPUs, CPU, RAM) |
+| `GET` | `/api/monitor/hardware/history` | Public | Letzte 60 Snapshots (~3 Min) für Sparkline-Charts |
+| `GET` | `/api/monitor/logs` | Ja | Agent-Log-History mit Filtern (projectId, agentRole, level, limit, offset) |
+| `GET` | `/api/monitor/activity` | Ja | Unified Activity Timeline (Logs + Comments + Chat Messages) |
+| `GET` | `/api/monitor/agents/overview` | Ja | Aggregierte Agent-Übersicht pro Rolle (Status, Tasks, aktive Projekte) |
+
+### Hardware-Snapshot Format
+
+```typescript
+{
+  gpus: [{
+    index: number;
+    name: string;        // "NVIDIA GeForce RTX 3090"
+    temp: number;        // °C
+    fanSpeed: number;    // %
+    powerDraw: number;   // W
+    gpuUtil: number;     // %
+    memUtil: number;     // %
+    gpuClock: number;    // MHz
+    memClock: number;    // MHz
+  }];
+  cpu: {
+    temp: number;        // °C (k10temp)
+    load1: number;       // 1-min load average
+    load5: number;
+    load15: number;
+  };
+  ram: {
+    totalMb: number;
+    usedMb: number;
+    availableMb: number;
+    usedPercent: number;
+  };
+  timestamp: number;     // Unix ms
+}
+```
+
+### WebSocket Namespace `/monitor`
+
+| Event | Richtung | Beschreibung |
+|---|---|---|
+| `hardwareStats` | Server → Client | Hardware-Snapshot alle 3 Sekunden |
+| `hardwareHistory` | Server → Client | History-Array bei Connect (letzte ~3 Min) |
+| `agentLogEntry` | Server → Client | Neuer Agent-Log-Eintrag (level, message, agentRole, projectId) |
+| `llmCall` | Server → Client | LLM-Call-Tracking (provider, model, duration) |
+| `joinLogRoom` | Client → Server | In Log-Room joinen (`{ projectId?: string }`) |
+| `leaveLogRoom` | Client → Server | Log-Room verlassen |
+
+**Datenquelle GPU**: `nvtop -s` (JSON-Output, v3.2.0). nvidia-smi nicht verfügbar in NVIDIA Driver 590.
+**Datenquelle CPU**: `/sys/class/hwmon/hwmon2/temp1_input` (k10temp AMD), `/proc/loadavg`
+**Datenquelle RAM**: `/proc/meminfo`
+
+---
+
 ## Changelog
 
 | Datum | Änderung |
 |---|---|
+| 2026-03-09 | Phase 4: MonitorModule (HardwareService + MonitorGateway + MonitorController). Live GPU/CPU/RAM via nvtop/sysfs/proc. WebSocket /monitor Namespace. 3 neue Frontend-Pages: /projects (Tabelle), /agents (Rollen-Overview), /live-feed (Unified Activity Stream). Dashboard Hardware-Widget ersetzt statische Placeholder. Sidebar-Links alle aktiv. 4 neue i18n-Sektionen (monitor, liveFeed, projectsList, agentsPage). |
 | 2026-03-09 | 2 neue MCP Server: fetch (@modelcontextprotocol/server-fetch) für Doku-Abruf, searxng (mcp-searxng, lokale SearXNG-Instanz auf :8088, envTemplate: search.searxng_url) für Web-Recherche. Architect bekommt auch filesystem-Zugriff. Gesamt: 15 Built-in Server. |
 | 2026-03-09 | Architect Agent: 2-Phasen-Architektur (Phase A: Design nach DevOps, Phase B: Issue Grounding nach Issue Compiler). MCP-basierte Code-Analyse, Grounding-Kommentare auf Issues via postAgentComment(). Pipeline: DevOps→Architect(A)→IssueCompiler→Architect(B)→Coder. Neuer TaskType ANALYZE_ISSUES. |
 | 2026-03-09 | Ollama VRAM Management: `keep_alive` basierend auf `pipeline.maxParallelOllamaModels` (default: 1 → sofort entladen). Max Fix Attempts: `pipeline.maxFixAttempts` (default: 20), alle fixIssue-Pfade konsolidiert über `retriggerCoder()`, neuer IssueStatus `NEEDS_REVIEW` + GitLab Label `status::needs-review`. PipelineConfig um 2 Felder erweitert. |

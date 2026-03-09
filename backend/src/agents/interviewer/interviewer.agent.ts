@@ -7,6 +7,7 @@ import { ChatGateway } from '../../chat/chat.gateway';
 import { LlmService } from '../../llm/llm.service';
 import { LlmMessage } from '../../llm/llm.interfaces';
 import { PreviewService } from '../../preview/preview.service';
+import { MonitorGateway } from '../../monitor/monitor.gateway';
 import { BaseAgent, AgentContext } from '../agent-base';
 import { InterviewResult } from './interview-result.interface';
 import {
@@ -121,9 +122,10 @@ export class InterviewerAgent extends BaseAgent {
     chatGateway: ChatGateway,
     llmService: LlmService,
     private readonly previewService: PreviewService,
+    monitorGateway: MonitorGateway,
     private readonly eventEmitter: EventEmitter2,
   ) {
-    super(prisma, settings, chatService, chatGateway, llmService);
+    super(prisma, settings, chatService, chatGateway, llmService, monitorGateway);
   }
 
   /** Start a new interview — generates the first question */

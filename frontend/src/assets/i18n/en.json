@@ -234,6 +234,49 @@
     "mcpServerDeleted": "MCP server deleted",
     "mcpServerCreated": "MCP server created"
   },
+  "monitor": {
+    "cpu": "CPU",
+    "ram": "RAM"
+  },
+  "liveFeed": {
+    "title": "Live Feed",
+    "subtitle": "Real-time system activity and agent operations",
+    "allProjects": "All Projects",
+    "allAgents": "All Agents",
+    "allLevels": "All Levels",
+    "noActivity": "No activity yet",
+    "loadMore": "Load more"
+  },
+  "projectsList": {
+    "title": "Projects",
+    "count": "{count} projects",
+    "total": "Total",
+    "ready": "Ready",
+    "active": "Active",
+    "search": "Search projects...",
+    "allStatuses": "All Statuses",
+    "sortActivity": "Last Activity",
+    "sortName": "Name",
+    "sortCreated": "Created",
+    "colName": "Name",
+    "colStatus": "Status",
+    "colSlug": "Slug",
+    "colUpdated": "Last Updated",
+    "noProjects": "No projects found"
+  },
+  "agentsPage": {
+    "title": "Agents",
+    "subtitle": "AI agent roles and their current status",
+    "totalRoles": "Roles",
+    "working": "Working",
+    "totalTasks": "Total Tasks",
+    "tasks": "Tasks",
+    "activeOn": "Active on",
+    "currentTask": "Current Task",
+    "statusWorking": "Working",
+    "statusIdle": "Idle",
+    "taskBreakdown": "Task Status Breakdown"
+  },
   "languages": {
     "de": "Deutsch",
     "en": "English",

@@ -12,6 +12,7 @@ import { McpAgentLoopService } from '../../mcp/mcp-agent-loop.service';
 import { McpRegistryService } from '../../mcp/mcp-registry.service';
 import { LlmMessage } from '../../llm/llm.interfaces';
 import { BaseAgent, AgentContext } from '../agent-base';
+import { MonitorGateway } from '../../monitor/monitor.gateway';
 import { postAgentComment } from '../agent-comment.utils';
 import {
   AgentRole,
@@ -92,11 +93,12 @@ export class ArchitectAgent extends BaseAgent {
     chatGateway: ChatGateway,
     llmService: LlmService,
     private readonly gitlabService: GitlabService,
+    monitorGateway: MonitorGateway,
     private readonly mcpAgentLoop: McpAgentLoopService,
     private readonly mcpRegistry: McpRegistryService,
     private readonly eventEmitter: EventEmitter2,
   ) {
-    super(prisma, settings, chatService, chatGateway, llmService);
+    super(prisma, settings, chatService, chatGateway, llmService, monitorGateway);
   }
 
   // ─── Phase A: Architecture Design ────────────────────────────

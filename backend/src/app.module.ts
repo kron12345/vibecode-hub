@@ -14,6 +14,7 @@ import { LlmModule } from './llm/llm.module';
 import { McpModule } from './mcp/mcp.module';
 import { AgentsModule } from './agents/agents.module';
 import { PreviewModule } from './preview/preview.module';
+import { MonitorModule } from './monitor/monitor.module';
 
 @Module({
   imports: [
@@ -30,6 +31,7 @@ import { PreviewModule } from './preview/preview.module';
     McpModule,
     AgentsModule,
     PreviewModule,
+    MonitorModule,
   ],
   providers: [
     {

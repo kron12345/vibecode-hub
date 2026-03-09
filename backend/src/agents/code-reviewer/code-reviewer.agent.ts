@@ -8,6 +8,7 @@ import { LlmService } from '../../llm/llm.service';
 import { GitlabService } from '../../gitlab/gitlab.service';
 import { LlmMessage } from '../../llm/llm.interfaces';
 import { BaseAgent, AgentContext } from '../agent-base';
+import { MonitorGateway } from '../../monitor/monitor.gateway';
 import { postAgentComment } from '../agent-comment.utils';
 import { ReviewResult, ReviewFinding } from './review-result.interface';
 import {
@@ -76,9 +77,10 @@ export class CodeReviewerAgent extends BaseAgent {
     chatGateway: ChatGateway,
     llmService: LlmService,
     private readonly gitlabService: GitlabService,
+    monitorGateway: MonitorGateway,
     private readonly eventEmitter: EventEmitter2,
   ) {
-    super(prisma, settings, chatService, chatGateway, llmService);
+    super(prisma, settings, chatService, chatGateway, llmService, monitorGateway);
   }
 
   /**

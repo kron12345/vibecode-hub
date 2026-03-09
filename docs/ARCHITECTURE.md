@@ -389,7 +389,33 @@ sudo gitlab-runner restart
 - REST unter `/api/`
 - Swagger/OpenAPI unter `/api/docs`
 - WebSocket für Live-Agent-Updates + LLM-Token-Streaming
+- WebSocket `/monitor` Namespace für Hardware-Stats (3s Push) + Agent-Log-Streaming
 - GitLab Webhook unter `/api/gitlab/webhook` (ohne Auth, via X-Gitlab-Token)
+
+### Monitor Module (Phase 4)
+
+```
+HardwareService (3s Polling)
+  ├── nvtop -s → GPU Stats (2× RTX 3090)
+  ├── /sys/class/hwmon → CPU Temp (k10temp AMD)
+  ├── /proc/loadavg → CPU Load
+  └── /proc/meminfo → RAM Usage
+      ↓
+MonitorGateway (WebSocket /monitor)
+  ├── hardwareStats → alle Connected Clients (3s)
+  ├── hardwareHistory → auf Connect (letzte 60 Snapshots)
+  ├── agentLogEntry → Log Rooms (logs:project:{id}, logs:all)
+  └── llmCall → Log Rooms
+      ↓
+MonitorController (REST /api/monitor/)
+  ├── GET /hardware → Snapshot
+  ├── GET /hardware/history → Sparkline-Daten
+  ├── GET /logs → AgentLog mit Filtern
+  ├── GET /activity → Unified Timeline
+  └── GET /agents/overview → Agent-Rollen-Aggregation
+```
+
+BaseAgent.log() emittiert automatisch Agent-Logs per WebSocket an relevante Rooms (nicht für DEBUG-Level).
 
 ### LLM Streaming
 

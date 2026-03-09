@@ -45,7 +45,8 @@ import { ApiService } from './services/api.service';
           }
         </a>
         <a
-          routerLink="/"
+          routerLink="/projects"
+          routerLinkActive="nav-link-active"
           class="flex items-center gap-3 px-3 py-2.5 rounded-xl text-slate-400 hover:text-white hover:bg-white/5 transition-all"
         >
           <app-icon name="folder-git-2" [size]="18" />
@@ -54,7 +55,9 @@ import { ApiService } from './services/api.service';
           }
         </a>
         <a
-          class="flex items-center gap-3 px-3 py-2.5 rounded-xl text-slate-400 hover:text-white hover:bg-white/5 transition-all cursor-pointer"
+          routerLink="/agents"
+          routerLinkActive="nav-link-active"
+          class="flex items-center gap-3 px-3 py-2.5 rounded-xl text-slate-400 hover:text-white hover:bg-white/5 transition-all"
         >
           <app-icon name="bot" [size]="18" />
           @if (sidebarOpen()) {
@@ -62,7 +65,9 @@ import { ApiService } from './services/api.service';
           }
         </a>
         <a
-          class="flex items-center gap-3 px-3 py-2.5 rounded-xl text-slate-400 hover:text-white hover:bg-white/5 transition-all cursor-pointer"
+          routerLink="/live-feed"
+          routerLinkActive="nav-link-active"
+          class="flex items-center gap-3 px-3 py-2.5 rounded-xl text-slate-400 hover:text-white hover:bg-white/5 transition-all"
         >
           <app-icon name="activity" [size]="18" />
           @if (sidebarOpen()) {

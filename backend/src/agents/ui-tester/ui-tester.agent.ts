@@ -8,6 +8,7 @@ import { LlmService } from '../../llm/llm.service';
 import { GitlabService } from '../../gitlab/gitlab.service';
 import { LlmMessage } from '../../llm/llm.interfaces';
 import { BaseAgent, AgentContext } from '../agent-base';
+import { MonitorGateway } from '../../monitor/monitor.gateway';
 import { postAgentComment, getAgentCommentHistory } from '../agent-comment.utils';
 import { UiTestResult, UiTestFinding } from './ui-test-result.interface';
 import { PlaywrightRunner, PageCapture, A11yResult } from './playwright-runner';
@@ -76,9 +77,10 @@ export class UiTesterAgent extends BaseAgent {
     chatGateway: ChatGateway,
     llmService: LlmService,
     private readonly gitlabService: GitlabService,
+    monitorGateway: MonitorGateway,
     private readonly eventEmitter: EventEmitter2,
   ) {
-    super(prisma, settings, chatService, chatGateway, llmService);
+    super(prisma, settings, chatService, chatGateway, llmService, monitorGateway);
   }
 
   /**

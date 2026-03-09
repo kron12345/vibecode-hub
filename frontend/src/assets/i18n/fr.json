@@ -234,6 +234,49 @@
     "mcpServerDeleted": "Serveur MCP supprimé",
     "mcpServerCreated": "Serveur MCP créé"
   },
+  "monitor": {
+    "cpu": "CPU",
+    "ram": "RAM"
+  },
+  "liveFeed": {
+    "title": "Flux en direct",
+    "subtitle": "Activité système en temps réel et opérations des agents",
+    "allProjects": "Tous les projets",
+    "allAgents": "Tous les agents",
+    "allLevels": "Tous les niveaux",
+    "noActivity": "Aucune activité",
+    "loadMore": "Charger plus"
+  },
+  "projectsList": {
+    "title": "Projets",
+    "count": "{count} projets",
+    "total": "Total",
+    "ready": "Prêt",
+    "active": "Actif",
+    "search": "Rechercher des projets...",
+    "allStatuses": "Tous les statuts",
+    "sortActivity": "Dernière activité",
+    "sortName": "Nom",
+    "sortCreated": "Créé",
+    "colName": "Nom",
+    "colStatus": "Statut",
+    "colSlug": "Slug",
+    "colUpdated": "Dernière mise à jour",
+    "noProjects": "Aucun projet trouvé"
+  },
+  "agentsPage": {
+    "title": "Agents",
+    "subtitle": "Rôles des agents IA et leur statut actuel",
+    "totalRoles": "Rôles",
+    "working": "Actif",
+    "totalTasks": "Tâches totales",
+    "tasks": "Tâches",
+    "activeOn": "Actif sur",
+    "currentTask": "Tâche actuelle",
+    "statusWorking": "En cours",
+    "statusIdle": "En attente",
+    "taskBreakdown": "Répartition des statuts"
+  },
   "languages": {
     "de": "Deutsch",
     "en": "English",

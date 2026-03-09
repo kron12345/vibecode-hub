@@ -3,6 +3,7 @@ import { ChatModule } from '../chat/chat.module';
 import { PreviewModule } from '../preview/preview.module';
 import { GitlabModule } from '../gitlab/gitlab.module';
 import { IssuesModule } from '../issues/issues.module';
+import { MonitorModule } from '../monitor/monitor.module';
 import { AgentOrchestratorService } from './agent-orchestrator.service';
 import { AgentsController } from './agents.controller';
 import { InterviewerAgent } from './interviewer/interviewer.agent';
@@ -17,7 +18,7 @@ import { PenTesterAgent } from './pen-tester/pen-tester.agent';
 import { DocumenterAgent } from './documenter/documenter.agent';
 
 @Module({
-  imports: [ChatModule, PreviewModule, GitlabModule, IssuesModule],
+  imports: [ChatModule, PreviewModule, GitlabModule, IssuesModule, MonitorModule],
   controllers: [AgentsController],
   providers: [
     AgentOrchestratorService,

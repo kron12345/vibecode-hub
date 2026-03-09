@@ -453,4 +453,88 @@ export class ApiService {
       `${this.baseUrl}/settings/providers/cli/status`,
     );
   }
+
+  // ─── Monitor ──────────────────────────────────────────────
+
+  getHardwareStats() {
+    return this.http.get<HardwareSnapshot>(`${this.baseUrl}/monitor/hardware`);
+  }
+
+  getHardwareHistory() {
+    return this.http.get<HardwareSnapshot[]>(`${this.baseUrl}/monitor/hardware/history`);
+  }
+
+  getMonitorLogs(params?: { projectId?: string; agentRole?: string; level?: string; limit?: number; offset?: number }) {
+    return this.http.get<{ logs: any[]; total: number }>(`${this.baseUrl}/monitor/logs`, { params: params as any });
+  }
+
+  getActivityFeed(params?: { projectId?: string; limit?: number; offset?: number }) {
+    return this.http.get<{ items: ActivityItem[]; total: number }>(`${this.baseUrl}/monitor/activity`, { params: params as any });
+  }
+
+  getAgentsOverview() {
+    return this.http.get<AgentsOverview>(`${this.baseUrl}/monitor/agents/overview`);
+  }
+}
+
+// ─── Monitor Types ──────────────────────────────────────────
+
+export interface GpuStats {
+  index: number;
+  name: string;
+  temp: number;
+  fanSpeed: number;
+  powerDraw: number;
+  gpuUtil: number;
+  memUtil: number;
+  gpuClock: number;
+  memClock: number;
+}
+
+export interface CpuStats {
+  temp: number;
+  load1: number;
+  load5: number;
+  load15: number;
+}
+
+export interface RamStats {
+  totalMb: number;
+  usedMb: number;
+  availableMb: number;
+  usedPercent: number;
+}
+
+export interface HardwareSnapshot {
+  gpus: GpuStats[];
+  cpu: CpuStats;
+  ram: RamStats;
+  timestamp: number;
+}
+
+export interface ActivityItem {
+  type: 'log' | 'comment' | 'message';
+  id: string;
+  level?: string;
+  message: string;
+  agentRole?: string;
+  projectName?: string;
+  projectSlug?: string;
+  projectId?: string;
+  taskType?: string;
+  issueTitle?: string;
+  createdAt: string;
+}
+
+export interface AgentsOverview {
+  roles: AgentRoleOverview[];
+  taskStats: Record<string, number>;
+}
+
+export interface AgentRoleOverview {
+  role: string;
+  status: string;
+  activeProjects: Array<{ id: string; name: string; slug: string }>;
+  currentTask: any;
+  totalTasks: number;
 }

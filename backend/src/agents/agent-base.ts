@@ -5,6 +5,7 @@ import { ChatService } from '../chat/chat.service';
 import { ChatGateway } from '../chat/chat.gateway';
 import { LlmService } from '../llm/llm.service';
 import { LlmMessage, LlmCompletionResult } from '../llm/llm.interfaces';
+import { MonitorGateway } from '../monitor/monitor.gateway';
 import { AgentRole, AgentStatus, MessageRole } from '@prisma/client';
 
 export interface AgentContext {
@@ -28,6 +29,7 @@ export abstract class BaseAgent {
     protected readonly chatService: ChatService,
     protected readonly chatGateway: ChatGateway,
     protected readonly llmService: LlmService,
+    protected readonly monitorGateway?: MonitorGateway,
   ) {}
 
   /** Get the agent role config from SystemSettings */
@@ -155,14 +157,15 @@ export abstract class BaseAgent {
     });
   }
 
-  /** Write to AgentLog table */
+  /** Write to AgentLog table + emit via WebSocket for Live Feed */
   protected async log(
     agentTaskId: string,
     level: 'DEBUG' | 'INFO' | 'WARN' | 'ERROR',
     message: string,
     data?: Record<string, unknown>,
+    projectId?: string,
   ) {
-    await this.prisma.agentLog.create({
+    const logEntry = await this.prisma.agentLog.create({
       data: {
         agentTaskId,
         level,
@@ -170,6 +173,41 @@ export abstract class BaseAgent {
         ...(data && { data: data as any }),
       },
     });
+
+    // Emit to Live Feed via MonitorGateway
+    if (this.monitorGateway && level !== 'DEBUG') {
+      const pid = projectId ?? (await this.resolveProjectId(agentTaskId));
+      if (pid) {
+        this.monitorGateway.emitLogEntry(pid, {
+          id: logEntry.id,
+          level,
+          message,
+          data,
+          agentRole: this.role,
+          agentTaskId,
+          projectId: pid,
+          createdAt: logEntry.createdAt,
+        });
+      }
+    }
+  }
+
+  /** Resolve projectId from agentTaskId (cached per task) */
+  private projectIdCache = new Map<string, string>();
+  private async resolveProjectId(agentTaskId: string): Promise<string | null> {
+    const cached = this.projectIdCache.get(agentTaskId);
+    if (cached) return cached;
+    try {
+      const task = await this.prisma.agentTask.findUnique({
+        where: { id: agentTaskId },
+        select: { agent: { select: { projectId: true } } },
+      });
+      const pid = task?.agent?.projectId ?? null;
+      if (pid) this.projectIdCache.set(agentTaskId, pid);
+      return pid;
+    } catch {
+      return null;
+    }
   }
 
   /** Map Prisma MessageRole to LLM role */
