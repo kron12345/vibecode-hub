@@ -394,6 +394,7 @@ Gespeichert als `agents.pipeline` (JSON):
 |---|---|---|---|
 | `POST` | `/api/agents/interview/start` | Ja | Interview für ein Projekt starten |
 | `POST` | `/api/agents/architect/start` | Ja | Architect Agent manuell starten |
+| `POST` | `/api/agents/issue-compiler/start` | Ja | Issue Compiler manuell starten |
 | `POST` | `/api/agents/coding/start` | Ja | Coder Agent für ein Projekt starten |
 | `POST` | `/api/agents/review/start` | Ja | Code Review für MR starten |
 | `POST` | `/api/agents/functional-test/start` | Ja | Functional Test für MR starten |
