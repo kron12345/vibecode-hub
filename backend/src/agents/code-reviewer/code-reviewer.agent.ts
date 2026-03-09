@@ -227,10 +227,15 @@ Provide your review analysis and end with the completion marker and JSON result.
     );
 
     // Update issue → TESTING
-    await this.prisma.issue.update({
+    const approvedIssue = await this.prisma.issue.update({
       where: { id: issueId },
       data: { status: IssueStatus.TESTING },
     });
+
+    // Sync status label to GitLab
+    if (approvedIssue.gitlabIid) {
+      await this.gitlabService.syncStatusLabel(gitlabProjectId, approvedIssue.gitlabIid, 'TESTING').catch(() => {});
+    }
 
     // Complete task
     await this.prisma.agentTask.update({
@@ -270,10 +275,15 @@ Provide your review analysis and end with the completion marker and JSON result.
     );
 
     // Update issue → IN_PROGRESS
-    await this.prisma.issue.update({
+    const changedIssue = await this.prisma.issue.update({
       where: { id: issueId },
       data: { status: IssueStatus.IN_PROGRESS },
     });
+
+    // Sync status label to GitLab
+    if (changedIssue.gitlabIid) {
+      await this.gitlabService.syncStatusLabel(gitlabProjectId, changedIssue.gitlabIid, 'IN_PROGRESS').catch(() => {});
+    }
 
     // Complete review task
     await this.prisma.agentTask.update({

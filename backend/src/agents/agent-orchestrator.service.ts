@@ -657,6 +657,9 @@ export class AgentOrchestratorService {
       data: { status: IssueStatus.IN_PROGRESS },
     });
 
+    // Sync status label to GitLab
+    await this.gitlabService.syncStatusLabel(gitlabProjectId, gitlabIid, 'IN_PROGRESS').catch(() => {});
+
     // Find chat session for the project
     const chatSession = await this.prisma.chatSession.findFirst({
       where: { projectId },
@@ -736,10 +739,16 @@ export class AgentOrchestratorService {
     this.logger.log(`User ${authorName} commented on issue ${issueId} (status: ${issueStatus}) — re-triggering Coder`);
 
     // Update issue status → IN_PROGRESS
-    await this.prisma.issue.update({
+    const updatedIssue = await this.prisma.issue.update({
       where: { id: issueId },
       data: { status: IssueStatus.IN_PROGRESS },
+      include: { project: { select: { gitlabProjectId: true } } },
     });
+
+    // Sync status label to GitLab
+    if (updatedIssue.gitlabIid && updatedIssue.project.gitlabProjectId) {
+      await this.gitlabService.syncStatusLabel(updatedIssue.project.gitlabProjectId, updatedIssue.gitlabIid, 'IN_PROGRESS').catch(() => {});
+    }
 
     // Find chat session
     const chatSession = await this.prisma.chatSession.findFirst({
@@ -1094,10 +1103,14 @@ export class AgentOrchestratorService {
       if (fixCount >= MAX_FIX_ATTEMPTS) {
         this.logger.warn(`Issue ${issueId} has ${fixCount} fix attempts — stopping to prevent infinite loop`);
         // Move issue to a reviewable state instead of looping
-        await this.prisma.issue.update({
+        const maxRetryIssue = await this.prisma.issue.update({
           where: { id: issueId },
           data: { status: IssueStatus.IN_REVIEW },
+          include: { project: { select: { gitlabProjectId: true } } },
         });
+        if (maxRetryIssue.gitlabIid && maxRetryIssue.project.gitlabProjectId) {
+          await this.gitlabService.syncStatusLabel(maxRetryIssue.project.gitlabProjectId, maxRetryIssue.gitlabIid, 'IN_REVIEW').catch(() => {});
+        }
         return;
       }
 

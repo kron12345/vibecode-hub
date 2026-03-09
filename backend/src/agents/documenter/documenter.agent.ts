@@ -323,10 +323,15 @@ For code-level docs (README, API, JSDoc), keep \`wikiPage: false\` or omit it.`;
     );
 
     // Update issue → DONE
-    await this.prisma.issue.update({
+    const doneIssue = await this.prisma.issue.update({
       where: { id: issueId },
       data: { status: IssueStatus.DONE },
     });
+
+    // Sync status label + close in GitLab
+    if (doneIssue.gitlabIid) {
+      await this.gitlabService.syncStatusLabel(gitlabProjectId, doneIssue.gitlabIid, 'DONE').catch(() => {});
+    }
 
     await this.prisma.agentTask.update({
       where: { id: ctx.agentTaskId },

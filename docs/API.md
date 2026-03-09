@@ -138,6 +138,7 @@
 ### Verhalten
 - Status-Änderungen auf `CLOSED`/`DONE` werden automatisch an GitLab gesynct (close)
 - Status-Änderung auf `OPEN` reopened das GitLab-Issue
+- **Status Labels**: Jede Status-Änderung synct ein `status::*` Label nach GitLab (6 Labels pro Projekt, idempotent erstellt). Alte Status-Labels werden entfernt, neues gesetzt. Sync erfolgt in: IssuesService.update(), CodeReviewerAgent, DocumenterAgent, AgentOrchestratorService (Pipeline-Failure, User-Kommentar, Max Fix Attempts)
 - Sub-Issues über `parentId` — Top-Level Issues werden mit `parentId: null` gefiltert
 
 ---
@@ -664,6 +665,7 @@ map $hub_project $hub_upstream {
 
 | Datum | Änderung |
 |---|---|
+| 2026-03-09 | GitLab Status Labels: `status::*` labels synced on every issue status transition (6 color-coded labels, idempotent). Shell MCP Server for Coder Agent (`shell-server.mjs`, whitelisted commands, security-hardened). |
 | 2026-03-04 | Agent Comment Chat: Unified postAgentComment() utility (same rich markdown for local DB + GitLab, gitlabNoteId stored). Context injection: test agents receive previous agent comments in LLM prompts. GitLab Wiki CRUD (6 methods). Documenter Wiki sync (wikiPage flag in DocFile). |
 | 2026-03-03 | Phase 3 Testing + Documenter: Functional Tester (LLM Acceptance Criteria Check), UI Tester (Playwright + LLM), Pen Tester (npm audit + HTTP headers + LLM OWASP), Documenter (LLM + Git). Erweiterte Pipeline: Review APPROVED → Functional → UI → Pen → Docs → DONE. 4 neue manuelle Trigger-Endpoints, StartTestDto, Feedback Loops für alle Test-Agents |
 | 2026-03-03 | Coder Agent + Code Reviewer + Pipeline/User Feedback Loops: Komplette Coding-Pipeline von Issue→Code→Review→CI/CD→Fix. Qwen CLI --yolo, GitLab MRs, Issue Comments, Webhook-Expansion (note/pipeline/merge_request), IssueComment Model, .gitlab-ci.yml auto-generation, Frontend Issue-Detail Slide-over mit Comment-Timeline |

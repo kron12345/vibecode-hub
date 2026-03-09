@@ -1,4 +1,5 @@
 /** MCP module types */
+import * as path from 'path';
 
 /** Configuration for a single MCP server */
 export interface McpServerConfig {
@@ -19,6 +20,12 @@ export const MCP_SERVERS = {
     name: 'filesystem',
     command: 'npx',
     args: ['@modelcontextprotocol/server-filesystem', ...allowedPaths],
+  }),
+  /** Shell server — sandboxed command execution in a workspace directory */
+  shell: (workspacePath: string): McpServerConfig => ({
+    name: 'shell',
+    command: 'node',
+    args: [path.resolve(__dirname, '..', '..', 'mcp', 'servers', 'shell-server.mjs'), workspacePath],
   }),
 } as const;
 

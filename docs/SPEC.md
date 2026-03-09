@@ -69,6 +69,7 @@ VibCode Hub ist ein AI-Entwicklerteam-Portal. Der Nutzer agiert als "Chef" und s
 ### Phase 4 — MCP + Lokale LLMs
 - [x] MCP Client Integration (@modelcontextprotocol/sdk)
 - [x] MCP Filesystem Server für Coder Agent (14 Tools)
+- [x] MCP Shell Server für Coder Agent (run_command, whitelisted commands, security-hardened)
 - [x] Ollama Tool-Calling Support (native function calling)
 - [x] MCP Agent Loop (generisch, LLM ↔ Tool-Calls ↔ MCP)
 - [x] Coder Agent umgebaut: Qwen CLI → MCP Agent Loop

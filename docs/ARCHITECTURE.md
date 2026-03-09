@@ -172,8 +172,24 @@ GitLab Webhooks:
 - **McpClientService**: Startet MCP-Server als Subprozesse, verwaltet Connections, Tool-Discovery
 - **McpAgentLoopService**: Generischer Agent-Loop (LLM-Call → tool_calls → MCP-Execution → Repeat)
 - **Filesystem MCP Server**: `@modelcontextprotocol/server-filesystem` — 14 Tools (read, write, edit, search, tree etc.)
-- **Sandboxing**: MCP-Server erhält nur Zugriff auf den Workspace-Ordner des Projekts
+- **Shell MCP Server**: `shell-server.mjs` — `run_command` Tool für Shell-Befehle im Workspace
+- **Sandboxing**: MCP-Server erhalten nur Zugriff auf den Workspace-Ordner des Projekts
 - **Erweiterbar**: Weitere MCP-Server (Git, Angular CLI, Prisma) können später ergänzt werden
+
+### Shell MCP Server (`shell-server.mjs`)
+
+Eigener MCP-Server, der dem Coder Agent sichere Shell-Befehle im Workspace ermöglicht.
+
+**Tool:** `run_command` — führt ein Kommando im Workspace-Verzeichnis aus.
+
+**Whitelisted Commands:** `npm`, `npx`, `yarn`, `pnpm`, `node`, `git`, `tsc`, `ng`, `nest`, `prisma`, `eslint`, `prettier`, `jest`, `vitest`, `cat`, `ls`, `mkdir`, `cp`, `mv`, `touch`, `chmod`, `head`, `tail`, `wc`, `diff`, `find`, `which`
+
+**Security:**
+- `execFile` (kein Shell-Injection möglich)
+- Blockierte Patterns: `rm -rf /`, `sudo`, `curl|sh`, `wget|sh`, `eval`, `> /dev/`
+- 120 Sekunden Timeout pro Befehl
+- 10 MB Output-Buffer
+- Nur im übergebenen Workspace-Verzeichnis ausführbar
 
 ### Agent Comment System
 - **Utility**: `agent-comment.utils.ts` — `postAgentComment()` speichert identischen rich Markdown in lokaler DB UND als GitLab Issue Note. `gitlabNoteId` wird gespeichert für 2-Wege-Sync.
@@ -225,6 +241,27 @@ GitLab Webhooks:
 - Generiert deterministische `.gitlab-ci.yml` basierend auf Tech-Stack
 - Templates: Node/Angular/React (4 Stages), Python, Rust, Go, Generic
 - Runner-Tags: `docker`, `vibcode`
+
+## GitLab Status Labels
+
+Jede Issue-Status-Transition synct automatisch ein `status::*` Label nach GitLab. Die 6 Labels werden idempotent pro Projekt erstellt (einmal anlegen, danach wiederverwenden).
+
+| Label | Farbe | Status |
+|---|---|---|
+| `status::open` | Blau (`#428BCA`) | OPEN |
+| `status::in-progress` | Orange (`#ED9121`) | IN_PROGRESS |
+| `status::in-review` | Lila (`#9B59B6`) | IN_REVIEW |
+| `status::testing` | Gelb (`#F0AD4E`) | TESTING |
+| `status::done` | Grün (`#69D100`) | DONE |
+| `status::closed` | Grau (`#CCCCCC`) | CLOSED |
+
+**Sync-Punkte:**
+- `IssuesService.update()` — bei jedem Status-Wechsel über die REST-API
+- `CodeReviewerAgent` — setzt IN_REVIEW / IN_PROGRESS
+- `DocumenterAgent` — setzt DONE
+- `AgentOrchestratorService` — Pipeline-Failure, User-Kommentar-Feedback, Max Fix Attempts
+
+**Verhalten:** Beim Label-Sync werden alle bestehenden `status::*` Labels vom Issue entfernt und das neue Label gesetzt. Labels werden pro Projekt einmalig erstellt (idempotent, kein Fehler bei Duplikat).
 
 ## Auth-Flow
 

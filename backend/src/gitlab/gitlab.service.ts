@@ -139,6 +139,8 @@ interface UpdateIssueOptions {
   title?: string;
   description?: string;
   labels?: string[];
+  add_labels?: string[];
+  remove_labels?: string[];
   state_event?: 'close' | 'reopen';
   milestone_id?: number;
 }
@@ -283,6 +285,8 @@ export class GitlabService {
     if (options.title !== undefined) body.title = options.title;
     if (options.description !== undefined) body.description = options.description;
     if (options.labels !== undefined) body.labels = options.labels.join(',');
+    if (options.add_labels !== undefined) body.add_labels = options.add_labels.join(',');
+    if (options.remove_labels !== undefined) body.remove_labels = options.remove_labels.join(',');
     if (options.state_event !== undefined) body.state_event = options.state_event;
     if (options.milestone_id !== undefined) body.milestone_id = options.milestone_id;
 
@@ -299,6 +303,74 @@ export class GitlabService {
 
   async closeIssue(projectId: number, issueIid: number): Promise<GitLabIssue> {
     return this.updateIssue(projectId, issueIid, { state_event: 'close' });
+  }
+
+  // ─── Status Labels ────────────────────────────────────────────
+
+  /** All pipeline status labels with their GitLab colors */
+  static readonly STATUS_LABELS: Record<string, { label: string; color: string }> = {
+    OPEN:        { label: 'status::open',        color: '#428BCA' }, // blue
+    IN_PROGRESS: { label: 'status::in-progress', color: '#E67E22' }, // orange
+    IN_REVIEW:   { label: 'status::in-review',   color: '#9B59B6' }, // purple
+    TESTING:     { label: 'status::testing',      color: '#F1C40F' }, // yellow
+    DONE:        { label: 'status::done',         color: '#2ECC71' }, // green
+    CLOSED:      { label: 'status::closed',       color: '#95A5A6' }, // gray
+  };
+
+  /** Cache: Set of projectIds where labels have been created */
+  private readonly labelInitializedProjects = new Set<number>();
+
+  /**
+   * Ensure all status labels exist in a GitLab project.
+   * Idempotent — caches which projects are initialized.
+   */
+  async ensureStatusLabels(projectId: number): Promise<void> {
+    if (this.labelInitializedProjects.has(projectId)) return;
+
+    for (const { label, color } of Object.values(GitlabService.STATUS_LABELS)) {
+      try {
+        await firstValueFrom(
+          this.httpService.post(
+            `${this.apiUrl}/projects/${projectId}/labels`,
+            { name: label, color },
+            { headers: this.headers },
+          ),
+        );
+        this.logger.debug(`Created label "${label}" in project ${projectId}`);
+      } catch (err: any) {
+        // 409 = label already exists — that's fine
+        if (err.response?.status !== 409) {
+          this.logger.warn(`Could not create label "${label}": ${err.response?.status ?? err.message}`);
+        }
+      }
+    }
+
+    this.labelInitializedProjects.add(projectId);
+    this.logger.log(`Status labels initialized for project ${projectId}`);
+  }
+
+  /**
+   * Sync an issue's status as a GitLab label.
+   * Removes all other status:: labels, adds the current one.
+   */
+  async syncStatusLabel(
+    projectId: number,
+    issueIid: number,
+    status: string,
+  ): Promise<void> {
+    await this.ensureStatusLabels(projectId);
+
+    const current = GitlabService.STATUS_LABELS[status];
+    if (!current) return;
+
+    const allStatusLabels = Object.values(GitlabService.STATUS_LABELS).map((l) => l.label);
+    const removeLabels = allStatusLabels.filter((l) => l !== current.label);
+
+    await this.updateIssue(projectId, issueIid, {
+      add_labels: [current.label],
+      remove_labels: removeLabels,
+    });
+    this.logger.debug(`Synced label "${current.label}" to GitLab issue #${issueIid}`);
   }
 
   // ─── Milestones ─────────────────────────────────────────────

@@ -556,24 +556,29 @@ export class CoderAgent extends BaseAgent {
 
     const mcpServers: McpServerConfig[] = [
       MCP_SERVERS.filesystem([workspace]),
+      MCP_SERVERS.shell(workspace),
     ];
 
     const systemPrompt = [
       'You are a skilled software developer. Your task is to implement features by reading and modifying files in the project.',
       '',
-      'Available tools let you browse the project directory, read files, write files, and edit files.',
+      'Available tools:',
+      '- File tools: browse directories, read/write/edit files, search',
+      '- Shell tool (run_command): execute commands like npm install, npm audit fix, git status, etc.',
       '',
       'Workflow:',
       '1. First, explore the project structure using list_directory and directory_tree',
       '2. Read relevant files to understand existing code patterns',
       '3. Implement the requested changes by writing or editing files',
-      '4. Verify your changes are consistent with the existing codebase',
+      '4. If the project uses npm: run "npm install" after adding dependencies to package.json',
+      '5. Verify your changes are consistent with the existing codebase',
       '',
       'Rules:',
       '- Follow existing code patterns and conventions',
       '- Add error handling where appropriate',
       '- Do NOT create test files unless the task specifically asks for tests',
       '- Do NOT modify unrelated files',
+      '- If asked to fix security vulnerabilities, use "npm audit fix" or update package versions',
       '- When done, respond with a brief summary of what you changed',
     ].join('\n');
 

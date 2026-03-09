@@ -111,8 +111,11 @@ export class IssuesService {
       include: { project: { select: { gitlabProjectId: true } } },
     });
 
-    // Sync status changes to GitLab
+    // Sync changes to GitLab
     if (issue.gitlabIid && issue.project.gitlabProjectId) {
+      const glProjectId = issue.project.gitlabProjectId;
+
+      // Sync field updates (title, description, labels, state)
       try {
         const updatePayload: Record<string, any> = {};
         if (dto.title) updatePayload.title = dto.title;
@@ -125,14 +128,19 @@ export class IssuesService {
         }
 
         if (Object.keys(updatePayload).length > 0) {
-          await this.gitlab.updateIssue(
-            issue.project.gitlabProjectId,
-            issue.gitlabIid,
-            updatePayload,
-          );
+          await this.gitlab.updateIssue(glProjectId, issue.gitlabIid, updatePayload);
         }
       } catch (err) {
         this.logger.warn(`Could not sync issue update to GitLab: ${err.message}`);
+      }
+
+      // Sync status label (status::in-progress, status::testing, etc.)
+      if (dto.status) {
+        try {
+          await this.gitlab.syncStatusLabel(glProjectId, issue.gitlabIid, dto.status);
+        } catch (err) {
+          this.logger.warn(`Could not sync status label to GitLab: ${err.message}`);
+        }
       }
     }
 
