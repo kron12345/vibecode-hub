@@ -411,3 +411,56 @@ Dokumentation aller Prompts/Anforderungen die zur Entwicklung genutzt wurden.
 
 **Commands:** `npx nest build` (grün)
 **Status:** Agent-Comment-System implementiert ✅, Wiki CRUD ✅, Build grün ✅
+
+---
+
+### Session 2026-03-09 — Automatisierter Pipeline E2E-Test + Bugfixes
+
+**User-Prompt:**
+> Ich weiß nicht mehr wo wir waren, was steht als nächstes an?
+> → Mach einen automatischen UI Test: Projekt anlegen, Pipeline durchlaufen lassen, kontrollieren ob Issues angelegt werden, kommentiert werden und Code entsteht. Eingabe nur über das UI. Fehler korrigieren.
+
+**Ergebnis — E2E Test Script (`tests/pipeline-e2e.ts`):**
+- Playwright-basierter E2E-Test gegen Produktion (hub.example.com)
+- 7 Phasen: Login (Keycloak) → Create Project (UI) → Interview (Chat) → Monitor Pipeline → Verify Issues → Verify Comments → Verify Code
+- Nutzt `vibcode-bot` User mit temporär aktiviertem Direct Access Grants für Token-Fetch
+- Interview-Antworten vorbereitet für eine einfache Click Counter App (Vanilla HTML/CSS/JS)
+- Pipeline-Monitoring über Issue-Status-Tracking (OPEN→IN_PROGRESS→IN_REVIEW→DONE)
+- 3 Testläufe durchgeführt (Projekte 70, 71, 72)
+
+**Ergebnis — Bug gefunden und gefixt:**
+
+1. **Duplicate Agent Processing (KRITISCH)**
+   - **Problem**: `agent.interviewComplete` Event feuerte doppelt → Issue Compiler lief 2× → 11 statt 5-6 Issues
+   - **Fix**: `hasActiveAgent()` Idempotency-Guard in `AgentOrchestratorService` — prüft vor Agent-Start ob bereits ein Agent mit gleicher Rolle WORKING/WAITING ist oder ein RUNNING Task existiert
+   - **Betrifft**: `handleInterviewComplete` (DEVOPS), `handleDevopsComplete` (ISSUE_COMPILER), `handleIssueCompilerComplete` (CODER), `handleCodingComplete` (CODE_REVIEWER)
+
+2. **Code Review nicht gestartet**
+   - **Problem**: Coder emittierte `agent.codingComplete` mit `mrIid: undefined` wenn MR-Erstellung fehlschlug → Code Reviewer crashte
+   - **Fix**: Event wird nur emittiert wenn `mrIid` truthy ist, sonst Warning-Log
+
+3. **Interview Double-Completion**
+   - **Problem**: `continueInterview()` wurde nach Task-Completion nochmal aufgerufen
+   - **Fix**: Guard am Anfang von `continueInterview()` prüft ob Task bereits COMPLETED ist
+
+**Bestätigte Pipeline-Funktionalität:**
+- ✅ Interview → DevOps → Issue Compiler → Coder → Code Reviewer → Functional Tester → UI Tester → Pen Tester → Documenter
+- ✅ Feedback Loop: Code Review CHANGES REQUESTED → Coder re-triggered → Fix applied
+- ✅ Agent-Kommentare mit GitLab-Sync (gitlabNoteId vorhanden)
+- ✅ Issues werden korrekt angelegt und kommentiert
+- ✅ Code wird committed auf Feature-Branches, MRs erstellt
+
+**Bekannte Infrastruktur-Issues (nicht gefixt):**
+- Qwen CLI Streaming Timeout (~483s) bei Ollama Backend — Infrastruktur-Problem
+- Fehlgeschlagene Issues bleiben IN_PROGRESS (braucht Retry/Cleanup-Logik)
+
+**Geänderte Dateien:**
+- `backend/src/agents/agent-orchestrator.service.ts` — `hasActiveAgent()` Guard + 4× angewendet
+- `backend/src/agents/interviewer/interviewer.agent.ts` — Task-Completion Guard
+- `backend/src/agents/coder/coder.agent.ts` — mrIid Validierung vor Event-Emission
+- `tests/pipeline-e2e.ts` (NEU) — Playwright E2E Test Script
+- `tests/tsconfig.json` (NEU) — TypeScript Config für Tests
+
+**Commits:** `a284dcd` — fix: idempotency guards for pipeline agents, prevent duplicate processing
+**Commands:** `npx nest build` (grün), 3× E2E Testläufe
+**Status:** Pipeline E2E-Test ✅, 3 Bugs gefixt ✅, 2 Infrastruktur-Issues identifiziert ⚠️
