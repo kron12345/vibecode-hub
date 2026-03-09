@@ -31,9 +31,10 @@ export class OllamaProvider implements LlmStreamingProvider {
     const baseUrl = this.settings.ollamaUrl;
     const url = `${baseUrl}/api/chat`;
 
-    // When maxParallelOllamaModels=1 (default), unload model after request to free VRAM
+    // Keep model loaded for 2 min between requests (agents often make multiple calls).
+    // When maxParallelOllamaModels > 1, keep longer (5m) for concurrent usage.
     const pipelineCfg = this.settings.getPipelineConfig();
-    const keepAlive = pipelineCfg.maxParallelOllamaModels <= 1 ? '0' : '5m';
+    const keepAlive = pipelineCfg.maxParallelOllamaModels <= 1 ? '2m' : '5m';
 
     const body: Record<string, unknown> = {
       model: options.model,
@@ -173,9 +174,10 @@ export class OllamaProvider implements LlmStreamingProvider {
     const baseUrl = this.settings.ollamaUrl;
     const url = `${baseUrl}/api/chat`;
 
-    // When maxParallelOllamaModels=1 (default), unload model after request to free VRAM
+    // Keep model loaded for 2 min between requests (agents often make multiple calls).
+    // When maxParallelOllamaModels > 1, keep longer (5m) for concurrent usage.
     const pipelineCfg = this.settings.getPipelineConfig();
-    const keepAlive = pipelineCfg.maxParallelOllamaModels <= 1 ? '0' : '5m';
+    const keepAlive = pipelineCfg.maxParallelOllamaModels <= 1 ? '2m' : '5m';
 
     const body = {
       model: options.model,
