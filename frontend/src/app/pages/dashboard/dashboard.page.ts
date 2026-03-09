@@ -1,104 +1,560 @@
-import { Component, inject, OnInit, signal } from '@angular/core';
+import { Component, inject, OnInit, OnDestroy, signal, computed } from '@angular/core';
 import { Router, RouterLink } from '@angular/router';
+import { DatePipe } from '@angular/common';
 import { FormsModule } from '@angular/forms';
-import { ApiService, Project } from '../../services/api.service';
+import {
+  ApiService,
+  Project,
+  AgentsOverview,
+  AgentRoleOverview,
+  ActivityItem,
+} from '../../services/api.service';
+import { MonitorSocketService } from '../../services/monitor-socket.service';
 import { IconComponent } from '../../components/icon.component';
 import { HardwareMonitorComponent } from '../../components/hardware-monitor.component';
 import { TranslatePipe } from '../../pipes/translate.pipe';
 import { TranslateService } from '../../services/translate.service';
 
+const ROLE_META: Record<
+  string,
+  { icon: string; color: string; bgColor: string }
+> = {
+  INTERVIEWER: {
+    icon: 'mic',
+    color: 'text-sky-400',
+    bgColor: 'bg-sky-500/20',
+  },
+  ARCHITECT: {
+    icon: 'compass',
+    color: 'text-violet-400',
+    bgColor: 'bg-violet-500/20',
+  },
+  ISSUE_COMPILER: {
+    icon: 'list-checks',
+    color: 'text-amber-400',
+    bgColor: 'bg-amber-500/20',
+  },
+  CODER: {
+    icon: 'code-2',
+    color: 'text-indigo-400',
+    bgColor: 'bg-indigo-500/20',
+  },
+  CODE_REVIEWER: {
+    icon: 'search-check',
+    color: 'text-emerald-400',
+    bgColor: 'bg-emerald-500/20',
+  },
+  UI_TESTER: {
+    icon: 'monitor-check',
+    color: 'text-pink-400',
+    bgColor: 'bg-pink-500/20',
+  },
+  FUNCTIONAL_TESTER: {
+    icon: 'test-tubes',
+    color: 'text-teal-400',
+    bgColor: 'bg-teal-500/20',
+  },
+  PEN_TESTER: {
+    icon: 'shield-alert',
+    color: 'text-red-400',
+    bgColor: 'bg-red-500/20',
+  },
+  DOCUMENTER: {
+    icon: 'file-text',
+    color: 'text-cyan-400',
+    bgColor: 'bg-cyan-500/20',
+  },
+  DEVOPS: {
+    icon: 'server',
+    color: 'text-orange-400',
+    bgColor: 'bg-orange-500/20',
+  },
+};
+
+const SHORT_ROLES: Record<string, string> = {
+  INTERVIEWER: 'INT',
+  ARCHITECT: 'ARCH',
+  ISSUE_COMPILER: 'IC',
+  CODER: 'CODE',
+  CODE_REVIEWER: 'REV',
+  UI_TESTER: 'UI',
+  FUNCTIONAL_TESTER: 'FUNC',
+  PEN_TESTER: 'PEN',
+  DOCUMENTER: 'DOC',
+  DEVOPS: 'OPS',
+};
+
 @Component({
   selector: 'app-dashboard',
-  imports: [RouterLink, FormsModule, IconComponent, HardwareMonitorComponent, TranslatePipe],
+  imports: [
+    RouterLink,
+    DatePipe,
+    FormsModule,
+    IconComponent,
+    HardwareMonitorComponent,
+    TranslatePipe,
+  ],
   template: `
-    <!-- Hardware Stats Bar -->
-    <div class="mb-8 animate-in stagger-1">
-      <app-hardware-monitor layout="horizontal" />
-    </div>
-
     <!-- Header -->
-    <div class="flex items-center justify-between mb-8 animate-in stagger-5">
+    <div
+      class="flex items-center justify-between mb-6 animate-in stagger-1"
+    >
       <div>
-        <h1 class="text-3xl font-extrabold tracking-tight bg-gradient-to-r from-white via-indigo-200 to-slate-500 bg-clip-text text-transparent">
+        <h1
+          class="text-3xl font-extrabold tracking-tight bg-gradient-to-r from-white via-indigo-200 to-slate-500 bg-clip-text text-transparent"
+        >
           {{ 'dashboard.title' | translate }}
         </h1>
-        <p class="text-slate-500 mt-1">{{ i18n.t('dashboard.projectCount', { count: projects().length }) }}</p>
+        <p class="text-slate-500 mt-1">
+          {{ 'dashboard.subtitle' | translate }}
+        </p>
       </div>
-      <button
-        (click)="showCreate = true"
-        class="bg-indigo-600 hover:bg-indigo-500 hover:shadow-lg hover:shadow-indigo-500/25 text-white px-6 py-3 rounded-full font-bold transition-all duration-300 flex items-center gap-2 hover:scale-[1.03]"
-      >
-        <app-icon name="plus" [size]="18" />
-        {{ 'dashboard.newProject' | translate }}
-      </button>
+      <div class="flex items-center gap-4">
+        <div class="flex items-center gap-2">
+          <span class="relative flex h-2.5 w-2.5">
+            <span
+              class="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"
+            ></span>
+            <span
+              class="relative inline-flex rounded-full h-2.5 w-2.5 bg-emerald-500"
+            ></span>
+          </span>
+          <span
+            class="text-[10px] font-mono text-emerald-400 uppercase tracking-widest"
+            >Live</span
+          >
+        </div>
+        <button
+          (click)="showCreate = true"
+          class="bg-indigo-600 hover:bg-indigo-500 hover:shadow-lg hover:shadow-indigo-500/25 text-white px-5 py-2.5 rounded-full font-bold transition-all duration-300 flex items-center gap-2 hover:scale-[1.03] text-sm"
+        >
+          <app-icon name="plus" [size]="16" />
+          {{ 'dashboard.newProject' | translate }}
+        </button>
+      </div>
     </div>
 
-    <!-- Project Bento Grid -->
-    <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-      @for (project of projects(); track project.id; let i = $index) {
-        <a
-          [routerLink]="['/projects', project.slug]"
-          class="glass card-glow rounded-3xl p-6 group transition-all duration-300 hover:-translate-y-1.5 block animate-in"
-          [style.animation-delay]="(0.3 + i * 0.08) + 's'"
-        >
-          <div class="flex items-start justify-between mb-4">
-            <div class="p-3 bg-indigo-500/20 text-indigo-400 rounded-2xl group-hover:bg-indigo-500/30 transition-colors">
-              <app-icon name="folder-git-2" [size]="22" />
-            </div>
-            <app-icon
-              name="arrow-up-right"
-              [size]="16"
-              class="text-slate-600 group-hover:text-indigo-400 group-hover:translate-x-0.5 group-hover:-translate-y-0.5 transition-all duration-300"
-            />
-          </div>
-          <h3 class="text-lg font-semibold text-white mb-1">{{ project.name }}</h3>
-          <p class="text-sm text-slate-500 mb-4 line-clamp-2">
-            {{ project.description || ('common.noDescription' | translate) }}
+    <!-- Quick Stats Strip -->
+    <div
+      class="grid grid-cols-2 md:grid-cols-4 gap-3 mb-6 animate-in stagger-2"
+    >
+      <div class="glass rounded-xl px-4 py-3 flex items-center gap-3">
+        <div class="p-2 bg-indigo-500/15 rounded-lg">
+          <app-icon name="folder-git-2" [size]="15" class="text-indigo-400" />
+        </div>
+        <div>
+          <p
+            class="text-[10px] text-slate-500 uppercase tracking-wider font-bold"
+          >
+            {{ 'dashboard.statProjects' | translate }}
           </p>
-          <div class="flex items-center justify-between">
-            <span class="font-mono text-xs text-indigo-400/70">/{{ project.slug }}</span>
+          <p class="text-lg font-mono font-bold text-white leading-tight">
+            {{ projects().length }}
+          </p>
+        </div>
+      </div>
+      <div class="glass rounded-xl px-4 py-3 flex items-center gap-3">
+        <div class="p-2 bg-emerald-500/15 rounded-lg">
+          <app-icon name="bot" [size]="15" class="text-emerald-400" />
+        </div>
+        <div>
+          <p
+            class="text-[10px] text-slate-500 uppercase tracking-wider font-bold"
+          >
+            {{ 'dashboard.statAgents' | translate }}
+          </p>
+          <p
+            class="text-lg font-mono font-bold leading-tight"
+            [class]="
+              workingAgents().length > 0
+                ? 'text-emerald-400'
+                : 'text-slate-400'
+            "
+          >
+            {{ workingAgents().length
+            }}<span class="text-slate-600 text-sm">/10</span>
+          </p>
+        </div>
+      </div>
+      <div class="glass rounded-xl px-4 py-3 flex items-center gap-3">
+        <div class="p-2 bg-blue-500/15 rounded-lg">
+          <app-icon name="play" [size]="15" class="text-blue-400" />
+        </div>
+        <div>
+          <p
+            class="text-[10px] text-slate-500 uppercase tracking-wider font-bold"
+          >
+            {{ 'dashboard.statRunning' | translate }}
+          </p>
+          <p
+            class="text-lg font-mono font-bold text-blue-400 leading-tight"
+          >
+            {{ taskStats()['RUNNING'] ?? 0 }}
+          </p>
+        </div>
+      </div>
+      <div class="glass rounded-xl px-4 py-3 flex items-center gap-3">
+        <div class="p-2 bg-violet-500/15 rounded-lg">
+          <app-icon name="check-check" [size]="15" class="text-violet-400" />
+        </div>
+        <div>
+          <p
+            class="text-[10px] text-slate-500 uppercase tracking-wider font-bold"
+          >
+            {{ 'dashboard.statCompleted' | translate }}
+          </p>
+          <p
+            class="text-lg font-mono font-bold text-violet-400 leading-tight"
+          >
+            {{ taskStats()['COMPLETED'] ?? 0 }}
+          </p>
+        </div>
+      </div>
+    </div>
+
+    <!-- Main 2-Column Layout -->
+    <div class="grid grid-cols-1 lg:grid-cols-3 gap-4">
+      <!-- Left: Hardware + Activity (2/3) -->
+      <div class="lg:col-span-2 space-y-4">
+        <!-- Hardware Monitor -->
+        <div class="animate-in stagger-3">
+          <app-hardware-monitor layout="horizontal" />
+        </div>
+
+        <!-- Recent Activity -->
+        <div
+          class="glass rounded-2xl overflow-hidden animate-in stagger-5"
+        >
+          <div
+            class="flex items-center justify-between px-5 py-3 border-b border-white/5"
+          >
             <div class="flex items-center gap-2">
-              @if (project.status === 'INTERVIEWING') {
-                <span class="text-[10px] font-mono text-sky-400 animate-pulse uppercase tracking-widest">{{ 'project.interviewRunning' | translate }}</span>
-              } @else if (project.status === 'SETTING_UP') {
-                <span class="text-[10px] font-mono text-amber-400 animate-pulse uppercase tracking-widest">{{ 'project.settingUp' | translate }}</span>
-              } @else {
-                <span class="text-[10px] text-slate-600 uppercase tracking-widest">
-                  {{ formatDate(project.updatedAt) }}
+              <app-icon name="activity" [size]="14" class="text-slate-500" />
+              <h3
+                class="text-xs font-bold uppercase tracking-widest text-slate-400"
+              >
+                {{ 'dashboard.recentActivity' | translate }}
+              </h3>
+            </div>
+            <a
+              routerLink="/live-feed"
+              class="text-[10px] text-indigo-400 hover:text-indigo-300 font-mono transition-colors"
+            >
+              {{ 'dashboard.viewAll' | translate }} &rarr;
+            </a>
+          </div>
+          <div class="divide-y divide-white/[0.03]">
+            @for (item of displayActivity(); track item.id) {
+              <div
+                class="px-5 py-2.5 flex items-center gap-3 hover:bg-white/[0.02] transition-colors"
+              >
+                <div class="shrink-0">
+                  @if (item.agentRole) {
+                    <app-icon
+                      [name]="agentIcon(item.agentRole)"
+                      [size]="14"
+                      [class]="agentColor(item.agentRole)"
+                    />
+                  } @else {
+                    <app-icon
+                      name="circle-dot"
+                      [size]="14"
+                      class="text-slate-600"
+                    />
+                  }
+                </div>
+                <div class="flex-1 min-w-0">
+                  <p class="text-xs text-slate-300 truncate">
+                    @if (item.agentRole) {
+                      <span
+                        class="font-mono font-bold mr-1.5"
+                        [class]="agentColor(item.agentRole)"
+                        >{{ shortRole(item.agentRole) }}</span
+                      >
+                    }
+                    {{ item.message }}
+                  </p>
+                </div>
+                @if (item.projectName) {
+                  <span
+                    class="text-[10px] text-slate-600 font-mono shrink-0 hidden sm:block"
+                    >{{ item.projectName }}</span
+                  >
+                }
+                <span class="text-[10px] font-mono text-slate-600 shrink-0">
+                  {{ item.createdAt | date: 'HH:mm' }}
                 </span>
+              </div>
+            } @empty {
+              <div class="px-5 py-8 text-center">
+                <app-icon
+                  name="radio"
+                  [size]="20"
+                  class="text-slate-700 mx-auto mb-2"
+                />
+                <p class="text-xs text-slate-600">
+                  {{ 'dashboard.noActivity' | translate }}
+                </p>
+              </div>
+            }
+          </div>
+        </div>
+      </div>
+
+      <!-- Right: Agents + Projects (1/3) -->
+      <div class="space-y-4">
+        <!-- Agent Pipeline Status -->
+        <div class="glass rounded-2xl p-5 animate-in stagger-4">
+          <div class="flex items-center justify-between mb-4">
+            <div class="flex items-center gap-2">
+              <app-icon name="bot" [size]="14" class="text-slate-500" />
+              <h3
+                class="text-xs font-bold uppercase tracking-widest text-slate-400"
+              >
+                {{ 'dashboard.agentStatus' | translate }}
+              </h3>
+            </div>
+            <a
+              routerLink="/agents"
+              class="text-[10px] text-indigo-400 hover:text-indigo-300 font-mono transition-colors"
+            >
+              {{ 'dashboard.details' | translate }} &rarr;
+            </a>
+          </div>
+
+          <!-- Pipeline grid: 5x2 -->
+          <div class="grid grid-cols-5 gap-2">
+            @for (role of pipelineRoles; track role) {
+              @let meta = getRoleMeta(role);
+              @let data = getRoleData(role);
+              <div
+                class="group relative flex flex-col items-center gap-1.5 py-2 px-1 rounded-xl transition-all duration-300 cursor-default"
+                [class]="
+                  data?.status === 'WORKING'
+                    ? 'bg-white/[0.04]'
+                    : 'hover:bg-white/[0.02]'
+                "
+              >
+                <div class="relative">
+                  <div
+                    class="p-1.5 rounded-lg transition-colors"
+                    [class]="
+                      data?.status === 'WORKING'
+                        ? meta.bgColor
+                        : 'bg-slate-800/50'
+                    "
+                  >
+                    <app-icon
+                      [name]="meta.icon"
+                      [size]="14"
+                      [class]="
+                        data?.status === 'WORKING'
+                          ? meta.color
+                          : 'text-slate-600'
+                      "
+                    />
+                  </div>
+                  @if (data?.status === 'WORKING') {
+                    <span
+                      class="absolute -top-0.5 -right-0.5 flex h-2.5 w-2.5"
+                    >
+                      <span
+                        class="animate-ping absolute inline-flex h-full w-full rounded-full opacity-75"
+                        [class]="meta.bgColor.replace('/20', '/60')"
+                      ></span>
+                      <span
+                        class="relative inline-flex rounded-full h-2.5 w-2.5"
+                        [class]="meta.bgColor.replace('/20', '')"
+                      ></span>
+                    </span>
+                  }
+                </div>
+                <span
+                  class="text-[8px] font-mono leading-none text-center"
+                  [class]="
+                    data?.status === 'WORKING'
+                      ? 'text-slate-300'
+                      : 'text-slate-600'
+                  "
+                >
+                  {{ shortRole(role) }}
+                </span>
+
+                <!-- Tooltip on hover for working agents -->
+                @if (data?.currentTask) {
+                  <div
+                    class="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 w-36 glass-heavy rounded-lg p-2 opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none z-10"
+                  >
+                    <p class="text-[10px] text-slate-300 truncate">
+                      {{ data!.currentTask.type }}
+                    </p>
+                    @if (data!.activeProjects.length) {
+                      <p class="text-[9px] text-slate-500 truncate mt-0.5">
+                        {{ data!.activeProjects[0].name }}
+                      </p>
+                    }
+                  </div>
+                }
+              </div>
+            }
+          </div>
+
+          <!-- Working agents detail list -->
+          @if (workingAgents().length > 0) {
+            <div class="mt-3 pt-3 border-t border-white/5 space-y-2">
+              @for (agent of workingAgents(); track agent.role) {
+                @let meta = getRoleMeta(agent.role);
+                <div class="flex items-center gap-2">
+                  <app-icon
+                    [name]="meta.icon"
+                    [size]="12"
+                    [class]="meta.color"
+                  />
+                  <span
+                    class="text-[10px] font-mono text-slate-300 flex-1 truncate"
+                  >
+                    @if (agent.activeProjects.length) {
+                      <a
+                        [routerLink]="[
+                          '/projects',
+                          agent.activeProjects[0].slug,
+                        ]"
+                        class="hover:text-indigo-400 transition-colors"
+                      >
+                        {{ agent.activeProjects[0].name }}
+                      </a>
+                    }
+                  </span>
+                  @if (agent.currentTask) {
+                    <span class="text-[9px] text-slate-600 font-mono">{{
+                      agent.currentTask.type
+                    }}</span>
+                  }
+                </div>
+              }
+            </div>
+          }
+        </div>
+
+        <!-- Active Projects -->
+        <div class="glass rounded-2xl p-5 animate-in stagger-6">
+          <div class="flex items-center justify-between mb-4">
+            <div class="flex items-center gap-2">
+              <app-icon name="zap" [size]="14" class="text-amber-500" />
+              <h3
+                class="text-xs font-bold uppercase tracking-widest text-slate-400"
+              >
+                {{ 'dashboard.activeProjects' | translate }}
+              </h3>
+            </div>
+            <a
+              routerLink="/projects"
+              class="text-[10px] text-indigo-400 hover:text-indigo-300 font-mono transition-colors"
+            >
+              {{ 'dashboard.viewAll' | translate }} &rarr;
+            </a>
+          </div>
+          <div class="space-y-2">
+            @for (project of activeProjects(); track project.id) {
+              <a
+                [routerLink]="['/projects', project.slug]"
+                class="flex items-center gap-3 p-2.5 rounded-xl hover:bg-white/[0.04] transition-all group"
+              >
+                <div
+                  class="p-1.5 bg-indigo-500/10 rounded-lg group-hover:bg-indigo-500/20 transition-colors"
+                >
+                  <app-icon
+                    name="folder-git-2"
+                    [size]="14"
+                    class="text-indigo-400"
+                  />
+                </div>
+                <div class="flex-1 min-w-0">
+                  <p
+                    class="text-xs font-semibold text-white truncate group-hover:text-indigo-300 transition-colors"
+                  >
+                    {{ project.name }}
+                  </p>
+                  <span
+                    class="text-[10px] font-mono"
+                    [class]="statusColor(project.status)"
+                    >{{ statusLabel(project.status) }}</span
+                  >
+                </div>
+                <app-icon
+                  name="chevron-right"
+                  [size]="12"
+                  class="text-slate-700 group-hover:text-slate-400 transition-colors"
+                />
+              </a>
+            } @empty {
+              <div class="text-center py-4">
+                <app-icon
+                  name="coffee"
+                  [size]="18"
+                  class="text-slate-700 mx-auto mb-2"
+                />
+                <p class="text-[10px] text-slate-600 font-mono">
+                  {{ 'dashboard.allIdle' | translate }}
+                </p>
+              </div>
+            }
+          </div>
+        </div>
+
+        <!-- Recent Projects (quick nav) -->
+        @if (recentProjects().length > 0) {
+          <div class="glass rounded-2xl p-5 animate-in stagger-7">
+            <div class="flex items-center gap-2 mb-3">
+              <app-icon name="clock" [size]="14" class="text-slate-500" />
+              <h3
+                class="text-xs font-bold uppercase tracking-widest text-slate-400"
+              >
+                {{ 'dashboard.recentProjects' | translate }}
+              </h3>
+            </div>
+            <div class="space-y-1">
+              @for (project of recentProjects(); track project.id) {
+                <a
+                  [routerLink]="['/projects', project.slug]"
+                  class="flex items-center gap-2.5 px-2 py-1.5 rounded-lg hover:bg-white/[0.03] transition-colors group"
+                >
+                  <span
+                    class="text-xs text-slate-400 truncate flex-1 group-hover:text-slate-200 transition-colors"
+                    >{{ project.name }}</span
+                  >
+                  <span class="text-[10px] font-mono text-slate-700">{{
+                    formatDate(project.updatedAt)
+                  }}</span>
+                </a>
               }
             </div>
           </div>
-        </a>
-      }
-
-      @if (projects().length === 0) {
-        @for (i of [1, 2, 3]; track i) {
-          <div class="glass rounded-3xl p-6">
-            <div class="skeleton h-12 w-12 rounded-2xl mb-4"></div>
-            <div class="skeleton h-5 w-3/4 mb-2"></div>
-            <div class="skeleton h-4 w-full mb-1"></div>
-            <div class="skeleton h-4 w-2/3"></div>
-          </div>
         }
-      }
+      </div>
     </div>
 
     <!-- Create Modal -->
     @if (showCreate) {
       <div
-        class="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-content-center z-[100] flex items-center justify-center"
+        class="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-[100]"
         (click)="showCreate = false"
       >
         <div
           class="glass-heavy rounded-3xl p-8 w-full max-w-md shadow-2xl"
           (click)="$event.stopPropagation()"
         >
-          <h2 class="text-xl font-bold text-white mb-2">{{ 'dashboard.newProjectTitle' | translate }}</h2>
-          <p class="text-sm text-slate-500 mb-6">{{ 'dashboard.interviewHint' | translate }}</p>
-
+          <h2 class="text-xl font-bold text-white mb-2">
+            {{ 'dashboard.newProjectTitle' | translate }}
+          </h2>
+          <p class="text-sm text-slate-500 mb-6">
+            {{ 'dashboard.interviewHint' | translate }}
+          </p>
           <div>
-            <label class="text-xs text-slate-500 uppercase tracking-widest font-bold block mb-1.5">{{ 'common.name' | translate }}</label>
+            <label
+              class="text-xs text-slate-500 uppercase tracking-widest font-bold block mb-1.5"
+              >{{ 'common.name' | translate }}</label
+            >
             <input
               [(ngModel)]="newProjectName"
               (keydown.enter)="quickCreate()"
@@ -106,7 +562,6 @@ import { TranslateService } from '../../services/translate.service';
               [placeholder]="'dashboard.namePlaceholder' | translate"
             />
           </div>
-
           <div class="flex gap-3 justify-end mt-6">
             <button
               (click)="showCreate = false"
@@ -128,31 +583,141 @@ import { TranslateService } from '../../services/translate.service';
     }
   `,
 })
-export class DashboardPage implements OnInit {
+export class DashboardPage implements OnInit, OnDestroy {
   private api = inject(ApiService);
   private router = inject(Router);
+  private monitorSocket = inject(MonitorSocketService);
   i18n = inject(TranslateService);
+
   projects = signal<Project[]>([]);
+  overview = signal<AgentsOverview | null>(null);
+  restActivity = signal<ActivityItem[]>([]);
   showCreate = false;
   newProjectName = '';
 
+  /** Pipeline order: left-to-right, top-to-bottom in the 5x2 grid */
+  readonly pipelineRoles = [
+    'INTERVIEWER',
+    'ARCHITECT',
+    'DEVOPS',
+    'ISSUE_COMPILER',
+    'CODER',
+    'CODE_REVIEWER',
+    'FUNCTIONAL_TESTER',
+    'UI_TESTER',
+    'PEN_TESTER',
+    'DOCUMENTER',
+  ];
+
+  workingAgents = computed(() => {
+    const ov = this.overview();
+    if (!ov) return [];
+    return ov.roles.filter((r) => r.status === 'WORKING');
+  });
+
+  taskStats = computed(() => {
+    return this.overview()?.taskStats ?? {};
+  });
+
+  activeProjects = computed(() => {
+    return this.projects().filter(
+      (p) => p.status === 'INTERVIEWING' || p.status === 'SETTING_UP',
+    );
+  });
+
+  recentProjects = computed(() => {
+    const activeIds = new Set(this.activeProjects().map((p) => p.id));
+    return this.projects()
+      .filter((p) => !activeIds.has(p.id))
+      .sort(
+        (a, b) =>
+          new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime(),
+      )
+      .slice(0, 5);
+  });
+
+  /** Merge REST history + live socket entries, cap at 8 */
+  displayActivity = computed(() => {
+    const rest = this.restActivity();
+    const live = this.monitorSocket.logEntries();
+    const existingIds = new Set(rest.map((i) => i.id));
+    const newLive = live.filter((l) => !existingIds.has(l.id));
+    return [...newLive, ...rest].slice(0, 8);
+  });
+
   ngOnInit() {
-    this.loadProjects();
+    this.monitorSocket.connect();
+    this.monitorSocket.joinLogRoom();
+
+    this.api.getProjects().subscribe((p) => this.projects.set(p));
+    this.api.getAgentsOverview().subscribe({
+      next: (ov) => this.overview.set(ov),
+      error: () => {},
+    });
+    this.api.getActivityFeed({ limit: 8 }).subscribe({
+      next: (res) => this.restActivity.set(res.items),
+      error: () => {},
+    });
   }
 
-  loadProjects() {
-    this.api.getProjects().subscribe((p) => this.projects.set(p));
+  ngOnDestroy() {
+    this.monitorSocket.leaveLogRoom();
   }
 
   quickCreate() {
     const name = this.newProjectName.trim();
     if (!name) return;
-
     this.api.quickCreateProject(name).subscribe((result) => {
       this.showCreate = false;
       this.newProjectName = '';
       this.router.navigate(['/projects', result.project.slug]);
     });
+  }
+
+  getRoleMeta(role: string) {
+    return (
+      ROLE_META[role] ?? {
+        icon: 'bot',
+        color: 'text-slate-400',
+        bgColor: 'bg-slate-500/20',
+      }
+    );
+  }
+
+  getRoleData(role: string): AgentRoleOverview | undefined {
+    return this.overview()?.roles.find((r) => r.role === role);
+  }
+
+  shortRole(role: string): string {
+    return SHORT_ROLES[role] ?? role.slice(0, 3);
+  }
+
+  agentColor(role: string): string {
+    return ROLE_META[role]?.color ?? 'text-slate-400';
+  }
+
+  agentIcon(role: string): string {
+    return ROLE_META[role]?.icon ?? 'bot';
+  }
+
+  statusColor(status?: string): string {
+    const map: Record<string, string> = {
+      INTERVIEWING: 'text-sky-400',
+      SETTING_UP: 'text-amber-400',
+      READY: 'text-emerald-400',
+      ARCHIVED: 'text-slate-500',
+    };
+    return map[status ?? ''] ?? 'text-slate-500';
+  }
+
+  statusLabel(status?: string): string {
+    const map: Record<string, string> = {
+      INTERVIEWING: this.i18n.t('project.interviewRunning'),
+      SETTING_UP: this.i18n.t('project.settingUp'),
+      READY: 'Ready',
+      ARCHIVED: 'Archived',
+    };
+    return map[status ?? ''] ?? (status ?? '');
   }
 
   formatDate(dateStr: string): string {
