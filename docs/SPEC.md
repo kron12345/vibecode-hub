@@ -73,6 +73,7 @@ VibCode Hub ist ein AI-Entwicklerteam-Portal. Der Nutzer agiert als "Chef" und s
 - [x] Ollama Tool-Calling Support (native function calling)
 - [x] MCP Agent Loop (generisch, LLM ↔ Tool-Calls ↔ MCP)
 - [x] Coder Agent umgebaut: Qwen CLI → MCP Agent Loop
+- [x] MCP Server Registry (McpServerDefinition + McpServerOnRole, Admin CRUD API, Built-in Seeding, Frontend Settings UI)
 - [ ] MCP Git Server anbinden
 - [ ] MCP Angular CLI Server anbinden
 - [ ] MCP Prisma Server anbinden
