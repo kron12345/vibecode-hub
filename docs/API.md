@@ -393,6 +393,7 @@ Gespeichert als `agents.pipeline` (JSON):
 | Method | Endpoint | Auth | Beschreibung |
 |---|---|---|---|
 | `POST` | `/api/agents/interview/start` | Ja | Interview für ein Projekt starten |
+| `POST` | `/api/agents/architect/start` | Ja | Architect Agent manuell starten |
 | `POST` | `/api/agents/coding/start` | Ja | Coder Agent für ein Projekt starten |
 | `POST` | `/api/agents/review/start` | Ja | Code Review für MR starten |
 | `POST` | `/api/agents/functional-test/start` | Ja | Functional Test für MR starten |
@@ -842,6 +843,7 @@ map $hub_project $hub_upstream {
 
 | Datum | Änderung |
 |---|---|
+| 2026-03-09 | LLM Timeouts entfernt: Alle Provider (Ollama, Anthropic, OpenAI, Google, CLI) ohne Timeout — Agenten dürfen unbegrenzt arbeiten. Ollama keep_alive von '0' auf '2m' geändert. MCP Agent Loop nur durch maxIterations (30) begrenzt. Neuer Endpoint: POST /agents/architect/start für manuelles Triggern. |
 | 2026-03-09 | Phase 4: MonitorModule (HardwareService + MonitorGateway + MonitorController). Live GPU/CPU/RAM via nvtop/sysfs/proc. WebSocket /monitor Namespace. 3 neue Frontend-Pages: /projects (Tabelle), /agents (Rollen-Overview), /live-feed (Unified Activity Stream). Dashboard Hardware-Widget ersetzt statische Placeholder. Sidebar-Links alle aktiv. 4 neue i18n-Sektionen (monitor, liveFeed, projectsList, agentsPage). |
 | 2026-03-09 | 2 neue MCP Server: fetch (@modelcontextprotocol/server-fetch) für Doku-Abruf, searxng (mcp-searxng, lokale SearXNG-Instanz auf :8088, envTemplate: search.searxng_url) für Web-Recherche. Architect bekommt auch filesystem-Zugriff. Gesamt: 15 Built-in Server. |
 | 2026-03-09 | Architect Agent: 2-Phasen-Architektur (Phase A: Design nach DevOps, Phase B: Issue Grounding nach Issue Compiler). MCP-basierte Code-Analyse, Grounding-Kommentare auf Issues via postAgentComment(). Pipeline: DevOps→Architect(A)→IssueCompiler→Architect(B)→Coder. Neuer TaskType ANALYZE_ISSUES. |
