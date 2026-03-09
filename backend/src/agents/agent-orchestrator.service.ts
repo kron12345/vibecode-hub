@@ -43,6 +43,40 @@ export class AgentOrchestratorService {
   ) {}
 
   /**
+   * Guard: Check if there's already an active agent of the given role for a project.
+   * Returns true if an agent is already running (caller should skip).
+   */
+  private async hasActiveAgent(projectId: string, role: AgentRole): Promise<boolean> {
+    const existing = await this.prisma.agentInstance.findFirst({
+      where: {
+        projectId,
+        role,
+        status: { in: [AgentStatus.WORKING, AgentStatus.WAITING] },
+      },
+    });
+
+    if (existing) {
+      this.logger.warn(`${role} already active for project ${projectId} (${existing.id}) — skipping duplicate`);
+      return true;
+    }
+
+    // Also check for running tasks of this role (agent might be IDLE but task still RUNNING)
+    const runningTask = await this.prisma.agentTask.findFirst({
+      where: {
+        agent: { projectId, role },
+        status: AgentTaskStatus.RUNNING,
+      },
+    });
+
+    if (runningTask) {
+      this.logger.warn(`${role} has running task for project ${projectId} (${runningTask.id}) — skipping duplicate`);
+      return true;
+    }
+
+    return false;
+  }
+
+  /**
    * Start an interview for a project.
    * Creates AgentInstance, AgentTask, ChatSession, and kicks off the first question.
    */
@@ -181,6 +215,9 @@ export class AgentOrchestratorService {
     chatSessionId: string;
   }) {
     const { projectId, chatSessionId } = payload;
+
+    if (await this.hasActiveAgent(projectId, AgentRole.DEVOPS)) return;
+
     this.logger.log(`Interview complete for project ${projectId} — starting DevOps setup`);
 
     try {
@@ -257,6 +294,9 @@ export class AgentOrchestratorService {
     chatSessionId: string;
   }) {
     const { projectId, chatSessionId } = payload;
+
+    if (await this.hasActiveAgent(projectId, AgentRole.ISSUE_COMPILER)) return;
+
     this.logger.log(`DevOps complete for project ${projectId} — starting Issue Compiler`);
 
     try {
@@ -332,6 +372,9 @@ export class AgentOrchestratorService {
     chatSessionId: string;
   }) {
     const { projectId, chatSessionId } = payload;
+
+    if (await this.hasActiveAgent(projectId, AgentRole.CODER)) return;
+
     this.logger.log(`Issue compilation complete for project ${projectId} — starting Coder Agent`);
 
     try {
@@ -410,6 +453,19 @@ export class AgentOrchestratorService {
 
     if (!mrIid) {
       this.logger.warn(`No MR for issue ${issueId} — skipping code review`);
+      return;
+    }
+
+    // Check for existing review task on this specific issue
+    const existingReview = await this.prisma.agentTask.findFirst({
+      where: {
+        issueId,
+        type: AgentTaskType.REVIEW_CODE,
+        status: AgentTaskStatus.RUNNING,
+      },
+    });
+    if (existingReview) {
+      this.logger.warn(`Code review already running for issue ${issueId} — skipping duplicate`);
       return;
     }
 

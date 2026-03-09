@@ -164,6 +164,16 @@ export class InterviewerAgent extends BaseAgent {
 
   /** Continue the interview after a user message */
   async continueInterview(ctx: AgentContext) {
+    // Guard: skip if interview task is already completed (prevents double-completion)
+    const task = await this.prisma.agentTask.findUnique({
+      where: { id: ctx.agentTaskId },
+      select: { status: true },
+    });
+    if (!task || task.status === AgentTaskStatus.COMPLETED) {
+      this.logger.debug(`Interview task ${ctx.agentTaskId} already completed — ignoring message`);
+      return;
+    }
+
     // Check message count limit
     const messageCount = await this.prisma.chatMessage.count({
       where: { chatSessionId: ctx.chatSessionId },

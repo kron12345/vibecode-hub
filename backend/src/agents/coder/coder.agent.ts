@@ -320,16 +320,20 @@ export class CoderAgent extends BaseAgent {
       result.status = 'success';
       result.durationMs = Date.now() - start;
 
-      // Emit coding complete
-      this.eventEmitter.emit('agent.codingComplete', {
-        projectId: ctx.projectId,
-        chatSessionId: ctx.chatSessionId,
-        issueId: issue.id,
-        gitlabIid: issue.gitlabIid,
-        mrIid: result.mrIid,
-        gitlabProjectId,
-        branch: branchName,
-      });
+      // Emit coding complete (only if MR was created — Code Review needs it)
+      if (result.mrIid) {
+        this.eventEmitter.emit('agent.codingComplete', {
+          projectId: ctx.projectId,
+          chatSessionId: ctx.chatSessionId,
+          issueId: issue.id,
+          gitlabIid: issue.gitlabIid,
+          mrIid: result.mrIid,
+          gitlabProjectId,
+          branch: branchName,
+        });
+      } else {
+        this.logger.warn(`No MR created for issue ${issue.gitlabIid} — skipping code review trigger`);
+      }
 
       // Switch back to default branch for next issue
       await this.gitCheckout(workspace, defaultBranch);
@@ -508,16 +512,21 @@ export class CoderAgent extends BaseAgent {
         select: { gitlabMrIid: true },
       });
 
-      // Re-emit coding complete for review
-      this.eventEmitter.emit('agent.codingComplete', {
-        projectId: ctx.projectId,
-        chatSessionId: ctx.chatSessionId,
-        issueId,
-        gitlabIid: issue.gitlabIid,
-        mrIid: existingTask?.gitlabMrIid ?? undefined,
-        gitlabProjectId: issue.project.gitlabProjectId,
-        branch: branchName,
-      });
+      // Re-emit coding complete for review (only if MR exists)
+      const mrIid = existingTask?.gitlabMrIid;
+      if (mrIid) {
+        this.eventEmitter.emit('agent.codingComplete', {
+          projectId: ctx.projectId,
+          chatSessionId: ctx.chatSessionId,
+          issueId,
+          gitlabIid: issue.gitlabIid,
+          mrIid,
+          gitlabProjectId: issue.project.gitlabProjectId,
+          branch: branchName,
+        });
+      } else {
+        this.logger.warn(`No MR found for fixIssue ${issueId} — skipping code review trigger`);
+      }
 
       // Switch back to default
       await this.gitCheckout(workspace, glProject.default_branch);
