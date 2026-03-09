@@ -226,7 +226,7 @@ export class CoderAgent extends BaseAgent {
 
       // Run MCP agent loop (LLM + filesystem tools)
       await this.log(agentTask.id, 'INFO', `Running MCP agent loop for issue: ${issue.title}`);
-      await this.runMcpAgentLoop(workspace, prompt, agentTask.id);
+      await this.runMcpAgentLoop(workspace, prompt, agentTask.id, ctx.projectId);
 
       // Check what changed
       const changedFiles = await this.getChangedFiles(workspace);
@@ -444,7 +444,7 @@ export class CoderAgent extends BaseAgent {
       const fixPrompt = this.buildFixPrompt(issue, feedback, feedbackSource);
 
       // Run MCP agent loop (LLM + filesystem tools)
-      await this.runMcpAgentLoop(workspace, fixPrompt, agentTask.id);
+      await this.runMcpAgentLoop(workspace, fixPrompt, agentTask.id, ctx.projectId);
 
       // Check changes
       const changedFiles = await this.getChangedFiles(workspace);
@@ -551,13 +551,13 @@ export class CoderAgent extends BaseAgent {
    * The LLM reads, writes, and edits files via MCP server.
    * Returns the final LLM summary.
    */
-  private async runMcpAgentLoop(workspace: string, prompt: string, agentTaskId: string): Promise<string> {
+  private async runMcpAgentLoop(workspace: string, prompt: string, agentTaskId: string, projectId?: string): Promise<string> {
     const config = this.getRoleConfig();
     const model = config.model || 'qwen3.5:35b';
 
     const mcpServers = await this.mcpRegistry.resolveServersForRole(
       AgentRole.CODER,
-      { workspace, allowedPaths: [workspace] },
+      { workspace, allowedPaths: [workspace], projectId },
     );
 
     const systemPrompt = [

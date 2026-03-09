@@ -21,6 +21,8 @@ import {
   Milestone,
   ChatSession,
   ChatMessage,
+  McpServerDefinition,
+  McpProjectOverride,
 } from '../../services/api.service';
 import { ChatSocketService } from '../../services/chat-socket.service';
 import { IconComponent } from '../../components/icon.component';
@@ -589,6 +591,85 @@ type Tab = 'overview' | 'settings';
               </div>
             </div>
           </div>
+
+          <!-- Card 7: MCP Server Overrides -->
+          <div class="glass card-glow rounded-2xl p-6 border border-white/5 animate-in stagger-7 col-span-full">
+            <div class="flex items-center gap-3 mb-5">
+              <div class="p-2 rounded-xl bg-purple-500/20 text-purple-400">
+                <app-icon name="plug" [size]="18" />
+              </div>
+              <h3 class="text-sm font-bold text-white uppercase tracking-widest">{{ 'project.settings.mcpOverrides' | translate }}</h3>
+            </div>
+            <p class="text-xs text-slate-600 mb-4">{{ 'project.settings.mcpOverridesHint' | translate }}</p>
+
+            @if (mcpServers().length > 0) {
+              <div class="overflow-x-auto">
+                <table class="w-full text-xs">
+                  <thead>
+                    <tr class="border-b border-white/5">
+                      <th class="text-left py-2 px-3 text-slate-500 font-medium">{{ 'project.settings.mcpServer' | translate }}</th>
+                      @for (role of mcpRoles; track role) {
+                        <th class="text-center py-2 px-1 text-slate-500 font-medium" [title]="role">
+                          {{ role.substring(0, 3) }}
+                        </th>
+                      }
+                    </tr>
+                  </thead>
+                  <tbody>
+                    @for (server of mcpServers(); track server.id) {
+                      <tr class="border-b border-white/5 hover:bg-white/[0.02]">
+                        <td class="py-2 px-3">
+                          <div class="flex items-center gap-2">
+                            <span class="text-white font-medium">{{ server.displayName }}</span>
+                            @if (server.builtin) {
+                              <span class="px-1.5 py-0.5 rounded bg-slate-700 text-slate-400 text-[9px] uppercase">built-in</span>
+                            }
+                          </div>
+                        </td>
+                        @for (role of mcpRoles; track role) {
+                          <td class="text-center py-2 px-1">
+                            <button
+                              (click)="cycleOverride(server.id, role)"
+                              class="w-6 h-6 rounded-md flex items-center justify-center transition-all text-[10px] font-bold"
+                              [class]="getOverrideState(server.id, role) === 'enable'
+                                ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/30'
+                                : getOverrideState(server.id, role) === 'disable'
+                                  ? 'bg-rose-500/20 text-rose-400 border border-rose-500/30'
+                                  : isGloballyAssigned(server.id, role)
+                                    ? 'bg-white/5 text-slate-400 border border-white/10'
+                                    : 'bg-transparent text-slate-700 border border-white/5'"
+                              [title]="getOverrideState(server.id, role) === 'enable'
+                                ? 'Override: Enabled (click to disable)'
+                                : getOverrideState(server.id, role) === 'disable'
+                                  ? 'Override: Disabled (click to reset)'
+                                  : isGloballyAssigned(server.id, role)
+                                    ? 'Global: Enabled (click to override)'
+                                    : 'Global: Disabled (click to override)'"
+                            >
+                              @if (getOverrideState(server.id, role) === 'enable') {
+                                +
+                              } @else if (getOverrideState(server.id, role) === 'disable') {
+                                -
+                              } @else if (isGloballyAssigned(server.id, role)) {
+                                ·
+                              }
+                            </button>
+                          </td>
+                        }
+                      </tr>
+                    }
+                  </tbody>
+                </table>
+              </div>
+              <div class="flex gap-4 mt-3 text-[10px] text-slate-600">
+                <span><span class="inline-block w-3 h-3 rounded bg-white/5 border border-white/10 mr-1"></span>{{ 'project.settings.mcpGlobal' | translate }}</span>
+                <span><span class="inline-block w-3 h-3 rounded bg-emerald-500/20 border border-emerald-500/30 mr-1"></span>{{ 'project.settings.mcpOverrideOn' | translate }}</span>
+                <span><span class="inline-block w-3 h-3 rounded bg-rose-500/20 border border-rose-500/30 mr-1"></span>{{ 'project.settings.mcpOverrideOff' | translate }}</span>
+              </div>
+            } @else {
+              <p class="text-xs text-slate-600">{{ 'project.settings.mcpNoServers' | translate }}</p>
+            }
+          </div>
         </div>
 
         <!-- Save Button -->
@@ -816,6 +897,11 @@ export class ProjectPage implements OnInit, OnDestroy {
   saving = signal(false);
   toast = signal<'success' | 'error' | null>(null);
 
+  // MCP Server Overrides
+  mcpServers = signal<McpServerDefinition[]>([]);
+  mcpOverrides = signal<McpProjectOverride[]>([]);
+  mcpRoles = Object.keys(AGENT_CONFIG);
+
   private messageContainer = viewChild<ElementRef>('messageContainer');
   private socketSub: Subscription | null = null;
   private agentStatusSub: Subscription | null = null;
@@ -911,6 +997,7 @@ export class ProjectPage implements OnInit, OnDestroy {
         this.loadIssues(p.id);
         this.loadMilestones(p.id);
         this.loadSessions(p.id);
+        this.loadMcpData(p.id);
 
         // Auto-open interview session if project is in INTERVIEWING state
         if (p.status === 'INTERVIEWING') {
@@ -1073,6 +1160,46 @@ export class ProjectPage implements OnInit, OnDestroy {
         setTimeout(() => this.toast.set(null), 3000);
       },
     });
+  }
+
+  // ─── MCP Overrides ─────────────────────────────────────────
+
+  loadMcpData(projectId: string) {
+    this.api.getMcpServers().subscribe((servers) => this.mcpServers.set(servers));
+    this.api.getMcpProjectOverrides(projectId).subscribe((overrides) => this.mcpOverrides.set(overrides));
+  }
+
+  /** Get the override state for a server+role: 'inherit' (global default), 'enable', or 'disable' */
+  getOverrideState(serverId: string, role: string): 'inherit' | 'enable' | 'disable' {
+    const override = this.mcpOverrides().find(
+      (o) => o.mcpServerId === serverId && o.agentRole === role,
+    );
+    if (!override) return 'inherit';
+    return override.action === 'ENABLE' ? 'enable' : 'disable';
+  }
+
+  /** Check if server is globally assigned to this role */
+  isGloballyAssigned(serverId: string, role: string): boolean {
+    const server = this.mcpServers().find((s) => s.id === serverId);
+    return server?.roles.includes(role) ?? false;
+  }
+
+  /** Cycle override: inherit → enable → disable → inherit */
+  cycleOverride(serverId: string, role: string) {
+    const p = this.project();
+    if (!p) return;
+
+    const current = this.getOverrideState(serverId, role);
+    if (current === 'inherit') {
+      // Set to enable (override: add server for this role)
+      this.api.setMcpProjectOverride(p.id, { mcpServerId: serverId, agentRole: role, action: 'ENABLE' }).subscribe(() => this.loadMcpData(p.id));
+    } else if (current === 'enable') {
+      // Set to disable
+      this.api.setMcpProjectOverride(p.id, { mcpServerId: serverId, agentRole: role, action: 'DISABLE' }).subscribe(() => this.loadMcpData(p.id));
+    } else {
+      // Remove override (back to inherit)
+      this.api.deleteMcpProjectOverride(p.id, { mcpServerId: serverId, agentRole: role }).subscribe(() => this.loadMcpData(p.id));
+    }
   }
 
   loadIssues(projectId: string) {

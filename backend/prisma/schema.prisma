@@ -32,6 +32,7 @@ model Project {
   milestones      Milestone[]
   chats           ChatSession[]
   agents          AgentInstance[]
+  mcpOverrides    McpServerProjectOverride[]
 
   @@map("projects")
 }
@@ -316,13 +317,15 @@ model McpServerDefinition {
   command     String
   args        String[]
   env         Json?
+  envTemplate Json?    // Runtime env: { "KEY": "{settings:some.key}" }
   argTemplate String?  // Placeholders: {workspace}, {allowedPaths}, {shellServerPath}
   builtin     Boolean  @default(false)
   enabled     Boolean  @default(true)
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
 
-  roles       McpServerOnRole[]
+  roles              McpServerOnRole[]
+  projectOverrides   McpServerProjectOverride[]
 
   @@map("mcp_server_definitions")
 }
@@ -335,6 +338,24 @@ model McpServerOnRole {
 
   @@unique([mcpServerId, agentRole])
   @@map("mcp_server_on_role")
+}
+
+enum McpOverrideAction {
+  ENABLE
+  DISABLE
+}
+
+model McpServerProjectOverride {
+  id          String              @id @default(cuid())
+  projectId   String
+  project     Project             @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  mcpServerId String
+  mcpServer   McpServerDefinition @relation(fields: [mcpServerId], references: [id], onDelete: Cascade)
+  agentRole   AgentRole
+  action      McpOverrideAction
+
+  @@unique([projectId, mcpServerId, agentRole])
+  @@map("mcp_server_project_overrides")
 }
 
 // ─── Settings ──────────────────────────────────────────────

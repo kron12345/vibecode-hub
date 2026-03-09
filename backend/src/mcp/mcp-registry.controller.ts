@@ -12,7 +12,13 @@ import { ApiTags, ApiBearerAuth, ApiOperation } from '@nestjs/swagger';
 import { Roles } from '../common/decorators/roles.decorator';
 import { RolesGuard } from '../common/guards/roles.guard';
 import { McpRegistryService } from './mcp-registry.service';
-import { CreateMcpServerDto, UpdateMcpServerDto, SetRoleAssignmentsDto } from './mcp-registry.dto';
+import {
+  CreateMcpServerDto,
+  UpdateMcpServerDto,
+  SetRoleAssignmentsDto,
+  SetProjectOverrideDto,
+  DeleteProjectOverrideDto,
+} from './mcp-registry.dto';
 
 @ApiTags('mcp-servers')
 @ApiBearerAuth()
@@ -61,5 +67,46 @@ export class McpRegistryController {
   ) {
     await this.registry.setRoleAssignments(id, dto.roles);
     return this.registry.findOne(id);
+  }
+}
+
+// ─── Project-Level MCP Overrides ───────────────────────────────
+
+@ApiTags('project-mcp-overrides')
+@ApiBearerAuth()
+@Controller('projects/:projectId/mcp-overrides')
+@UseGuards(RolesGuard)
+@Roles('admin', 'project-manager')
+export class McpProjectOverrideController {
+  constructor(private readonly registry: McpRegistryService) {}
+
+  @Get()
+  @ApiOperation({ summary: 'Get all MCP server overrides for a project' })
+  async getOverrides(@Param('projectId') projectId: string) {
+    return this.registry.getProjectOverrides(projectId);
+  }
+
+  @Put()
+  @ApiOperation({ summary: 'Set an MCP server override for a project (upsert)' })
+  async setOverride(
+    @Param('projectId') projectId: string,
+    @Body() dto: SetProjectOverrideDto,
+  ) {
+    return this.registry.setProjectOverride(
+      projectId,
+      dto.mcpServerId,
+      dto.agentRole,
+      dto.action as any,
+    );
+  }
+
+  @Delete()
+  @ApiOperation({ summary: 'Remove an MCP server override (revert to global)' })
+  async deleteOverride(
+    @Param('projectId') projectId: string,
+    @Body() dto: DeleteProjectOverrideDto,
+  ) {
+    await this.registry.deleteProjectOverride(projectId, dto.mcpServerId, dto.agentRole);
+    return { deleted: true };
   }
 }

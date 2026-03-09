@@ -672,6 +672,14 @@ map $hub_project $hub_upstream {
 | `DELETE` | `/api/mcp-servers/:id` | Admin | Custom MCP-Server löschen (built-in geschützt) |
 | `PUT` | `/api/mcp-servers/:id/roles` | Admin | Rollen-Zuordnungen setzen (welche Agenten diesen Server nutzen) |
 
+### Project-Level MCP Overrides
+
+| Method | Endpoint | Auth | Beschreibung |
+|---|---|---|---|
+| `GET` | `/api/projects/:projectId/mcp-overrides` | Admin, PM | Alle Overrides für ein Projekt |
+| `PUT` | `/api/projects/:projectId/mcp-overrides` | Admin, PM | Override setzen (Upsert: ENABLE/DISABLE) |
+| `DELETE` | `/api/projects/:projectId/mcp-overrides` | Admin, PM | Override entfernen (zurück zu Global) |
+
 ### DTOs
 
 **CreateMcpServerDto**
@@ -710,11 +718,29 @@ map $hub_project $hub_upstream {
 }
 ```
 
+**SetProjectOverrideDto**
+```typescript
+{
+  mcpServerId: string;   // ID des MCP-Servers
+  agentRole: AgentRole;  // z.B. "CODER"
+  action: "ENABLE" | "DISABLE";
+}
+```
+
+**DeleteProjectOverrideDto**
+```typescript
+{
+  mcpServerId: string;
+  agentRole: AgentRole;
+}
+```
+
 ### Verhalten
-- **Built-in Server** (`filesystem`, `shell`) werden beim API-Start automatisch geseeded und können nicht gelöscht werden (DELETE gibt 400 zurück)
+- **Built-in Server** (9 Stück: filesystem, git, gitlab, prisma, angular-cli, shell, playwright, eslint, security-audit) werden beim API-Start automatisch geseeded und können nicht gelöscht werden
 - **Rollen-Zuordnung**: Many-to-many über `McpServerOnRole` — ein Server kann mehreren Rollen zugeordnet sein, eine Rolle kann mehrere Server haben
-- **Runtime Resolution**: `getServersForRole(role, context)` löst `argTemplate`-Platzhalter auf (`{workspace}` → tatsächlicher Workspace-Pfad)
-- **Coder Agent**: Lädt MCP-Server dynamisch aus der Registry statt aus hardcodierten Konstanten
+- **Project Overrides**: `McpServerProjectOverride` erlaubt pro Projekt+Rolle Overrides (ENABLE/DISABLE) gegenüber der globalen Konfiguration
+- **Runtime Resolution**: `resolveServersForRole(role, context)` löst `argTemplate`-Platzhalter auf (`{workspace}` → Workspace-Pfad) und `envTemplate` Platzhalter (`{settings:key}` → SystemSettings-Wert, z.B. GitLab Token)
+- **Coder Agent**: Lädt MCP-Server dynamisch aus der Registry, inkl. projectId für Override-Auflösung
 
 ### Datenmodell
 
@@ -728,7 +754,8 @@ map $hub_project $hub_upstream {
 | `category` | String | Kategorie (coding, execution, security, knowledge, custom) |
 | `command` | String | Ausführbares Kommando |
 | `args` | String[] | Argumente |
-| `env` | Json? | Umgebungsvariablen |
+| `env` | Json? | Statische Umgebungsvariablen |
+| `envTemplate` | Json? | Runtime-Env: `{ "KEY": "{settings:some.key}" }` → aus SystemSettings aufgelöst |
 | `argTemplate` | String? | Argument-Template mit Platzhaltern |
 | `builtin` | Boolean | Built-in-Server (nicht löschbar) |
 | `enabled` | Boolean | Aktiviert/Deaktiviert |
@@ -741,12 +768,23 @@ map $hub_project $hub_upstream {
 | `agentRole` | AgentRole (Enum) | Agent-Rolle |
 | | | @@unique(mcpServerId, agentRole) |
 
+**McpServerProjectOverride**
+| Feld | Typ | Beschreibung |
+|---|---|---|
+| `id` | cuid | Primary Key |
+| `projectId` | String (FK) | → Project |
+| `mcpServerId` | String (FK) | → McpServerDefinition |
+| `agentRole` | AgentRole (Enum) | Agent-Rolle |
+| `action` | ENABLE / DISABLE | Override-Aktion |
+| | | @@unique(projectId, mcpServerId, agentRole) |
+
 ---
 
 ## Changelog
 
 | Datum | Änderung |
 |---|---|
+| 2026-03-09 | MCP Project Overrides: Per-project ENABLE/DISABLE overrides (3 Endpoints /api/projects/:id/mcp-overrides), envTemplate resolution ({settings:key} → SystemSettings), 9 built-in servers (filesystem, git, gitlab, prisma, angular-cli, shell, playwright, eslint, security-audit), Frontend Override-Matrix in Projekt-Settings |
 | 2026-03-09 | MCP Server Registry: Admin CRUD + Role Assignment API (6 Endpoints unter /api/mcp-servers), Built-in Server Seeding (filesystem, shell), Coder Agent dynamische MCP-Server-Auflösung, Frontend Settings-Integration |
 | 2026-03-09 | GitLab Status Labels: `status::*` labels synced on every issue status transition (6 color-coded labels, idempotent). Shell MCP Server for Coder Agent (`shell-server.mjs`, whitelisted commands, security-hardened). |
 | 2026-03-04 | Agent Comment Chat: Unified postAgentComment() utility (same rich markdown for local DB + GitLab, gitlabNoteId stored). Context injection: test agents receive previous agent comments in LLM prompts. GitLab Wiki CRUD (6 methods). Documenter Wiki sync (wikiPage flag in DocFile). |

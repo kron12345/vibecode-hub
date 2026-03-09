@@ -116,7 +116,14 @@
       "noFeatures": "Aucune fonctionnalité détectée",
       "noMcpServers": "Aucun serveur MCP configuré",
       "savedSuccess": "Paramètres du projet enregistrés",
-      "savedError": "Erreur lors de l'enregistrement des paramètres"
+      "savedError": "Erreur lors de l'enregistrement des paramètres",
+      "mcpOverrides": "Overrides serveur MCP",
+      "mcpOverridesHint": "Remplacez la configuration globale des serveurs MCP pour ce projet. Cliquez sur une cellule pour alterner entre Hériter/Activer/Désactiver.",
+      "mcpServer": "Serveur",
+      "mcpGlobal": "Global actif",
+      "mcpOverrideOn": "Override : Activé",
+      "mcpOverrideOff": "Override : Désactivé",
+      "mcpNoServers": "Aucun serveur MCP enregistré. Configurez les serveurs dans Paramètres → Agents."
     }
   },
   "agents": {

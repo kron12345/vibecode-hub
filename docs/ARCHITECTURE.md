@@ -105,8 +105,9 @@ Dev-Server auf localhost:{port}
 - **AgentInstance** → konfigurierter Agent pro Projekt (Rolle + Provider + Model)
 - **AgentTask** → einzelner Arbeitsschritt eines Agenten (11 Task-Typen)
 - **AgentLog** → Echtzeit-Logs für Live-Dashboard
-- **McpServerDefinition** → Registrierte MCP-Server (name unique, command, args, argTemplate mit Platzhaltern, category, builtin-Flag). Built-in Server (filesystem, shell) beim Start geseeded, nicht löschbar.
+- **McpServerDefinition** → Registrierte MCP-Server (name unique, command, args, argTemplate, envTemplate, category, builtin-Flag). 9 Built-in Server (filesystem, git, gitlab, prisma, angular-cli, shell, playwright, eslint, security-audit) beim Start geseeded, nicht löschbar.
 - **McpServerOnRole** → Many-to-many Join zwischen McpServerDefinition und AgentRole. Definiert welche MCP-Server einer Agent-Rolle zur Verfügung stehen. @@unique(mcpServerId, agentRole).
+- **McpServerProjectOverride** → Pro-Projekt Override der globalen MCP-Server-Konfiguration. ENABLE/DISABLE pro Server+Rolle. @@unique(projectId, mcpServerId, agentRole).
 - **UserSetting** → Pro-User Key-Value Settings (Sprache, Theme, UI-Präferenzen)
 - **SystemSetting** → Globale Konfiguration (GitLab, LLM-Provider, CORS, Agent-Rollen, Pipeline), Secrets AES-256-GCM verschlüsselt
 
@@ -179,14 +180,19 @@ GitLab Webhooks:
 - **Erweiterbar**: Weitere MCP-Server (Git, Angular CLI, Prisma) können über die MCP Server Registry hinzugefügt werden
 
 ### MCP Server Registry
-- **McpRegistryService**: CRUD für MCP-Server-Definitionen, Rollen-Zuordnung, Runtime-Auflösung
+- **McpRegistryService**: CRUD für MCP-Server-Definitionen, Rollen-Zuordnung, Runtime-Auflösung, Project Overrides
 - **McpRegistryController**: 6 REST-Endpoints unter `/api/mcp-servers` (Admin only)
-- **Built-in Server**: `filesystem` und `shell` werden beim Start automatisch geseeded, nicht löschbar
-- **Custom Server**: Admins können eigene MCP-Server registrieren (z.B. Git, Angular CLI, Prisma)
+- **McpProjectOverrideController**: 3 REST-Endpoints unter `/api/projects/:projectId/mcp-overrides` (Admin, PM)
+- **9 Built-in Server**: filesystem, git, gitlab, prisma, angular-cli, shell, playwright, eslint, security-audit — beim Start geseeded, nicht löschbar
+- **Custom Server**: Admins können eigene MCP-Server registrieren
 - **Rollen-Zuordnung**: Many-to-many (`McpServerOnRole`) — pro Agent-Rolle konfigurierbar welche Server verfügbar sind
-- **Runtime Resolution**: `getServersForRole(role, context)` ersetzt `argTemplate`-Platzhalter (`{workspace}`, `{allowedPaths}`, `{shellServerPath}`) zur Laufzeit
-- **Coder Agent**: Lädt MCP-Server dynamisch aus Registry statt hardcodierte Konstanten
-- **Frontend**: MCP Servers Section in Settings → Agents Tab mit Enable/Disable Toggle, Rollen-Checkboxen, Add Custom Server Form
+- **Project Overrides**: `McpServerProjectOverride` erlaubt pro Projekt+Rolle Server zu ENABLE/DISABLE (überschreibt Global-Config)
+- **Runtime Resolution**: `resolveServersForRole(role, context)` löst auf:
+  - `argTemplate`: Platzhalter `{workspace}`, `{allowedPaths}`, `{shellServerPath}` → Laufzeitwerte
+  - `envTemplate`: `{settings:key}` → SystemSettingsService (z.B. GitLab Token AES-256-GCM entschlüsselt)
+  - Project Overrides: DISABLE entfernt Server, ENABLE fügt hinzu (auch wenn nicht global zugeordnet)
+- **Coder Agent**: Lädt MCP-Server dynamisch aus Registry, übergibt `projectId` für Override-Auflösung
+- **Frontend**: MCP Servers Section in Settings → Agents Tab + Project-Level Override-Matrix in Projekt-Settings
 
 ### Shell MCP Server (`shell-server.mjs`)
 

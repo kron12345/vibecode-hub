@@ -116,7 +116,14 @@
       "noFeatures": "No features detected",
       "noMcpServers": "No MCP servers configured",
       "savedSuccess": "Project settings saved",
-      "savedError": "Error saving settings"
+      "savedError": "Error saving settings",
+      "mcpOverrides": "MCP Server Overrides",
+      "mcpOverridesHint": "Override the global MCP server configuration for this project. Click a cell to cycle between Inherit/Enable/Disable.",
+      "mcpServer": "Server",
+      "mcpGlobal": "Global active",
+      "mcpOverrideOn": "Override: Enabled",
+      "mcpOverrideOff": "Override: Disabled",
+      "mcpNoServers": "No MCP servers registered. Configure servers under Settings → Agents."
     }
   },
   "agents": {

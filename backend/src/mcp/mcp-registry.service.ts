@@ -1,7 +1,8 @@
 import { Injectable, Logger, OnModuleInit, NotFoundException, BadRequestException } from '@nestjs/common';
 import * as path from 'path';
 import { PrismaService } from '../prisma/prisma.service';
-import { AgentRole, McpServerDefinition } from '@prisma/client';
+import { SystemSettingsService } from '../settings/system-settings.service';
+import { AgentRole, McpServerDefinition, McpOverrideAction } from '@prisma/client';
 import { McpServerConfig } from './mcp.interfaces';
 import { CreateMcpServerDto, UpdateMcpServerDto } from './mcp-registry.dto';
 
@@ -9,6 +10,7 @@ import { CreateMcpServerDto, UpdateMcpServerDto } from './mcp-registry.dto';
 export interface McpRuntimeContext {
   workspace: string;
   allowedPaths?: string[];
+  projectId?: string;
 }
 
 /** Shell server .mjs path (relative to compiled dist output) */
@@ -18,7 +20,10 @@ const SHELL_SERVER_PATH = path.resolve(__dirname, '..', '..', 'mcp', 'servers', 
 export class McpRegistryService implements OnModuleInit {
   private readonly logger = new Logger(McpRegistryService.name);
 
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly settings: SystemSettingsService,
+  ) {}
 
   async onModuleInit() {
     await this.seedBuiltinServers();
@@ -107,7 +112,6 @@ export class McpRegistryService implements OnModuleInit {
     const existing = await this.prisma.mcpServerDefinition.findUnique({ where: { id: serverId } });
     if (!existing) throw new NotFoundException(`MCP server "${serverId}" not found`);
 
-    // Replace all role assignments for this server
     await this.prisma.$transaction([
       this.prisma.mcpServerOnRole.deleteMany({ where: { mcpServerId: serverId } }),
       ...roles.map((role) =>
@@ -129,17 +133,82 @@ export class McpRegistryService implements OnModuleInit {
       .filter((s) => s.enabled);
   }
 
+  // ─── Project Overrides ───────────────────────────────────────
+
+  async getProjectOverrides(projectId: string) {
+    return this.prisma.mcpServerProjectOverride.findMany({
+      where: { projectId },
+      include: { mcpServer: { select: { id: true, name: true, displayName: true } } },
+    });
+  }
+
+  async setProjectOverride(
+    projectId: string,
+    mcpServerId: string,
+    agentRole: AgentRole,
+    action: McpOverrideAction,
+  ) {
+    return this.prisma.mcpServerProjectOverride.upsert({
+      where: {
+        projectId_mcpServerId_agentRole: { projectId, mcpServerId, agentRole },
+      },
+      create: { projectId, mcpServerId, agentRole, action },
+      update: { action },
+    });
+  }
+
+  async deleteProjectOverride(
+    projectId: string,
+    mcpServerId: string,
+    agentRole: AgentRole,
+  ) {
+    await this.prisma.mcpServerProjectOverride.deleteMany({
+      where: { projectId, mcpServerId, agentRole },
+    });
+  }
+
   // ─── Resolution (DB → McpServerConfig[]) ────────────────────
 
   /**
    * Resolve MCP server definitions for a given agent role into
    * ready-to-use McpServerConfig objects with runtime args filled in.
+   * Applies project-level overrides when projectId is provided.
    */
   async resolveServersForRole(
     role: AgentRole,
     context: McpRuntimeContext,
   ): Promise<McpServerConfig[]> {
-    const servers = await this.getServersForRole(role);
+    let servers = await this.getServersForRole(role);
+
+    // Apply project-level overrides if projectId given
+    if (context.projectId) {
+      const overrides = await this.prisma.mcpServerProjectOverride.findMany({
+        where: { projectId: context.projectId, agentRole: role },
+      });
+
+      if (overrides.length > 0) {
+        const disabledIds = new Set(
+          overrides.filter((o) => o.action === McpOverrideAction.DISABLE).map((o) => o.mcpServerId),
+        );
+        const enabledIds = new Set(
+          overrides.filter((o) => o.action === McpOverrideAction.ENABLE).map((o) => o.mcpServerId),
+        );
+
+        // Remove disabled servers
+        servers = servers.filter((s) => !disabledIds.has(s.id));
+
+        // Add explicitly enabled servers that aren't already in the list
+        if (enabledIds.size > 0) {
+          const existingIds = new Set(servers.map((s) => s.id));
+          const additionalServers = await this.prisma.mcpServerDefinition.findMany({
+            where: { id: { in: [...enabledIds] }, enabled: true },
+          });
+          for (const s of additionalServers) {
+            if (!existingIds.has(s.id)) servers.push(s);
+          }
+        }
+      }
+    }
 
     if (servers.length === 0) {
       this.logger.warn(`No MCP servers configured for role ${role} — using fallback`);
@@ -164,17 +233,38 @@ export class McpRegistryService implements OnModuleInit {
         } else if (part === '{shellServerPath}') {
           resolvedArgs.push(SHELL_SERVER_PATH);
         } else {
-          // Literal arg from template
           resolvedArgs.push(part);
         }
       }
+    }
+
+    // Process envTemplate: resolve {settings:key} placeholders from SystemSettingsService
+    let resolvedEnv: Record<string, string> | undefined;
+    const staticEnv = (server.env as Record<string, string>) || {};
+    const envTemplate = (server.envTemplate as Record<string, string>) || {};
+
+    const mergedEnv: Record<string, string> = { ...staticEnv };
+    for (const [key, template] of Object.entries(envTemplate)) {
+      const match = template.match(/^\{settings:(.+)\}$/);
+      if (match) {
+        const settingValue = this.settings.get(match[1]);
+        if (settingValue) {
+          mergedEnv[key] = settingValue;
+        }
+      } else {
+        // Literal value in envTemplate
+        mergedEnv[key] = template;
+      }
+    }
+    if (Object.keys(mergedEnv).length > 0) {
+      resolvedEnv = mergedEnv;
     }
 
     return {
       name: server.name,
       command: server.command,
       args: resolvedArgs,
-      env: (server.env as Record<string, string>) || undefined,
+      env: resolvedEnv,
     };
   }
 
@@ -200,7 +290,19 @@ export class McpRegistryService implements OnModuleInit {
   // ─── Seeding ────────────────────────────────────────────────
 
   private async seedBuiltinServers() {
-    const builtins = [
+    const builtins: {
+      name: string;
+      displayName: string;
+      description: string;
+      category: string;
+      command: string;
+      args: string[];
+      argTemplate?: string;
+      env?: Record<string, string>;
+      envTemplate?: Record<string, string>;
+      defaultRoles: AgentRole[];
+    }[] = [
+      // ─── Coding ──────────────────────
       {
         name: 'filesystem',
         displayName: 'Filesystem Server',
@@ -209,17 +311,111 @@ export class McpRegistryService implements OnModuleInit {
         command: 'npx',
         args: ['@modelcontextprotocol/server-filesystem'],
         argTemplate: '{allowedPaths}',
+        defaultRoles: [
+          AgentRole.CODER,
+          AgentRole.CODE_REVIEWER,
+          AgentRole.DOCUMENTER,
+          AgentRole.FUNCTIONAL_TESTER,
+          AgentRole.UI_TESTER,
+          AgentRole.PEN_TESTER,
+          AgentRole.DEVOPS,
+        ],
+      },
+      {
+        name: 'git',
+        displayName: 'Git Server',
+        description: 'Git operations: status, diff, log, branch, commit, merge',
+        category: 'coding',
+        command: 'npx',
+        args: ['@cyanheads/git-mcp-server'],
+        defaultRoles: [
+          AgentRole.CODER,
+          AgentRole.CODE_REVIEWER,
+          AgentRole.DOCUMENTER,
+          AgentRole.DEVOPS,
+        ],
+      },
+      {
+        name: 'gitlab',
+        displayName: 'GitLab Server',
+        description: 'GitLab API: issues, merge requests, pipelines, repos',
+        category: 'coding',
+        command: 'npx',
+        args: ['@modelcontextprotocol/server-gitlab'],
+        envTemplate: {
+          GITLAB_PERSONAL_ACCESS_TOKEN: '{settings:gitlab.api_token}',
+          GITLAB_API_URL: '{settings:gitlab.url}',
+        },
+        defaultRoles: [
+          AgentRole.CODER,
+          AgentRole.CODE_REVIEWER,
+          AgentRole.DEVOPS,
+        ],
+      },
+      {
+        name: 'prisma',
+        displayName: 'Prisma Server',
+        description: 'Prisma schema analysis, migration, and query help',
+        category: 'coding',
+        command: 'npx',
+        args: ['prisma', 'mcp'],
+        defaultRoles: [AgentRole.CODER, AgentRole.ARCHITECT],
+      },
+      {
+        name: 'angular-cli',
+        displayName: 'Angular CLI MCP',
+        description: 'Angular CLI: generate, build, schematics, best practices',
+        category: 'coding',
+        command: 'npx',
+        args: ['@angular/cli', 'mcp'],
         defaultRoles: [AgentRole.CODER],
       },
+
+      // ─── Execution ──────────────────
       {
         name: 'shell',
         displayName: 'Shell Server',
         description: 'Sandboxed command execution (npm, git, node, etc.)',
         category: 'execution',
         command: 'node',
-        args: [] as string[],
+        args: [],
         argTemplate: '{shellServerPath} {workspace}',
-        defaultRoles: [AgentRole.CODER],
+        defaultRoles: [
+          AgentRole.CODER,
+          AgentRole.FUNCTIONAL_TESTER,
+          AgentRole.UI_TESTER,
+          AgentRole.PEN_TESTER,
+          AgentRole.DEVOPS,
+        ],
+      },
+      {
+        name: 'playwright',
+        displayName: 'Playwright Server',
+        description: 'Browser automation: navigate, screenshot, interact, test',
+        category: 'execution',
+        command: 'npx',
+        args: ['@playwright/mcp@latest'],
+        defaultRoles: [AgentRole.UI_TESTER, AgentRole.FUNCTIONAL_TESTER],
+      },
+      {
+        name: 'eslint',
+        displayName: 'ESLint Server',
+        description: 'Lint analysis, rule inspection, auto-fix suggestions',
+        category: 'execution',
+        command: 'npx',
+        args: ['@eslint/mcp@latest'],
+        defaultRoles: [AgentRole.CODER, AgentRole.CODE_REVIEWER],
+      },
+
+      // ─── Security ──────────────────
+      {
+        name: 'security-audit',
+        displayName: 'Security Audit Server',
+        description: 'npm audit, CVE lookup, dependency vulnerability scan',
+        category: 'security',
+        command: 'npx',
+        args: ['@qianniuspace/mcp-security-audit@latest'],
+        defaultRoles: [AgentRole.PEN_TESTER],
       },
     ];
 
@@ -238,18 +434,27 @@ export class McpRegistryService implements OnModuleInit {
             command: def.command,
             args: def.args,
             argTemplate: def.argTemplate,
+            envTemplate: def.envTemplate ?? undefined,
             builtin: true,
             enabled: true,
           },
         });
 
-        // Create default role assignments
         for (const role of def.defaultRoles) {
           await this.prisma.mcpServerOnRole.create({
             data: { mcpServerId: server.id, agentRole: role },
           });
         }
         this.logger.log(`Seeded built-in MCP server: ${def.name} → [${def.defaultRoles.join(', ')}]`);
+      } else {
+        // Update existing builtin server envTemplate if it was added
+        if (def.envTemplate && !existing.envTemplate) {
+          await this.prisma.mcpServerDefinition.update({
+            where: { id: existing.id },
+            data: { envTemplate: def.envTemplate },
+          });
+          this.logger.log(`Updated envTemplate for built-in server: ${def.name}`);
+        }
       }
     }
   }

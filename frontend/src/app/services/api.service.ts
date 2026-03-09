@@ -179,6 +179,15 @@ export interface McpServerDefinition {
   roles: string[];
 }
 
+export interface McpProjectOverride {
+  id: string;
+  projectId: string;
+  mcpServerId: string;
+  agentRole: string;
+  action: 'ENABLE' | 'DISABLE';
+  mcpServer?: { id: string; name: string; displayName: string };
+}
+
 export interface PipelineConfig {
   enabled: boolean;
   autoStart: boolean;
@@ -402,6 +411,25 @@ export class ApiService {
 
   setMcpServerRoles(id: string, roles: string[]) {
     return this.http.put<McpServerDefinition>(`${this.baseUrl}/mcp-servers/${id}/roles`, { roles });
+  }
+
+  // ─── MCP Project Overrides ────────────────────────────────
+
+  getMcpProjectOverrides(projectId: string) {
+    return this.http.get<McpProjectOverride[]>(
+      `${this.baseUrl}/projects/${projectId}/mcp-overrides`,
+    );
+  }
+
+  setMcpProjectOverride(projectId: string, data: { mcpServerId: string; agentRole: string; action: 'ENABLE' | 'DISABLE' }) {
+    return this.http.put<McpProjectOverride>(
+      `${this.baseUrl}/projects/${projectId}/mcp-overrides`,
+      data,
+    );
+  }
+
+  deleteMcpProjectOverride(projectId: string, data: { mcpServerId: string; agentRole: string }) {
+    return this.http.delete(`${this.baseUrl}/projects/${projectId}/mcp-overrides`, { body: data });
   }
 
   // ─── Provider Discovery ───────────────────────────────────

@@ -98,3 +98,30 @@ export class SetRoleAssignmentsDto {
   @IsEnum(AgentRole, { each: true })
   roles: AgentRole[];
 }
+
+export class SetProjectOverrideDto {
+  @ApiProperty({ example: 'cm...serverId' })
+  @IsString()
+  @IsNotEmpty()
+  mcpServerId: string;
+
+  @ApiProperty({ example: 'CODER', enum: AgentRole })
+  @IsEnum(AgentRole)
+  agentRole: AgentRole;
+
+  @ApiProperty({ example: 'DISABLE', enum: ['ENABLE', 'DISABLE'] })
+  @IsString()
+  @IsNotEmpty()
+  action: 'ENABLE' | 'DISABLE';
+}
+
+export class DeleteProjectOverrideDto {
+  @ApiProperty({ example: 'cm...serverId' })
+  @IsString()
+  @IsNotEmpty()
+  mcpServerId: string;
+
+  @ApiProperty({ example: 'CODER', enum: AgentRole })
+  @IsEnum(AgentRole)
+  agentRole: AgentRole;
+}
