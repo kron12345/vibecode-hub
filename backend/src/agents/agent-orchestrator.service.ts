@@ -6,6 +6,7 @@ import { SystemSettingsService } from '../settings/system-settings.service';
 import { GitlabService } from '../gitlab/gitlab.service';
 import { InterviewerAgent } from './interviewer/interviewer.agent';
 import { DevopsAgent } from './devops/devops.agent';
+import { ArchitectAgent } from './architect/architect.agent';
 import { IssueCompilerAgent } from './issue-compiler/issue-compiler.agent';
 import { CoderAgent } from './coder/coder.agent';
 import { CodeReviewerAgent } from './code-reviewer/code-reviewer.agent';
@@ -39,6 +40,7 @@ export class AgentOrchestratorService implements OnModuleInit, OnModuleDestroy {
     private readonly gitlabService: GitlabService,
     private readonly interviewer: InterviewerAgent,
     private readonly devops: DevopsAgent,
+    private readonly architect: ArchitectAgent,
     private readonly issueCompiler: IssueCompilerAgent,
     private readonly coder: CoderAgent,
     private readonly codeReviewer: CodeReviewerAgent,
@@ -304,11 +306,10 @@ export class AgentOrchestratorService implements OnModuleInit, OnModuleDestroy {
     };
   }
 
-  // ─── Issue Compiler Agent ───────────────────────────────────
+  // ─── Architect Agent ──────────────────────────────────────────
 
   /**
-   * Handle DevOps completion — automatically start Issue Compiler.
-   * Reuses the same chat session for seamless flow.
+   * Handle DevOps completion — start Architect Phase A (architecture design).
    */
   @OnEvent('agent.devopsComplete')
   async handleDevopsComplete(payload: {
@@ -317,9 +318,67 @@ export class AgentOrchestratorService implements OnModuleInit, OnModuleDestroy {
   }) {
     const { projectId, chatSessionId } = payload;
 
+    if (await this.hasActiveAgent(projectId, AgentRole.ARCHITECT)) return;
+
+    this.logger.log(`DevOps complete for project ${projectId} — starting Architect (Phase A)`);
+
+    try {
+      await this.startArchitectDesign(projectId, chatSessionId);
+    } catch (err) {
+      this.logger.error(`Failed to start Architect: ${err.message}`);
+    }
+  }
+
+  /**
+   * Start the Architect agent for Phase A: architecture design.
+   */
+  async startArchitectDesign(projectId: string, chatSessionId: string) {
+    const config = this.settings.getAgentRoleConfig('ARCHITECT');
+
+    const agentInstance = await this.prisma.agentInstance.create({
+      data: {
+        projectId,
+        role: AgentRole.ARCHITECT,
+        provider: config.provider as any,
+        model: config.model,
+        status: AgentStatus.IDLE,
+      },
+    });
+
+    const agentTask = await this.prisma.agentTask.create({
+      data: {
+        agentId: agentInstance.id,
+        type: AgentTaskType.DESIGN_ARCHITECTURE,
+        status: AgentTaskStatus.RUNNING,
+        startedAt: new Date(),
+      },
+    });
+
+    const ctx = {
+      projectId,
+      agentInstanceId: agentInstance.id,
+      agentTaskId: agentTask.id,
+      chatSessionId,
+    };
+
+    this.architect.designArchitecture(ctx).catch((err) => {
+      this.logger.error(`Architect (Phase A) error: ${err.message}`);
+    });
+  }
+
+  /**
+   * Handle architecture design completion — start Issue Compiler.
+   */
+  @OnEvent('agent.architectDesignComplete')
+  async handleArchitectDesignComplete(payload: {
+    projectId: string;
+    chatSessionId: string;
+  }) {
+    const { projectId, chatSessionId } = payload;
+
     if (await this.hasActiveAgent(projectId, AgentRole.ISSUE_COMPILER)) return;
 
-    this.logger.log(`DevOps complete for project ${projectId} — starting Issue Compiler`);
+    this.logger.log(`Architecture design complete for project ${projectId} — starting Issue Compiler`);
 
     try {
       await this.startIssueCompilation(projectId, chatSessionId);
@@ -327,6 +386,8 @@ export class AgentOrchestratorService implements OnModuleInit, OnModuleDestroy {
       this.logger.error(`Failed to start Issue Compiler: ${err.message}`);
     }
   }
+
+  // ─── Issue Compiler Agent ───────────────────────────────────
 
   /**
    * Start the Issue Compiler agent.
@@ -383,10 +444,10 @@ export class AgentOrchestratorService implements OnModuleInit, OnModuleDestroy {
     };
   }
 
-  // ─── Coder Agent ──────────────────────────────────────────
+  // ─── Architect Phase B: Issue Grounding ─────────────────────
 
   /**
-   * Handle issue compilation completion — automatically start Coder Agent.
+   * Handle issue compilation completion — start Architect Phase B (grounding).
    */
   @OnEvent('agent.issueCompilerComplete')
   async handleIssueCompilerComplete(payload: {
@@ -395,9 +456,67 @@ export class AgentOrchestratorService implements OnModuleInit, OnModuleDestroy {
   }) {
     const { projectId, chatSessionId } = payload;
 
+    if (await this.hasActiveAgent(projectId, AgentRole.ARCHITECT)) return;
+
+    this.logger.log(`Issue compilation complete for project ${projectId} — starting Architect (Phase B: Grounding)`);
+
+    try {
+      await this.startArchitectGrounding(projectId, chatSessionId);
+    } catch (err) {
+      this.logger.error(`Failed to start Architect grounding: ${err.message}`);
+    }
+  }
+
+  /**
+   * Start the Architect agent for Phase B: issue grounding.
+   */
+  async startArchitectGrounding(projectId: string, chatSessionId: string) {
+    const config = this.settings.getAgentRoleConfig('ARCHITECT');
+
+    const agentInstance = await this.prisma.agentInstance.create({
+      data: {
+        projectId,
+        role: AgentRole.ARCHITECT,
+        provider: config.provider as any,
+        model: config.model,
+        status: AgentStatus.IDLE,
+      },
+    });
+
+    const agentTask = await this.prisma.agentTask.create({
+      data: {
+        agentId: agentInstance.id,
+        type: AgentTaskType.ANALYZE_ISSUES,
+        status: AgentTaskStatus.RUNNING,
+        startedAt: new Date(),
+      },
+    });
+
+    const ctx = {
+      projectId,
+      agentInstanceId: agentInstance.id,
+      agentTaskId: agentTask.id,
+      chatSessionId,
+    };
+
+    this.architect.groundIssues(ctx).catch((err) => {
+      this.logger.error(`Architect (Phase B) error: ${err.message}`);
+    });
+  }
+
+  /**
+   * Handle architect grounding completion — start Coder Agent.
+   */
+  @OnEvent('agent.architectGroundingComplete')
+  async handleArchitectGroundingComplete(payload: {
+    projectId: string;
+    chatSessionId: string;
+  }) {
+    const { projectId, chatSessionId } = payload;
+
     if (await this.hasActiveAgent(projectId, AgentRole.CODER)) return;
 
-    this.logger.log(`Issue compilation complete for project ${projectId} — starting Coder Agent`);
+    this.logger.log(`Architect grounding complete for project ${projectId} — starting Coder Agent`);
 
     try {
       await this.startCoding(projectId, chatSessionId);
@@ -405,6 +524,8 @@ export class AgentOrchestratorService implements OnModuleInit, OnModuleDestroy {
       this.logger.error(`Failed to start Coder Agent: ${err.message}`);
     }
   }
+
+  // ─── Coder Agent ──────────────────────────────────────────
 
   /**
    * Start the Coder agent for milestone coding.

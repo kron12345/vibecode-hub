@@ -1,0 +1,2 @@
+-- AlterEnum
+ALTER TYPE "AgentTaskType" ADD VALUE 'ANALYZE_ISSUES';

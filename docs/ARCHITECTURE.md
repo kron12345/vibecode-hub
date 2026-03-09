@@ -145,24 +145,40 @@ Jede Rolle hat ein vollständiges Behavior Profile (System Prompt) mit: Verantwo
 ```
 Interview → agent.interviewComplete
   → DevOps → agent.devopsComplete
-    → Issue Compiler → agent.issueCompilerComplete
-      → Coder Agent (pro Issue im Milestone, sequenziell)
-        → agent.codingComplete
-          → Code Reviewer
-            → agent.reviewApproved
-              → Functional Tester → agent.functionalTestComplete
-                → pass → UI Tester → agent.uiTestComplete
-                  → pass → Pen Tester → agent.penTestComplete
-                    → pass → Documenter → agent.docsComplete → Issue DONE
-                    → fail → Coder fixIssue(security feedback)
-                  → fail → Coder fixIssue(UI feedback)
-                → fail → Coder fixIssue(functional test feedback)
-            → agent.reviewChangesRequested → Coder fixIssue()
+    → Architect (Phase A: Design) → agent.architectDesignComplete
+      → Issue Compiler → agent.issueCompilerComplete
+        → Architect (Phase B: Grounding) → agent.architectGroundingComplete
+          → Coder Agent (pro Issue im Milestone, sequenziell)
+            → agent.codingComplete
+              → Code Reviewer
+                → agent.reviewApproved
+                  → Functional Tester → agent.functionalTestComplete
+                    → pass → UI Tester → agent.uiTestComplete
+                      → pass → Pen Tester → agent.penTestComplete
+                        → pass → Documenter → agent.docsComplete → Issue DONE
+                        → fail → Coder fixIssue(security feedback)
+                      → fail → Coder fixIssue(UI feedback)
+                    → fail → Coder fixIssue(functional test feedback)
+                → agent.reviewChangesRequested → Coder fixIssue()
 
 GitLab Webhooks:
   gitlab.pipelineResult (failed) → Coder fixIssue() mit Job-Logs
   gitlab.userComment (auf DONE/IN_REVIEW/TESTING Issue) → Coder fixIssue()
 ```
+
+### Architect Agent (2 Phasen)
+- **Phase A — Design** (einmalig nach DevOps, Task: `DESIGN_ARCHITECTURE`)
+  - Liest Projektstruktur via MCP Filesystem (bestehender Code) oder entwirft Architektur (leeres Repo)
+  - Postet Architektur-Überblick als Chat-Message
+  - Adaptiv: Analysiert vorhandenen Code ODER designt von Grund auf
+- **Phase B — Grounding** (nach Issue Compiler, Task: `ANALYZE_ISSUES`)
+  - Iteriert über alle OPEN Issues
+  - Pro Issue: Liest relevanten Code via MCP → postet Grounding-Kommentar auf das Issue
+  - Kommentar enthält: Relevante Dateien, zu erstellende Dateien, Approach, Patterns
+  - Nutzt `postAgentComment()` → sichtbar in GitLab + lokaler DB
+  - Coder bekommt Grounding via `getAgentCommentHistory()` automatisch
+- **MCP-Server**: filesystem, sequential-thinking (konfigurierbar via MCP Registry)
+- **Fallback**: Wenn kein MCP konfiguriert → Plain LLM Call
 
 ### Coder Agent
 - Nutzt **MCP Agent Loop**: Ollama (Tool-Calling) + MCP Filesystem Server

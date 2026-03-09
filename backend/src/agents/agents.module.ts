@@ -7,6 +7,7 @@ import { AgentOrchestratorService } from './agent-orchestrator.service';
 import { AgentsController } from './agents.controller';
 import { InterviewerAgent } from './interviewer/interviewer.agent';
 import { DevopsAgent } from './devops/devops.agent';
+import { ArchitectAgent } from './architect/architect.agent';
 import { IssueCompilerAgent } from './issue-compiler/issue-compiler.agent';
 import { CoderAgent } from './coder/coder.agent';
 import { CodeReviewerAgent } from './code-reviewer/code-reviewer.agent';
@@ -22,6 +23,7 @@ import { DocumenterAgent } from './documenter/documenter.agent';
     AgentOrchestratorService,
     InterviewerAgent,
     DevopsAgent,
+    ArchitectAgent,
     IssueCompilerAgent,
     CoderAgent,
     CodeReviewerAgent,
