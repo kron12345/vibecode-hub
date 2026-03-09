@@ -249,11 +249,16 @@ Eigener MCP-Server, der dem Coder Agent sichere Shell-Befehle im Workspace ermö
 - PASS: Keine Critical Findings, Warnings ≤ maxWarnings → Documenter
 - FAIL: → Coder fixIssue() mit Security-Feedback
 
-### Stuck Task Cleanup
-- **Automatisch**: Alle 5 Minuten prüft der Orchestrator auf RUNNING Tasks die älter als X Minuten sind
-- **Timeout**: Konfigurierbar via `pipeline.stuckTimeoutMinutes` (default: 30)
+### Stuck Task Cleanup (Activity-Based)
+- **Automatisch**: Alle 5 Minuten prüft der Orchestrator auf RUNNING Tasks
+- **Activity-Based**: Nicht rein zeitbasiert — prüft ob der Agent noch aktiv ist:
+  - Letzte `AgentLog`-Einträge nach dem Inactivity-Cutoff?
+  - Letzte `ChatMessage` zum Task nach dem Cutoff?
+  - Nur wenn BEIDE Checks keine Aktivität zeigen → Task ist stuck
+- **Inactivity-Timeout**: Konfigurierbar via `pipeline.stuckTimeoutMinutes` (default: 30 Minuten ohne jede Aktivität)
 - **Cleanup**: Stuck Tasks → FAILED, Agent → IDLE, Issue → OPEN (für Retry)
 - **Orphaned Agents**: WORKING/WAITING Agents ohne RUNNING Task → IDLE
+- **Designprinzip**: Agenten dürfen so lange laufen wie sie brauchen — nur wirklich tote Agents werden aufgeräumt
 
 ### Documenter Agent
 - LLM analysiert MR-Diffs + bestehende Docs

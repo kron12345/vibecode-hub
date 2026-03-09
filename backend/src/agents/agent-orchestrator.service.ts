@@ -24,8 +24,8 @@ import {
 
 /** Default: check for stuck tasks every 5 minutes */
 const STUCK_CHECK_INTERVAL_MS = 5 * 60 * 1000;
-/** Default: tasks running > 30 minutes are considered stuck */
-const DEFAULT_STUCK_TIMEOUT_MINUTES = 30;
+/** Default: tasks with no activity for > 30 minutes are considered stuck */
+const DEFAULT_INACTIVITY_TIMEOUT_MINUTES = 30;
 
 @Injectable()
 export class AgentOrchestratorService implements OnModuleInit, OnModuleDestroy {
@@ -1183,19 +1183,30 @@ export class AgentOrchestratorService implements OnModuleInit, OnModuleDestroy {
   // ─── Stuck Task Cleanup ──────────────────────────────────
 
   /**
-   * Periodically checks for tasks that have been RUNNING for too long
-   * and marks them as FAILED. Also resets the agent status and issue status.
+   * Periodically checks for RUNNING tasks that show no recent activity.
+   *
+   * IMPORTANT: Agents can legitimately run for a very long time (e.g. deepseek-r1
+   * reasoning, large codebase analysis). We NEVER kill a task just because it's
+   * been running long. Instead, we check for INACTIVITY — no new AgentLog entries
+   * and no ChatMessage updates within the timeout window.
+   *
+   * A task is only considered stuck if:
+   * 1. It has been RUNNING for at least the inactivity timeout, AND
+   * 2. There are NO recent AgentLog entries for this task, AND
+   * 3. There are NO recent ChatMessages linked to this task
+   *
+   * This ensures we only clean up truly dead tasks, not slow-but-working ones.
    */
   async cleanupStuckTasks(): Promise<void> {
-    const timeoutMinutes = parseInt(
-      this.settings.get('pipeline.stuckTimeoutMinutes', '', String(DEFAULT_STUCK_TIMEOUT_MINUTES)),
+    const inactivityMinutes = parseInt(
+      this.settings.get('pipeline.stuckTimeoutMinutes', '', String(DEFAULT_INACTIVITY_TIMEOUT_MINUTES)),
       10,
-    ) || DEFAULT_STUCK_TIMEOUT_MINUTES;
+    ) || DEFAULT_INACTIVITY_TIMEOUT_MINUTES;
 
-    const cutoff = new Date(Date.now() - timeoutMinutes * 60 * 1000);
+    const cutoff = new Date(Date.now() - inactivityMinutes * 60 * 1000);
 
-    // Find tasks that have been RUNNING since before the cutoff
-    const stuckTasks = await this.prisma.agentTask.findMany({
+    // Find all RUNNING tasks that started before the cutoff
+    const candidates = await this.prisma.agentTask.findMany({
       where: {
         status: AgentTaskStatus.RUNNING,
         startedAt: { lt: cutoff },
@@ -1206,23 +1217,71 @@ export class AgentOrchestratorService implements OnModuleInit, OnModuleDestroy {
       },
     });
 
+    if (candidates.length === 0) return;
+
+    // For each candidate, check if there's been any recent activity
+    const stuckTasks: typeof candidates = [];
+
+    for (const task of candidates) {
+      // Check 1: Recent AgentLog entries for this task
+      const recentLog = await this.prisma.agentLog.findFirst({
+        where: {
+          agentTaskId: task.id,
+          createdAt: { gt: cutoff },
+        },
+        orderBy: { createdAt: 'desc' },
+      });
+
+      if (recentLog) {
+        // Agent is still writing logs — it's alive, skip
+        continue;
+      }
+
+      // Check 2: Recent ChatMessages linked to this task
+      const recentMessage = await this.prisma.chatMessage.findFirst({
+        where: {
+          agentTaskId: task.id,
+          createdAt: { gt: cutoff },
+        },
+        orderBy: { createdAt: 'desc' },
+      });
+
+      if (recentMessage) {
+        // Agent is still sending chat messages — it's alive, skip
+        continue;
+      }
+
+      // No recent activity → this task is genuinely stuck
+      stuckTasks.push(task);
+    }
+
     if (stuckTasks.length === 0) return;
 
-    this.logger.warn(`Found ${stuckTasks.length} stuck task(s) (running > ${timeoutMinutes} min)`);
+    this.logger.warn(
+      `Found ${stuckTasks.length} stuck task(s) (no activity for ${inactivityMinutes}+ min) ` +
+      `out of ${candidates.length} long-running candidate(s)`,
+    );
 
     for (const task of stuckTasks) {
       try {
-        // Mark task as FAILED
+        // Get the last activity timestamp for logging
+        const lastLog = await this.prisma.agentLog.findFirst({
+          where: { agentTaskId: task.id },
+          orderBy: { createdAt: 'desc' },
+          select: { createdAt: true },
+        });
+
         await this.prisma.agentTask.update({
           where: { id: task.id },
           data: {
             status: AgentTaskStatus.FAILED,
             completedAt: new Date(),
-            output: { error: `Task timed out after ${timeoutMinutes} minutes` } as any,
+            output: {
+              error: `Task inactive for ${inactivityMinutes}+ minutes (last activity: ${lastLog?.createdAt?.toISOString() ?? 'none'})`,
+            } as any,
           },
         });
 
-        // Reset agent instance to IDLE
         if (task.agent) {
           await this.prisma.agentInstance.update({
             where: { id: task.agent.id },
@@ -1240,7 +1299,7 @@ export class AgentOrchestratorService implements OnModuleInit, OnModuleDestroy {
 
         this.logger.warn(
           `Cleaned up stuck task ${task.id} (${task.type}, agent: ${task.agent?.role ?? '?'}, ` +
-          `issue: ${task.issue?.title ?? 'N/A'}, started: ${task.startedAt?.toISOString()})`,
+          `issue: ${task.issue?.title ?? 'N/A'}, last activity: ${lastLog?.createdAt?.toISOString() ?? 'none'})`,
         );
       } catch (err) {
         this.logger.error(`Failed to cleanup stuck task ${task.id}: ${err.message}`);
@@ -1248,6 +1307,7 @@ export class AgentOrchestratorService implements OnModuleInit, OnModuleDestroy {
     }
 
     // Also reset any WORKING/WAITING agents that have no RUNNING tasks
+    // (e.g. agent crashed mid-task without updating its own status)
     const orphanedAgents = await this.prisma.agentInstance.findMany({
       where: {
         status: { in: [AgentStatus.WORKING, AgentStatus.WAITING] },
