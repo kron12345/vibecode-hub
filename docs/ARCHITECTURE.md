@@ -105,6 +105,8 @@ Dev-Server auf localhost:{port}
 - **AgentInstance** → konfigurierter Agent pro Projekt (Rolle + Provider + Model)
 - **AgentTask** → einzelner Arbeitsschritt eines Agenten (11 Task-Typen)
 - **AgentLog** → Echtzeit-Logs für Live-Dashboard
+- **McpServerDefinition** → Registrierte MCP-Server (name unique, command, args, argTemplate mit Platzhaltern, category, builtin-Flag). Built-in Server (filesystem, shell) beim Start geseeded, nicht löschbar.
+- **McpServerOnRole** → Many-to-many Join zwischen McpServerDefinition und AgentRole. Definiert welche MCP-Server einer Agent-Rolle zur Verfügung stehen. @@unique(mcpServerId, agentRole).
 - **UserSetting** → Pro-User Key-Value Settings (Sprache, Theme, UI-Präferenzen)
 - **SystemSetting** → Globale Konfiguration (GitLab, LLM-Provider, CORS, Agent-Rollen, Pipeline), Secrets AES-256-GCM verschlüsselt
 
@@ -174,7 +176,17 @@ GitLab Webhooks:
 - **Filesystem MCP Server**: `@modelcontextprotocol/server-filesystem` — 14 Tools (read, write, edit, search, tree etc.)
 - **Shell MCP Server**: `shell-server.mjs` — `run_command` Tool für Shell-Befehle im Workspace
 - **Sandboxing**: MCP-Server erhalten nur Zugriff auf den Workspace-Ordner des Projekts
-- **Erweiterbar**: Weitere MCP-Server (Git, Angular CLI, Prisma) können später ergänzt werden
+- **Erweiterbar**: Weitere MCP-Server (Git, Angular CLI, Prisma) können über die MCP Server Registry hinzugefügt werden
+
+### MCP Server Registry
+- **McpRegistryService**: CRUD für MCP-Server-Definitionen, Rollen-Zuordnung, Runtime-Auflösung
+- **McpRegistryController**: 6 REST-Endpoints unter `/api/mcp-servers` (Admin only)
+- **Built-in Server**: `filesystem` und `shell` werden beim Start automatisch geseeded, nicht löschbar
+- **Custom Server**: Admins können eigene MCP-Server registrieren (z.B. Git, Angular CLI, Prisma)
+- **Rollen-Zuordnung**: Many-to-many (`McpServerOnRole`) — pro Agent-Rolle konfigurierbar welche Server verfügbar sind
+- **Runtime Resolution**: `getServersForRole(role, context)` ersetzt `argTemplate`-Platzhalter (`{workspace}`, `{allowedPaths}`, `{shellServerPath}`) zur Laufzeit
+- **Coder Agent**: Lädt MCP-Server dynamisch aus Registry statt hardcodierte Konstanten
+- **Frontend**: MCP Servers Section in Settings → Agents Tab mit Enable/Disable Toggle, Rollen-Checkboxen, Add Custom Server Form
 
 ### Shell MCP Server (`shell-server.mjs`)
 

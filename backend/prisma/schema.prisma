@@ -305,6 +305,38 @@ enum LogLevel {
   ERROR
 }
 
+// ─── MCP Server Registry ──────────────────────────────────
+
+model McpServerDefinition {
+  id          String   @id @default(cuid())
+  name        String   @unique
+  displayName String
+  description String?
+  category    String   @default("custom") // coding, execution, security, knowledge, custom
+  command     String
+  args        String[]
+  env         Json?
+  argTemplate String?  // Placeholders: {workspace}, {allowedPaths}, {shellServerPath}
+  builtin     Boolean  @default(false)
+  enabled     Boolean  @default(true)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  roles       McpServerOnRole[]
+
+  @@map("mcp_server_definitions")
+}
+
+model McpServerOnRole {
+  id          String              @id @default(cuid())
+  mcpServerId String
+  mcpServer   McpServerDefinition @relation(fields: [mcpServerId], references: [id], onDelete: Cascade)
+  agentRole   AgentRole
+
+  @@unique([mcpServerId, agentRole])
+  @@map("mcp_server_on_role")
+}
+
 // ─── Settings ──────────────────────────────────────────────
 
 model UserSetting {

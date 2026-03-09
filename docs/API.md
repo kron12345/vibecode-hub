@@ -661,10 +661,93 @@ map $hub_project $hub_upstream {
 
 ---
 
+## MCP Server Registry (Admin only)
+
+| Method | Endpoint | Auth | Beschreibung |
+|---|---|---|---|
+| `GET` | `/api/mcp-servers` | Admin | Alle MCP-Server-Definitionen mit Rollen-Zuordnungen |
+| `GET` | `/api/mcp-servers/:id` | Admin | Einzelne MCP-Server-Definition |
+| `POST` | `/api/mcp-servers` | Admin | Custom MCP-Server erstellen |
+| `PUT` | `/api/mcp-servers/:id` | Admin | MCP-Server aktualisieren |
+| `DELETE` | `/api/mcp-servers/:id` | Admin | Custom MCP-Server löschen (built-in geschützt) |
+| `PUT` | `/api/mcp-servers/:id/roles` | Admin | Rollen-Zuordnungen setzen (welche Agenten diesen Server nutzen) |
+
+### DTOs
+
+**CreateMcpServerDto**
+```typescript
+{
+  name: string;          // Pflicht, unique (z.B. "git")
+  displayName: string;   // Pflicht (z.B. "Git Server")
+  description?: string;
+  category?: string;     // "coding" | "execution" | "security" | "knowledge" | "custom" (Default: "custom")
+  command: string;       // Pflicht (z.B. "npx", "node")
+  args: string[];        // Pflicht (z.B. ["@modelcontextprotocol/server-git"])
+  env?: Record<string, string>;  // Umgebungsvariablen
+  argTemplate?: string;  // Platzhalter: {workspace}, {allowedPaths}, {shellServerPath}
+  enabled?: boolean;     // Default: true
+}
+```
+
+**UpdateMcpServerDto** — Alle Felder optional (außer `name`, nicht änderbar):
+```typescript
+{
+  displayName?: string;
+  description?: string;
+  category?: string;
+  command?: string;
+  args?: string[];
+  env?: Record<string, string>;
+  argTemplate?: string;
+  enabled?: boolean;
+}
+```
+
+**SetRoleAssignmentsDto**
+```typescript
+{
+  roles: AgentRole[];  // z.B. ["CODER", "CODE_REVIEWER"]
+}
+```
+
+### Verhalten
+- **Built-in Server** (`filesystem`, `shell`) werden beim API-Start automatisch geseeded und können nicht gelöscht werden (DELETE gibt 400 zurück)
+- **Rollen-Zuordnung**: Many-to-many über `McpServerOnRole` — ein Server kann mehreren Rollen zugeordnet sein, eine Rolle kann mehrere Server haben
+- **Runtime Resolution**: `getServersForRole(role, context)` löst `argTemplate`-Platzhalter auf (`{workspace}` → tatsächlicher Workspace-Pfad)
+- **Coder Agent**: Lädt MCP-Server dynamisch aus der Registry statt aus hardcodierten Konstanten
+
+### Datenmodell
+
+**McpServerDefinition**
+| Feld | Typ | Beschreibung |
+|---|---|---|
+| `id` | cuid | Primary Key |
+| `name` | String (unique) | Technischer Name |
+| `displayName` | String | Anzeigename |
+| `description` | String? | Beschreibung |
+| `category` | String | Kategorie (coding, execution, security, knowledge, custom) |
+| `command` | String | Ausführbares Kommando |
+| `args` | String[] | Argumente |
+| `env` | Json? | Umgebungsvariablen |
+| `argTemplate` | String? | Argument-Template mit Platzhaltern |
+| `builtin` | Boolean | Built-in-Server (nicht löschbar) |
+| `enabled` | Boolean | Aktiviert/Deaktiviert |
+
+**McpServerOnRole** (Join-Tabelle)
+| Feld | Typ | Beschreibung |
+|---|---|---|
+| `id` | cuid | Primary Key |
+| `mcpServerId` | String (FK) | → McpServerDefinition |
+| `agentRole` | AgentRole (Enum) | Agent-Rolle |
+| | | @@unique(mcpServerId, agentRole) |
+
+---
+
 ## Changelog
 
 | Datum | Änderung |
 |---|---|
+| 2026-03-09 | MCP Server Registry: Admin CRUD + Role Assignment API (6 Endpoints unter /api/mcp-servers), Built-in Server Seeding (filesystem, shell), Coder Agent dynamische MCP-Server-Auflösung, Frontend Settings-Integration |
 | 2026-03-09 | GitLab Status Labels: `status::*` labels synced on every issue status transition (6 color-coded labels, idempotent). Shell MCP Server for Coder Agent (`shell-server.mjs`, whitelisted commands, security-hardened). |
 | 2026-03-04 | Agent Comment Chat: Unified postAgentComment() utility (same rich markdown for local DB + GitLab, gitlabNoteId stored). Context injection: test agents receive previous agent comments in LLM prompts. GitLab Wiki CRUD (6 methods). Documenter Wiki sync (wikiPage flag in DocFile). |
 | 2026-03-03 | Phase 3 Testing + Documenter: Functional Tester (LLM Acceptance Criteria Check), UI Tester (Playwright + LLM), Pen Tester (npm audit + HTTP headers + LLM OWASP), Documenter (LLM + Git). Erweiterte Pipeline: Review APPROVED → Functional → UI → Pen → Docs → DONE. 4 neue manuelle Trigger-Endpoints, StartTestDto, Feedback Loops für alle Test-Agents |

@@ -164,6 +164,21 @@ export interface AgentPresetInfo {
   icon: string;
 }
 
+export interface McpServerDefinition {
+  id: string;
+  name: string;
+  displayName: string;
+  description: string | null;
+  category: string;
+  command: string;
+  args: string[];
+  env: Record<string, string> | null;
+  argTemplate: string | null;
+  builtin: boolean;
+  enabled: boolean;
+  roles: string[];
+}
+
 export interface PipelineConfig {
   enabled: boolean;
   autoStart: boolean;
@@ -365,6 +380,28 @@ export class ApiService {
       `${this.baseUrl}/settings/agents/presets/${presetId}`,
       {},
     );
+  }
+
+  // ─── MCP Servers ────────────────────────────────────────────
+
+  getMcpServers() {
+    return this.http.get<McpServerDefinition[]>(`${this.baseUrl}/mcp-servers`);
+  }
+
+  createMcpServer(dto: Partial<McpServerDefinition>) {
+    return this.http.post<McpServerDefinition>(`${this.baseUrl}/mcp-servers`, dto);
+  }
+
+  updateMcpServer(id: string, dto: Partial<McpServerDefinition>) {
+    return this.http.put<McpServerDefinition>(`${this.baseUrl}/mcp-servers/${id}`, dto);
+  }
+
+  deleteMcpServer(id: string) {
+    return this.http.delete(`${this.baseUrl}/mcp-servers/${id}`);
+  }
+
+  setMcpServerRoles(id: string, roles: string[]) {
+    return this.http.put<McpServerDefinition>(`${this.baseUrl}/mcp-servers/${id}/roles`, { roles });
   }
 
   // ─── Provider Discovery ───────────────────────────────────

@@ -9,6 +9,7 @@ import {
   ProviderModel,
   ProviderModelsResult,
   CliToolStatus,
+  McpServerDefinition,
 } from '../../services/api.service';
 import { AuthInfoService } from '../../services/auth-info.service';
 import { IconComponent } from '../../components/icon.component';
@@ -557,6 +558,189 @@ const PERMISSION_KEYS: { key: keyof AgentRoleConfig['permissions']; labelKey: st
           </div>
         </div>
 
+        <!-- MCP Servers -->
+        <div class="glass card-glow rounded-3xl p-6 animate-in stagger-5">
+          <h2 class="text-lg font-semibold text-white mb-2 flex items-center gap-2">
+            <app-icon name="puzzle" [size]="20" class="text-cyan-400" />
+            {{ 'settings.mcpServers' | translate }}
+          </h2>
+          <p class="text-sm text-slate-500 mb-5">
+            {{ 'settings.mcpServersHint' | translate }}
+          </p>
+
+          @if (mcpServers().length === 0) {
+            <p class="text-sm text-slate-600 italic">{{ 'settings.mcpNoServers' | translate }}</p>
+          }
+
+          <div class="space-y-3">
+            @for (server of mcpServers(); track server.id) {
+              <div class="rounded-2xl border border-white/5 bg-slate-900/30 overflow-hidden">
+                <!-- Server Header -->
+                <button
+                  (click)="expandedMcpServers[server.id] = !expandedMcpServers[server.id]"
+                  class="w-full px-5 py-3 flex items-center justify-between hover:bg-white/5 transition-colors"
+                >
+                  <div class="flex items-center gap-3">
+                    <div class="w-8 h-8 rounded-lg flex items-center justify-center bg-cyan-500/20 text-cyan-400">
+                      <app-icon name="puzzle" [size]="16" />
+                    </div>
+                    <div class="text-left">
+                      <span class="text-white font-medium text-sm">{{ server.displayName }}</span>
+                      @if (server.builtin) {
+                        <span class="ml-2 text-[10px] px-1.5 py-0.5 rounded bg-slate-700 text-slate-400 uppercase tracking-wider">
+                          {{ 'settings.mcpServerBuiltin' | translate }}
+                        </span>
+                      }
+                      <p class="text-xs text-slate-600">
+                        {{ server.command }} {{ server.args.join(' ') }}
+                        @if (server.argTemplate) {
+                          <span class="text-cyan-600">{{ server.argTemplate }}</span>
+                        }
+                      </p>
+                    </div>
+                  </div>
+                  <div class="flex items-center gap-3">
+                    <button
+                      (click)="toggleMcpServerEnabled(server, $event)"
+                      class="relative w-10 h-5 rounded-full transition-colors"
+                      [class]="server.enabled ? 'bg-emerald-600' : 'bg-slate-700'"
+                    >
+                      <div
+                        class="absolute top-0.5 w-4 h-4 bg-white rounded-full transition-transform"
+                        [class]="server.enabled ? 'translate-x-5' : 'translate-x-0.5'"
+                      ></div>
+                    </button>
+                    <app-icon
+                      [name]="expandedMcpServers[server.id] ? 'chevron-up' : 'chevron-down'"
+                      [size]="16"
+                      class="text-slate-500"
+                    />
+                  </div>
+                </button>
+
+                <!-- Expanded: Role Assignments -->
+                @if (expandedMcpServers[server.id]) {
+                  <div class="px-5 pb-4 border-t border-white/5 pt-3">
+                    @if (server.description) {
+                      <p class="text-xs text-slate-500 mb-3">{{ server.description }}</p>
+                    }
+                    <label class="block text-xs font-medium text-slate-400 mb-2">
+                      {{ 'settings.mcpAssignedRoles' | translate }}
+                    </label>
+                    <div class="flex flex-wrap gap-2">
+                      @for (role of agentRoles; track role) {
+                        <button
+                          (click)="toggleMcpServerRole(server, role)"
+                          class="px-3 py-1.5 rounded-lg border text-xs font-medium transition-all"
+                          [class]="
+                            server.roles.includes(role)
+                              ? 'border-cyan-500/30 bg-cyan-500/10 text-cyan-400'
+                              : 'border-white/10 bg-slate-900/50 text-slate-500 hover:text-slate-300'
+                          "
+                        >
+                          {{ agentRoleLabelKeys[role] | translate }}
+                        </button>
+                      }
+                    </div>
+
+                    @if (!server.builtin) {
+                      <div class="mt-3 pt-3 border-t border-white/5 flex justify-end">
+                        <button
+                          (click)="deleteMcpServer(server)"
+                          class="text-xs text-red-400 hover:text-red-300 transition-colors flex items-center gap-1"
+                        >
+                          <app-icon name="trash-2" [size]="12" />
+                          {{ 'settings.mcpDeleteServer' | translate }}
+                        </button>
+                      </div>
+                    }
+                  </div>
+                }
+              </div>
+            }
+          </div>
+
+          <!-- Add Custom Server -->
+          @if (!showAddMcpServer) {
+            <button
+              (click)="showAddMcpServer = true"
+              class="mt-4 flex items-center gap-2 text-sm text-cyan-400 hover:text-cyan-300 transition-colors"
+            >
+              <app-icon name="plus-circle" [size]="16" />
+              {{ 'settings.mcpAddServer' | translate }}
+            </button>
+          } @else {
+            <div class="mt-4 rounded-2xl border border-cyan-500/20 bg-slate-900/50 p-5 space-y-4">
+              <h3 class="text-sm font-semibold text-white">{{ 'settings.mcpAddServer' | translate }}</h3>
+              <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div>
+                  <label class="block text-xs text-slate-400 mb-1">{{ 'settings.mcpServerName' | translate }}</label>
+                  <input
+                    type="text"
+                    [(ngModel)]="newMcpServer.name"
+                    placeholder="git"
+                    class="w-full bg-slate-900/50 border border-white/10 rounded-xl px-3 py-2 text-white text-sm focus:outline-none focus:border-cyan-500/50"
+                  />
+                </div>
+                <div>
+                  <label class="block text-xs text-slate-400 mb-1">Display Name</label>
+                  <input
+                    type="text"
+                    [(ngModel)]="newMcpServer.displayName"
+                    placeholder="Git Server"
+                    class="w-full bg-slate-900/50 border border-white/10 rounded-xl px-3 py-2 text-white text-sm focus:outline-none focus:border-cyan-500/50"
+                  />
+                </div>
+                <div>
+                  <label class="block text-xs text-slate-400 mb-1">{{ 'settings.mcpServerCommand' | translate }}</label>
+                  <input
+                    type="text"
+                    [(ngModel)]="newMcpServer.command"
+                    placeholder="npx"
+                    class="w-full bg-slate-900/50 border border-white/10 rounded-xl px-3 py-2 text-white text-sm focus:outline-none focus:border-cyan-500/50"
+                  />
+                </div>
+                <div>
+                  <label class="block text-xs text-slate-400 mb-1">{{ 'settings.mcpServerArgs' | translate }}</label>
+                  <input
+                    type="text"
+                    [(ngModel)]="newMcpServerArgsText"
+                    placeholder="@modelcontextprotocol/server-git"
+                    class="w-full bg-slate-900/50 border border-white/10 rounded-xl px-3 py-2 text-white text-sm focus:outline-none focus:border-cyan-500/50"
+                  />
+                </div>
+              </div>
+              <div>
+                <label class="block text-xs text-slate-400 mb-1">
+                  {{ 'settings.mcpServerArgTemplate' | translate }}
+                  <span class="text-slate-600 ml-1">{{ 'settings.mcpServerArgTemplateHint' | translate }}</span>
+                </label>
+                <input
+                  type="text"
+                  [(ngModel)]="newMcpServer.argTemplate"
+                  placeholder="{workspace}"
+                  class="w-full bg-slate-900/50 border border-white/10 rounded-xl px-3 py-2 text-white text-sm focus:outline-none focus:border-cyan-500/50"
+                />
+              </div>
+              <div class="flex gap-3 justify-end">
+                <button
+                  (click)="showAddMcpServer = false"
+                  class="px-4 py-2 text-sm text-slate-400 hover:text-white transition-colors"
+                >
+                  {{ 'common.cancel' | translate }}
+                </button>
+                <button
+                  (click)="addMcpServer()"
+                  [disabled]="!newMcpServer.name || !newMcpServer.command"
+                  class="px-4 py-2 text-sm bg-cyan-600 hover:bg-cyan-500 disabled:opacity-50 text-white rounded-xl transition-colors"
+                >
+                  {{ 'common.save' | translate }}
+                </button>
+              </div>
+            </div>
+          }
+        </div>
+
         <!-- Presets -->
         @if (availablePresets().length > 0) {
           <div class="glass card-glow rounded-3xl p-6 animate-in stagger-5">
@@ -840,6 +1024,13 @@ export class SettingsPage implements OnInit {
   availablePresets = signal<AgentPresetInfo[]>([]);
   applyingPreset = signal(false);
 
+  // MCP Servers
+  mcpServers = signal<McpServerDefinition[]>([]);
+  expandedMcpServers: Record<string, boolean> = {};
+  showAddMcpServer = false;
+  newMcpServer: Partial<McpServerDefinition> = {};
+  newMcpServerArgsText = '';
+
   // Provider discovery
   providerResults = signal<Record<string, ProviderModelsResult>>({});
   modelsLoading = signal(false);
@@ -898,6 +1089,7 @@ export class SettingsPage implements OnInit {
       next: (presets) => this.availablePresets.set(presets),
     });
 
+    this.loadMcpServers();
     this.refreshAllProviders();
   }
 
@@ -1165,6 +1357,58 @@ export class SettingsPage implements OnInit {
 
   getRoleModel(role: string): string {
     return this.agentRoleConfigs[role]?.model ?? 'llama3.1';
+  }
+
+  // ─── MCP Servers ─────────────────────────────────────────────
+
+  loadMcpServers() {
+    this.api.getMcpServers().subscribe({
+      next: (servers) => this.mcpServers.set(servers),
+    });
+  }
+
+  toggleMcpServerEnabled(server: McpServerDefinition, event: Event) {
+    event.stopPropagation();
+    this.api.updateMcpServer(server.id, { enabled: !server.enabled } as any).subscribe({
+      next: () => this.loadMcpServers(),
+    });
+  }
+
+  toggleMcpServerRole(server: McpServerDefinition, role: string) {
+    const roles = server.roles.includes(role)
+      ? server.roles.filter((r) => r !== role)
+      : [...server.roles, role];
+    this.api.setMcpServerRoles(server.id, roles).subscribe({
+      next: () => this.loadMcpServers(),
+    });
+  }
+
+  deleteMcpServer(server: McpServerDefinition) {
+    if (!confirm(this.i18n.t('settings.mcpDeleteConfirm'))) return;
+    this.api.deleteMcpServer(server.id).subscribe({
+      next: () => {
+        this.loadMcpServers();
+        this.showToast('success', this.i18n.t('settings.mcpServerDeleted'));
+      },
+      error: () => this.showToast('error', this.i18n.t('settings.savedError')),
+    });
+  }
+
+  addMcpServer() {
+    const dto = {
+      ...this.newMcpServer,
+      args: this.newMcpServerArgsText.split(/\s+/).filter(Boolean),
+    };
+    this.api.createMcpServer(dto).subscribe({
+      next: () => {
+        this.loadMcpServers();
+        this.showAddMcpServer = false;
+        this.newMcpServer = {};
+        this.newMcpServerArgsText = '';
+        this.showToast('success', this.i18n.t('settings.mcpServerCreated'));
+      },
+      error: () => this.showToast('error', this.i18n.t('settings.savedError')),
+    });
   }
 
   // ─── Private ─────────────────────────────────────────────────

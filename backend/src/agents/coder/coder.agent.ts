@@ -11,7 +11,7 @@ import { LlmService } from '../../llm/llm.service';
 import { GitlabService } from '../../gitlab/gitlab.service';
 import { IssuesService } from '../../issues/issues.service';
 import { McpAgentLoopService } from '../../mcp/mcp-agent-loop.service';
-import { MCP_SERVERS, McpServerConfig } from '../../mcp/mcp.interfaces';
+import { McpRegistryService } from '../../mcp/mcp-registry.service';
 import { BaseAgent, AgentContext } from '../agent-base';
 import { postAgentComment } from '../agent-comment.utils';
 import { CoderIssueResult, CoderMilestoneResult } from './coder-result.interface';
@@ -45,6 +45,7 @@ export class CoderAgent extends BaseAgent {
     private readonly issuesService: IssuesService,
     private readonly eventEmitter: EventEmitter2,
     private readonly mcpAgentLoop: McpAgentLoopService,
+    private readonly mcpRegistry: McpRegistryService,
   ) {
     super(prisma, settings, chatService, chatGateway, llmService);
   }
@@ -554,10 +555,10 @@ export class CoderAgent extends BaseAgent {
     const config = this.getRoleConfig();
     const model = config.model || 'qwen3.5:35b';
 
-    const mcpServers: McpServerConfig[] = [
-      MCP_SERVERS.filesystem([workspace]),
-      MCP_SERVERS.shell(workspace),
-    ];
+    const mcpServers = await this.mcpRegistry.resolveServersForRole(
+      AgentRole.CODER,
+      { workspace, allowedPaths: [workspace] },
+    );
 
     const systemPrompt = [
       'You are a skilled software developer. Your task is to implement features by reading and modifying files in the project.',
