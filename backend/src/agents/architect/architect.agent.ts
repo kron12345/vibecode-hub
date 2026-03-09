@@ -428,7 +428,7 @@ export class ArchitectAgent extends BaseAgent {
     const config = this.getRoleConfig();
     const model = (config.model || '').toLowerCase();
     // Known non-tool models
-    const noToolModels = ['deepseek-r1', 'deepseek-r2', 'llama2', 'llama3'];
+    const noToolModels = ['deepseek-r1', 'deepseek-r2', 'llama2', 'granite-code', 'qwen2.5-coder', 'llava'];
     return !noToolModels.some((m) => model.includes(m));
   }
 
