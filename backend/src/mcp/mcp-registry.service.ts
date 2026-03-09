@@ -479,17 +479,6 @@ export class McpRegistryService implements OnModuleInit {
       },
 
       // ─── Web & Search ────────────────
-      // NOTE: @modelcontextprotocol/server-fetch was removed from npm.
-      // Disabled by default. Re-enable when a replacement package is available.
-      {
-        name: 'fetch',
-        displayName: 'Web Fetch',
-        description: 'Fetch web pages and return content as markdown. Currently disabled — npm package removed.',
-        category: 'knowledge',
-        command: 'npx',
-        args: ['-y', '@modelcontextprotocol/server-fetch'],
-        defaultRoles: [],
-      },
       {
         name: 'searxng',
         displayName: 'SearXNG Search',
