@@ -302,8 +302,7 @@ export class ArchitectAgent extends BaseAgent {
       systemPrompt,
       userPrompt,
       mcpServers,
-      maxIterations: 20,
-      timeoutMs: 5 * 60 * 1000, // 5 minutes
+      maxIterations: 30,
       temperature: config.parameters.temperature,
       maxTokens: config.parameters.maxTokens,
       onToolCall: (name, args) => {
@@ -387,8 +386,7 @@ export class ArchitectAgent extends BaseAgent {
           systemPrompt,
           userPrompt: issueContext,
           mcpServers,
-          maxIterations: 15,
-          timeoutMs: 3 * 60 * 1000, // 3 minutes per issue
+          maxIterations: 30,
           temperature: config.parameters.temperature,
           maxTokens: config.parameters.maxTokens,
           onToolCall: (name, args) => {

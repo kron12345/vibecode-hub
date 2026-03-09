@@ -27,7 +27,7 @@ import {
 const execFileAsync = promisify(execFile);
 
 /** Timeout for MCP agent loop (10 minutes) */
-const AGENT_LOOP_TIMEOUT_MS = 10 * 60 * 1000;
+// No timeout — LLMs get unlimited time (only maxIterations limits the loop)
 /** Timeout for git operations */
 const GIT_TIMEOUT_MS = 60_000;
 
@@ -594,7 +594,6 @@ export class CoderAgent extends BaseAgent {
       userPrompt: prompt,
       mcpServers,
       maxIterations: 30,
-      timeoutMs: AGENT_LOOP_TIMEOUT_MS,
       temperature: config.parameters.temperature,
       maxTokens: config.parameters.maxTokens,
       onToolCall: (name, args) => {

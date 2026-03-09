@@ -50,15 +50,11 @@ export class GoogleProvider implements LlmStreamingProvider {
       `Google AI request: model=${options.model}, messages=${conversationMessages.length}`,
     );
 
-    const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), 120_000);
-
     try {
       const response = await fetch(url, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(body),
-        signal: controller.signal,
       });
 
       if (!response.ok) {
@@ -87,14 +83,8 @@ export class GoogleProvider implements LlmStreamingProvider {
           : undefined,
       };
     } catch (err) {
-      if (err.name === 'AbortError') {
-        this.logger.error('Google AI request timed out after 120s');
-      } else {
-        this.logger.error(`Google AI request failed: ${err.message}`);
-      }
+      this.logger.error(`Google AI request failed: ${err.message}`);
       return { content: '', finishReason: 'error' };
-    } finally {
-      clearTimeout(timeout);
     }
   }
 
@@ -128,15 +118,11 @@ export class GoogleProvider implements LlmStreamingProvider {
     // Google uses streamGenerateContent endpoint
     const url = `https://generativelanguage.googleapis.com/v1beta/models/${options.model}:streamGenerateContent?alt=sse&key=${apiKey}`;
 
-    const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), 120_000);
-
     try {
       const response = await fetch(url, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(body),
-        signal: controller.signal,
       });
 
       if (!response.ok) {
@@ -175,14 +161,8 @@ export class GoogleProvider implements LlmStreamingProvider {
       }
       yield { content: '', done: true };
     } catch (err) {
-      if (err.name === 'AbortError') {
-        this.logger.error('Google stream timed out after 120s');
-      } else {
-        this.logger.error(`Google stream failed: ${err.message}`);
-      }
+      this.logger.error(`Google stream failed: ${err.message}`);
       yield { content: '', done: true };
-    } finally {
-      clearTimeout(timeout);
     }
   }
 }

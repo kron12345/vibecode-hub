@@ -5,7 +5,6 @@ import { McpClientService } from './mcp-client.service';
 import { McpAgentLoopOptions, McpAgentLoopResult } from './mcp.interfaces';
 
 const DEFAULT_MAX_ITERATIONS = 30;
-const DEFAULT_TIMEOUT_MS = 10 * 60 * 1000; // 10 minutes
 
 /**
  * Generic MCP Agent Loop.
@@ -36,7 +35,6 @@ export class McpAgentLoopService {
   async run(options: McpAgentLoopOptions): Promise<McpAgentLoopResult> {
     const start = Date.now();
     const maxIterations = options.maxIterations ?? DEFAULT_MAX_ITERATIONS;
-    const timeoutMs = options.timeoutMs ?? DEFAULT_TIMEOUT_MS;
     let sessionId: string | null = null;
 
     try {
@@ -60,12 +58,6 @@ export class McpAgentLoopService {
 
       // Agent loop
       while (iterations < maxIterations) {
-        // Timeout check
-        if (Date.now() - start > timeoutMs) {
-          this.logger.warn(`Agent loop timeout after ${iterations} iterations`);
-          return this.buildResult(finalContent, iterations, totalToolCalls, start, 'timeout');
-        }
-
         iterations++;
         this.logger.debug(`Agent loop iteration ${iterations}/${maxIterations}`);
 
@@ -77,7 +69,7 @@ export class McpAgentLoopService {
           tools: tools.length > 0 ? tools : undefined,
           temperature: options.temperature,
           maxTokens: options.maxTokens,
-          timeoutMs: Math.max(timeoutMs - (Date.now() - start), 30_000), // Remaining time, min 30s
+          // No timeout — LLMs get unlimited time per iteration (only maxIterations limits the loop)
         });
 
         options.onIteration?.(iterations, result.content);

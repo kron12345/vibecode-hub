@@ -39,9 +39,6 @@ export class OpenAIProvider implements LlmStreamingProvider {
       `OpenAI request: model=${options.model}, messages=${messages.length}`,
     );
 
-    const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), 120_000);
-
     try {
       const response = await fetch(
         'https://api.openai.com/v1/chat/completions',
@@ -52,7 +49,6 @@ export class OpenAIProvider implements LlmStreamingProvider {
             Authorization: `Bearer ${apiKey}`,
           },
           body: JSON.stringify(body),
-          signal: controller.signal,
         },
       );
 
@@ -78,14 +74,8 @@ export class OpenAIProvider implements LlmStreamingProvider {
           : undefined,
       };
     } catch (err) {
-      if (err.name === 'AbortError') {
-        this.logger.error('OpenAI request timed out after 120s');
-      } else {
-        this.logger.error(`OpenAI request failed: ${err.message}`);
-      }
+      this.logger.error(`OpenAI request failed: ${err.message}`);
       return { content: '', finishReason: 'error' };
-    } finally {
-      clearTimeout(timeout);
     }
   }
 
@@ -107,9 +97,6 @@ export class OpenAIProvider implements LlmStreamingProvider {
       ...(options.temperature !== undefined && { temperature: options.temperature }),
     };
 
-    const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), 120_000);
-
     try {
       const response = await fetch('https://api.openai.com/v1/chat/completions', {
         method: 'POST',
@@ -118,7 +105,6 @@ export class OpenAIProvider implements LlmStreamingProvider {
           Authorization: `Bearer ${apiKey}`,
         },
         body: JSON.stringify(body),
-        signal: controller.signal,
       });
 
       if (!response.ok) {
@@ -158,14 +144,8 @@ export class OpenAIProvider implements LlmStreamingProvider {
       }
       yield { content: '', done: true };
     } catch (err) {
-      if (err.name === 'AbortError') {
-        this.logger.error('OpenAI stream timed out after 120s');
-      } else {
-        this.logger.error(`OpenAI stream failed: ${err.message}`);
-      }
+      this.logger.error(`OpenAI stream failed: ${err.message}`);
       yield { content: '', done: true };
-    } finally {
-      clearTimeout(timeout);
     }
   }
 }

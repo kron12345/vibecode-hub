@@ -250,8 +250,7 @@ Do NOT omit the JSON block.`;
         { role: 'user', content: userPrompt },
       ];
 
-      // deepseek-r1 needs extra time for security reasoning
-      const result = await this.callLlm(messages, { timeoutMs: 900_000 });
+      const result = await this.callLlm(messages);
 
       if (result.finishReason === 'error') {
         await this.sendAgentMessage(ctx, 'Pen Tester LLM call failed');

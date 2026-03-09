@@ -40,9 +40,6 @@ export class AnthropicProvider implements LlmStreamingProvider {
       `Anthropic request: model=${options.model}, messages=${conversationMessages.length}`,
     );
 
-    const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), 120_000);
-
     try {
       const response = await fetch('https://api.anthropic.com/v1/messages', {
         method: 'POST',
@@ -52,7 +49,6 @@ export class AnthropicProvider implements LlmStreamingProvider {
           'anthropic-version': '2023-06-01',
         },
         body: JSON.stringify(body),
-        signal: controller.signal,
       });
 
       if (!response.ok) {
@@ -79,14 +75,8 @@ export class AnthropicProvider implements LlmStreamingProvider {
           : undefined,
       };
     } catch (err) {
-      if (err.name === 'AbortError') {
-        this.logger.error('Anthropic request timed out after 120s');
-      } else {
-        this.logger.error(`Anthropic request failed: ${err.message}`);
-      }
+      this.logger.error(`Anthropic request failed: ${err.message}`);
       return { content: '', finishReason: 'error' };
-    } finally {
-      clearTimeout(timeout);
     }
   }
 
@@ -112,9 +102,6 @@ export class AnthropicProvider implements LlmStreamingProvider {
       ...(options.temperature !== undefined && { temperature: options.temperature }),
     };
 
-    const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), 120_000);
-
     try {
       const response = await fetch('https://api.anthropic.com/v1/messages', {
         method: 'POST',
@@ -124,7 +111,6 @@ export class AnthropicProvider implements LlmStreamingProvider {
           'anthropic-version': '2023-06-01',
         },
         body: JSON.stringify(body),
-        signal: controller.signal,
       });
 
       if (!response.ok) {
@@ -136,14 +122,8 @@ export class AnthropicProvider implements LlmStreamingProvider {
 
       yield* this.parseSSE(response);
     } catch (err) {
-      if (err.name === 'AbortError') {
-        this.logger.error('Anthropic stream timed out after 120s');
-      } else {
-        this.logger.error(`Anthropic stream failed: ${err.message}`);
-      }
+      this.logger.error(`Anthropic stream failed: ${err.message}`);
       yield { content: '', done: true };
-    } finally {
-      clearTimeout(timeout);
     }
   }
 

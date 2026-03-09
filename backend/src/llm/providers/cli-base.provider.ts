@@ -30,7 +30,7 @@ export abstract class CliBaseProvider implements LlmProvider {
         this.command,
         args,
         {
-          timeout: 120_000,
+          timeout: 0, // No timeout — CLI tools get unlimited time
           maxBuffer: 10 * 1024 * 1024, // 10 MB
           env: { ...process.env },
           ...(options.cwd && { cwd: options.cwd }),
