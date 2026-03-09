@@ -341,8 +341,30 @@ const PERMISSION_KEYS: { key: keyof AgentRoleConfig['permissions']; labelKey: st
           </div>
         </div>
 
-        <!-- CORS / Security -->
+        <!-- Search / Web -->
         <div class="glass card-glow rounded-3xl p-6 animate-in stagger-5">
+          <h2 class="text-lg font-semibold text-white mb-6 flex items-center gap-2">
+            <app-icon name="search" [size]="20" class="text-cyan-400" />
+            {{ 'settings.search' | translate }}
+          </h2>
+          <div class="space-y-4">
+            <div>
+              <label class="block text-sm font-medium text-slate-400 mb-1">
+                {{ 'settings.searxngUrl' | translate }}
+              </label>
+              <p class="text-xs text-slate-500 mb-2">{{ 'settings.searxngUrlHint' | translate }}</p>
+              <input
+                type="text"
+                [(ngModel)]="sysValues['search.searxng_url']"
+                class="w-full bg-slate-900/50 border border-white/10 rounded-xl px-4 py-3 text-white focus:outline-none focus:border-indigo-500/50 transition-colors"
+                placeholder="http://localhost:8088"
+              />
+            </div>
+          </div>
+        </div>
+
+        <!-- CORS / Security -->
+        <div class="glass card-glow rounded-3xl p-6 animate-in stagger-6">
           <h2 class="text-lg font-semibold text-white mb-6 flex items-center gap-2">
             <app-icon name="shield" [size]="20" class="text-amber-400" />
             {{ 'settings.cors' | translate }}
@@ -364,7 +386,7 @@ const PERMISSION_KEYS: { key: keyof AgentRoleConfig['permissions']; labelKey: st
         </div>
 
         <!-- App -->
-        <div class="glass card-glow rounded-3xl p-6 animate-in stagger-6">
+        <div class="glass card-glow rounded-3xl p-6 animate-in stagger-7">
           <h2 class="text-lg font-semibold text-white mb-6 flex items-center gap-2">
             <app-icon name="layout-dashboard" [size]="20" class="text-indigo-400" />
             {{ 'settings.app' | translate }}
@@ -383,7 +405,7 @@ const PERMISSION_KEYS: { key: keyof AgentRoleConfig['permissions']; labelKey: st
         </div>
 
         <!-- Save Button -->
-        <div class="flex justify-end animate-in stagger-7">
+        <div class="flex justify-end animate-in stagger-8">
           <button
             (click)="saveSystemSettings()"
             [disabled]="saving()"
@@ -1253,6 +1275,12 @@ export class SettingsPage implements OnInit {
     this.pushSecretSetting(settings, 'llm.anthropic.api_key', 'llm');
     this.pushSecretSetting(settings, 'llm.openai.api_key', 'llm');
     this.pushSecretSetting(settings, 'llm.google.api_key', 'llm');
+
+    settings.push({
+      key: 'search.searxng_url',
+      value: this.sysValues['search.searxng_url'] ?? '',
+      category: 'search',
+    });
 
     const origins = this.corsOriginsText
       .split('\n')

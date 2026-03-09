@@ -110,6 +110,10 @@ export class SystemSettingsService implements OnModuleInit {
     return this.get('llm.ollama.url', 'OLLAMA_URL', 'http://127.0.0.1:11434');
   }
 
+  get searxngUrl(): string {
+    return this.get('search.searxng_url', 'SEARXNG_URL', 'http://localhost:8088');
+  }
+
   get anthropicApiKey(): string {
     return this.get('llm.anthropic.api_key', 'ANTHROPIC_API_KEY', '');
   }
