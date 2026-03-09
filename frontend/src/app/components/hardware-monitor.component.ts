@@ -55,6 +55,9 @@ import { TranslatePipe } from '../pipes/translate.pipe';
           </div>
           <div class="flex items-end gap-2 mb-2">
             <span class="text-2xl font-mono font-bold" [class]="tempColor(snap.cpu.temp)">{{ snap.cpu.temp }}°</span>
+            @if (snap.cpu.powerDraw) {
+              <span class="text-xs text-slate-500 mb-0.5">{{ snap.cpu.powerDraw }}W</span>
+            }
           </div>
           <div class="space-y-1.5">
             <div class="flex items-center gap-2">

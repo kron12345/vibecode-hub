@@ -22,6 +22,7 @@ export interface CpuStats {
   load1: number;
   load5: number;
   load15: number;
+  powerDraw: number;
 }
 
 export interface RamStats {
@@ -51,6 +52,12 @@ export class HardwareService implements OnModuleInit, OnModuleDestroy {
   /** Ring buffer for sparkline history (last 60 snapshots = ~3 min) */
   private history: HardwareSnapshot[] = [];
   private readonly MAX_HISTORY = 60;
+
+  /** RAPL energy tracking for CPU power calculation */
+  private lastEnergyUj = 0;
+  private lastEnergyTime = 0;
+  private readonly RAPL_PATH =
+    '/sys/class/powercap/intel-rapl:0/energy_uj';
 
   async onModuleInit() {
     // Take initial snapshot
@@ -131,11 +138,12 @@ export class HardwareService implements OnModuleInit, OnModuleDestroy {
   }
 
   private async readCpuStats(): Promise<CpuStats> {
-    const [temp, load] = await Promise.all([
+    const [temp, load, powerDraw] = await Promise.all([
       this.readCpuTemp(),
       this.readCpuLoad(),
+      this.readCpuPower(),
     ]);
-    return { temp, ...load };
+    return { temp, ...load, powerDraw };
   }
 
   private async readCpuTemp(): Promise<number> {
@@ -170,6 +178,39 @@ export class HardwareService implements OnModuleInit, OnModuleDestroy {
       return { load1: l1, load5: l5, load15: l15 };
     } catch {
       return { load1: 0, load5: 0, load15: 0 };
+    }
+  }
+
+  private async readCpuPower(): Promise<number> {
+    try {
+      const raw = await readFile(this.RAPL_PATH, 'utf8');
+      const energyUj = parseInt(raw);
+      const now = Date.now();
+
+      if (this.lastEnergyTime === 0) {
+        // First reading — store baseline, return 0
+        this.lastEnergyUj = energyUj;
+        this.lastEnergyTime = now;
+        return 0;
+      }
+
+      const dtMs = now - this.lastEnergyTime;
+      if (dtMs <= 0) return 0;
+
+      let deltaUj = energyUj - this.lastEnergyUj;
+      // Handle counter wraparound (max_energy_range_uj ~ 65.5 TJ)
+      if (deltaUj < 0) {
+        deltaUj += 65532610987; // max_energy_range_uj from sysfs
+      }
+
+      this.lastEnergyUj = energyUj;
+      this.lastEnergyTime = now;
+
+      // µJ / ms = mW → divide by 1000 for W
+      const watts = deltaUj / dtMs / 1000;
+      return Math.round(watts);
+    } catch {
+      return 0;
     }
   }
 

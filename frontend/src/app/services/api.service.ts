@@ -496,6 +496,7 @@ export interface CpuStats {
   load1: number;
   load5: number;
   load15: number;
+  powerDraw: number;
 }
 
 export interface RamStats {
