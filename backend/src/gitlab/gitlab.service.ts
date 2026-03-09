@@ -309,12 +309,13 @@ export class GitlabService {
 
   /** All pipeline status labels with their GitLab colors */
   static readonly STATUS_LABELS: Record<string, { label: string; color: string }> = {
-    OPEN:        { label: 'status::open',        color: '#428BCA' }, // blue
-    IN_PROGRESS: { label: 'status::in-progress', color: '#E67E22' }, // orange
-    IN_REVIEW:   { label: 'status::in-review',   color: '#9B59B6' }, // purple
-    TESTING:     { label: 'status::testing',      color: '#F1C40F' }, // yellow
-    DONE:        { label: 'status::done',         color: '#2ECC71' }, // green
-    CLOSED:      { label: 'status::closed',       color: '#95A5A6' }, // gray
+    OPEN:         { label: 'status::open',         color: '#428BCA' }, // blue
+    IN_PROGRESS:  { label: 'status::in-progress',  color: '#E67E22' }, // orange
+    IN_REVIEW:    { label: 'status::in-review',    color: '#9B59B6' }, // purple
+    TESTING:      { label: 'status::testing',       color: '#F1C40F' }, // yellow
+    NEEDS_REVIEW: { label: 'status::needs-review', color: '#E74C3C' }, // red
+    DONE:         { label: 'status::done',          color: '#2ECC71' }, // green
+    CLOSED:       { label: 'status::closed',        color: '#95A5A6' }, // gray
   };
 
   /** Cache: Set of projectIds where labels have been created */

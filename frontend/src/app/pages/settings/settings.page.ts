@@ -555,6 +555,32 @@ const PERMISSION_KEYS: { key: keyof AgentRoleConfig['permissions']; labelKey: st
                 class="w-full bg-slate-900/50 border border-white/10 rounded-xl px-4 py-3 text-white focus:outline-none focus:border-indigo-500/50 transition-colors"
               />
             </div>
+            <div>
+              <label class="block text-sm font-medium text-slate-400 mb-1">
+                {{ 'settings.maxParallelOllama' | translate }}
+              </label>
+              <p class="text-xs text-slate-500 mb-2">{{ 'settings.maxParallelOllamaHint' | translate }}</p>
+              <input
+                type="number"
+                [(ngModel)]="pipelineConfig.maxParallelOllamaModels"
+                min="1"
+                max="8"
+                class="w-full bg-slate-900/50 border border-white/10 rounded-xl px-4 py-3 text-white focus:outline-none focus:border-indigo-500/50 transition-colors"
+              />
+            </div>
+            <div>
+              <label class="block text-sm font-medium text-slate-400 mb-1">
+                {{ 'settings.maxFixAttempts' | translate }}
+              </label>
+              <p class="text-xs text-slate-500 mb-2">{{ 'settings.maxFixAttemptsHint' | translate }}</p>
+              <input
+                type="number"
+                [(ngModel)]="pipelineConfig.maxFixAttempts"
+                min="1"
+                max="50"
+                class="w-full bg-slate-900/50 border border-white/10 rounded-xl px-4 py-3 text-white focus:outline-none focus:border-indigo-500/50 transition-colors"
+              />
+            </div>
           </div>
         </div>
 
@@ -1019,6 +1045,8 @@ export class SettingsPage implements OnInit {
     requireApproval: true,
     maxConcurrentAgents: 2,
     timeoutMinutes: 30,
+    maxParallelOllamaModels: 1,
+    maxFixAttempts: 20,
   };
   expandedRoles: Record<string, boolean> = {};
   availablePresets = signal<AgentPresetInfo[]>([]);

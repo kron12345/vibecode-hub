@@ -194,6 +194,8 @@ export interface PipelineConfig {
   requireApproval: boolean;
   maxConcurrentAgents: number;
   timeoutMinutes: number;
+  maxParallelOllamaModels: number;
+  maxFixAttempts: number;
 }
 
 export interface ProviderModel {

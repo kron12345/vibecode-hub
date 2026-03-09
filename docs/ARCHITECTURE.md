@@ -260,6 +260,22 @@ Eigener MCP-Server, der dem Coder Agent sichere Shell-Befehle im Workspace ermö
 - **Orphaned Agents**: WORKING/WAITING Agents ohne RUNNING Task → IDLE
 - **Designprinzip**: Agenten dürfen so lange laufen wie sie brauchen — nur wirklich tote Agents werden aufgeräumt
 
+### Ollama VRAM Management
+- **Problem**: Mehrere 30B+ Modelle gleichzeitig im VRAM → GPU-Kontention → Timeouts (2×RTX 3090)
+- **Lösung**: `keep_alive` Parameter auf Ollama-Requests — steuert wie lange ein Modell im VRAM bleibt
+- **Setting**: `pipeline.maxParallelOllamaModels` (default: 1)
+  - Bei 1: `keep_alive: "0"` → Modell wird nach jedem Request sofort entladen
+  - Bei >1: `keep_alive: "5m"` → Modell bleibt 5 Minuten cached (für Multi-GPU-Setups)
+- **Empfehlung**: Zusätzlich `OLLAMA_MAX_LOADED_MODELS=1` als Ollama-Server-Config (Belt & Suspenders)
+- **UI**: Konfigurierbar in Settings → Pipeline-Konfiguration
+
+### Max Fix Attempts (Review-Loop-Schutz)
+- **Problem**: Code Review / Tests können Coder endlos re-triggern (Feedback-Loop)
+- **Lösung**: Zähler für `FIX_CODE`-Tasks pro Issue, konfigurierbar via `pipeline.maxFixAttempts` (default: 20)
+- **Konsolidiert**: Alle 4 fixIssue-Pfade (Review, Pipeline, Test, User-Comment) nutzen `retriggerCoder()`
+- **Bei Limit**: Issue → `NEEDS_REVIEW` Status (rot), GitLab-Label `status::needs-review`, erklärender Kommentar
+- **UI**: Konfigurierbar in Settings → Pipeline-Konfiguration
+
 ### Documenter Agent
 - LLM analysiert MR-Diffs + bestehende Docs
 - **Kontext-Injection**: Bekommt alle bisherigen Agent-Kommentare als LLM-Kontext
@@ -283,6 +299,7 @@ Jede Issue-Status-Transition synct automatisch ein `status::*` Label nach GitLab
 | `status::in-progress` | Orange (`#ED9121`) | IN_PROGRESS |
 | `status::in-review` | Lila (`#9B59B6`) | IN_REVIEW |
 | `status::testing` | Gelb (`#F0AD4E`) | TESTING |
+| `status::needs-review` | Rot (`#E74C3C`) | NEEDS_REVIEW |
 | `status::done` | Grün (`#69D100`) | DONE |
 | `status::closed` | Grau (`#CCCCCC`) | CLOSED |
 

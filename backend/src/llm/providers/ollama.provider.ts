@@ -31,6 +31,10 @@ export class OllamaProvider implements LlmStreamingProvider {
     const baseUrl = this.settings.ollamaUrl;
     const url = `${baseUrl}/api/chat`;
 
+    // When maxParallelOllamaModels=1 (default), unload model after request to free VRAM
+    const pipelineCfg = this.settings.getPipelineConfig();
+    const keepAlive = pipelineCfg.maxParallelOllamaModels <= 1 ? '0' : '5m';
+
     const body: Record<string, unknown> = {
       model: options.model,
       messages: options.messages.map((m) => {
@@ -46,6 +50,7 @@ export class OllamaProvider implements LlmStreamingProvider {
       }),
       stream: false,
       think: false, // Disable thinking mode (qwen3.5, deepseek-r1) — we don't use the output
+      keep_alive: keepAlive,
       options: {
         ...(options.temperature !== undefined && {
           temperature: options.temperature,
@@ -180,6 +185,10 @@ export class OllamaProvider implements LlmStreamingProvider {
     const baseUrl = this.settings.ollamaUrl;
     const url = `${baseUrl}/api/chat`;
 
+    // When maxParallelOllamaModels=1 (default), unload model after request to free VRAM
+    const pipelineCfg = this.settings.getPipelineConfig();
+    const keepAlive = pipelineCfg.maxParallelOllamaModels <= 1 ? '0' : '5m';
+
     const body = {
       model: options.model,
       messages: options.messages.map((m) => ({
@@ -188,6 +197,7 @@ export class OllamaProvider implements LlmStreamingProvider {
       })),
       stream: true,
       think: false,
+      keep_alive: keepAlive,
       options: {
         ...(options.temperature !== undefined && {
           temperature: options.temperature,

@@ -784,6 +784,7 @@ map $hub_project $hub_upstream {
 
 | Datum | Änderung |
 |---|---|
+| 2026-03-09 | Ollama VRAM Management: `keep_alive` basierend auf `pipeline.maxParallelOllamaModels` (default: 1 → sofort entladen). Max Fix Attempts: `pipeline.maxFixAttempts` (default: 20), alle fixIssue-Pfade konsolidiert über `retriggerCoder()`, neuer IssueStatus `NEEDS_REVIEW` + GitLab Label `status::needs-review`. PipelineConfig um 2 Felder erweitert. |
 | 2026-03-09 | Stuck Task Cleanup jetzt Activity-Based: Prüft AgentLog + ChatMessage Recency statt reinem Zeitlimit. Agenten dürfen beliebig lange laufen — nur bei fehlender Aktivität (default: 30 Min) wird aufgeräumt. |
 | 2026-03-09 | Pen Tester Kalibrierung: npm audit --omit=dev (nur Prod-Deps), Tech-Stack-Kontext im LLM-Prompt, konfigurierbare Schwellen (pentester.maxWarnings, pentester.skipHeaderCheck), server-seitige PASS/FAIL-Berechnung. Stuck Task Cleanup: Automatischer 5-Min-Check für hängende Tasks (pipeline.stuckTimeoutMinutes), Agent-Reset, Issue-Reset, Orphaned-Agent-Erkennung. |
 | 2026-03-09 | 4 neue Built-in MCP Server: postgres (DB-Schema + read-only SQL), docker (Container-Management), sequential-thinking (strukturiertes Reasoning), memory (Knowledge Graph). Gesamt: 13 Built-in Server. |

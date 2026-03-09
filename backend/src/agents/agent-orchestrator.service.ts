@@ -554,49 +554,7 @@ export class AgentOrchestratorService implements OnModuleInit, OnModuleDestroy {
   }) {
     const { projectId, chatSessionId, issueId, feedback } = payload;
     this.logger.log(`Review changes requested for issue ${issueId} — re-triggering Coder`);
-
-    try {
-      // Find or create coder agent instance
-      let coderInstance = await this.prisma.agentInstance.findFirst({
-        where: { projectId, role: AgentRole.CODER, status: { in: [AgentStatus.IDLE, AgentStatus.WORKING] } },
-      });
-
-      if (!coderInstance) {
-        const config = this.settings.getAgentRoleConfig('CODER');
-        coderInstance = await this.prisma.agentInstance.create({
-          data: {
-            projectId,
-            role: AgentRole.CODER,
-            provider: config.provider as any,
-            model: config.model,
-            status: AgentStatus.IDLE,
-          },
-        });
-      }
-
-      const agentTask = await this.prisma.agentTask.create({
-        data: {
-          agentId: coderInstance.id,
-          issueId,
-          type: AgentTaskType.FIX_CODE,
-          status: AgentTaskStatus.RUNNING,
-          startedAt: new Date(),
-        },
-      });
-
-      const ctx = {
-        projectId,
-        agentInstanceId: coderInstance.id,
-        agentTaskId: agentTask.id,
-        chatSessionId,
-      };
-
-      this.coder.fixIssue(ctx, issueId, feedback, 'review').catch((err) => {
-        this.logger.error(`Coder fix (review) error: ${err.message}`);
-      });
-    } catch (err) {
-      this.logger.error(`handleReviewChangesRequested error: ${err.message}`);
-    }
+    await this.retriggerCoder(projectId, chatSessionId, issueId, feedback, 'review');
   }
 
   // ─── Pipeline Feedback Loop ────────────────────────────────
@@ -690,44 +648,8 @@ export class AgentOrchestratorService implements OnModuleInit, OnModuleDestroy {
 
     if (!chatSession) return;
 
-    // Re-trigger Coder
-    let coderInstance = await this.prisma.agentInstance.findFirst({
-      where: { projectId, role: AgentRole.CODER, status: { in: [AgentStatus.IDLE, AgentStatus.WORKING] } },
-    });
-
-    if (!coderInstance) {
-      const config = this.settings.getAgentRoleConfig('CODER');
-      coderInstance = await this.prisma.agentInstance.create({
-        data: {
-          projectId,
-          role: AgentRole.CODER,
-          provider: config.provider as any,
-          model: config.model,
-          status: AgentStatus.IDLE,
-        },
-      });
-    }
-
-    const agentTask = await this.prisma.agentTask.create({
-      data: {
-        agentId: coderInstance.id,
-        issueId: issue.id,
-        type: AgentTaskType.FIX_CODE,
-        status: AgentTaskStatus.RUNNING,
-        startedAt: new Date(),
-      },
-    });
-
-    const ctx = {
-      projectId,
-      agentInstanceId: coderInstance.id,
-      agentTaskId: agentTask.id,
-      chatSessionId: chatSession.id,
-    };
-
-    this.coder.fixIssue(ctx, issue.id, failureSummary, 'pipeline').catch((err) => {
-      this.logger.error(`Coder fix (pipeline) error: ${err.message}`);
-    });
+    // Re-trigger Coder via centralized retrigger (respects maxFixAttempts)
+    await this.retriggerCoder(projectId, chatSession.id, issue.id, failureSummary, 'pipeline');
   }
 
   // ─── User Feedback Loop ────────────────────────────────────
@@ -780,44 +702,8 @@ export class AgentOrchestratorService implements OnModuleInit, OnModuleDestroy {
 
     if (!chatSession) return;
 
-    // Find or create coder instance
-    let coderInstance = await this.prisma.agentInstance.findFirst({
-      where: { projectId, role: AgentRole.CODER, status: { in: [AgentStatus.IDLE, AgentStatus.WORKING] } },
-    });
-
-    if (!coderInstance) {
-      const config = this.settings.getAgentRoleConfig('CODER');
-      coderInstance = await this.prisma.agentInstance.create({
-        data: {
-          projectId,
-          role: AgentRole.CODER,
-          provider: config.provider as any,
-          model: config.model,
-          status: AgentStatus.IDLE,
-        },
-      });
-    }
-
-    const agentTask = await this.prisma.agentTask.create({
-      data: {
-        agentId: coderInstance.id,
-        issueId,
-        type: AgentTaskType.FIX_CODE,
-        status: AgentTaskStatus.RUNNING,
-        startedAt: new Date(),
-      },
-    });
-
-    const ctx = {
-      projectId,
-      agentInstanceId: coderInstance.id,
-      agentTaskId: agentTask.id,
-      chatSessionId: chatSession.id,
-    };
-
-    this.coder.fixIssue(ctx, issueId, `User feedback from ${authorName}:\n\n${content}`, 'user').catch((err) => {
-      this.logger.error(`Coder fix (user feedback) error: ${err.message}`);
-    });
+    // Re-trigger Coder via centralized retrigger (respects maxFixAttempts)
+    await this.retriggerCoder(projectId, chatSession.id, issueId, `User feedback from ${authorName}:\n\n${content}`, 'user');
   }
 
   // ─── Review Approved → Functional Tester ─────────────────
@@ -1115,28 +1001,43 @@ export class AgentOrchestratorService implements OnModuleInit, OnModuleDestroy {
     feedback: string,
     feedbackSource: 'review' | 'pipeline' | 'user' | 'functional-test' | 'ui-test' | 'security',
   ): Promise<void> {
-    const MAX_FIX_ATTEMPTS = 5;
+    const pipelineCfg = this.settings.getPipelineConfig();
+    const maxAttempts = pipelineCfg.maxFixAttempts ?? 20;
+
     try {
       // Check how many FIX_CODE tasks already exist for this issue
       const fixCount = await this.prisma.agentTask.count({
         where: { issueId, type: AgentTaskType.FIX_CODE },
       });
 
-      if (fixCount >= MAX_FIX_ATTEMPTS) {
-        this.logger.warn(`Issue ${issueId} has ${fixCount} fix attempts — stopping to prevent infinite loop`);
-        // Move issue to a reviewable state instead of looping
-        const maxRetryIssue = await this.prisma.issue.update({
+      if (fixCount >= maxAttempts) {
+        this.logger.warn(`Issue ${issueId} has ${fixCount}/${maxAttempts} fix attempts — needs manual review`);
+
+        // Move issue to NEEDS_REVIEW
+        const stoppedIssue = await this.prisma.issue.update({
           where: { id: issueId },
-          data: { status: IssueStatus.IN_REVIEW },
+          data: { status: IssueStatus.NEEDS_REVIEW },
           include: { project: { select: { gitlabProjectId: true } } },
         });
-        if (maxRetryIssue.gitlabIid && maxRetryIssue.project.gitlabProjectId) {
-          await this.gitlabService.syncStatusLabel(maxRetryIssue.project.gitlabProjectId, maxRetryIssue.gitlabIid, 'IN_REVIEW').catch(() => {});
+
+        // Sync status label + post explanatory comment to GitLab
+        if (stoppedIssue.gitlabIid && stoppedIssue.project.gitlabProjectId) {
+          await this.gitlabService.syncStatusLabel(
+            stoppedIssue.project.gitlabProjectId, stoppedIssue.gitlabIid, 'NEEDS_REVIEW',
+          ).catch(() => {});
+          await this.gitlabService.createIssueNote(
+            stoppedIssue.project.gitlabProjectId,
+            stoppedIssue.gitlabIid,
+            `⚠️ **Max fix attempts reached** (${fixCount}/${maxAttempts})\n\n` +
+            `This issue has been automatically moved to **Needs Review** after ${fixCount} fix attempts ` +
+            `(last source: ${feedbackSource}). Manual intervention required.\n\n` +
+            `Last feedback:\n> ${feedback.substring(0, 500)}`,
+          ).catch(() => {});
         }
         return;
       }
 
-      this.logger.log(`Re-triggering Coder for issue ${issueId} (attempt ${fixCount + 1}/${MAX_FIX_ATTEMPTS})`);
+      this.logger.log(`Re-triggering Coder for issue ${issueId} (attempt ${fixCount + 1}/${maxAttempts}, source: ${feedbackSource})`);
 
       let coderInstance = await this.prisma.agentInstance.findFirst({
         where: { projectId, role: AgentRole.CODER, status: { in: [AgentStatus.IDLE, AgentStatus.WORKING] } },

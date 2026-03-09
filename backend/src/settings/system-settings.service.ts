@@ -32,6 +32,8 @@ export interface PipelineConfig {
   requireApproval: boolean;
   maxConcurrentAgents: number;
   timeoutMinutes: number;
+  maxParallelOllamaModels: number;
+  maxFixAttempts: number;
 }
 
 /**
@@ -227,6 +229,8 @@ export class SystemSettingsService implements OnModuleInit {
       requireApproval: true,
       maxConcurrentAgents: 2,
       timeoutMinutes: 30,
+      maxParallelOllamaModels: 1,
+      maxFixAttempts: 20,
     };
   }
 
