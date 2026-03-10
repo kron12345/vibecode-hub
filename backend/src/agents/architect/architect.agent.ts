@@ -313,6 +313,7 @@ export class ArchitectAgent extends BaseAgent {
       maxIterations: 30,
       temperature: config.parameters.temperature,
       maxTokens: config.parameters.maxTokens,
+      agentTaskId: ctx.agentTaskId,
       onToolCall: (name, args) => {
         this.log(ctx.agentTaskId, 'DEBUG', `MCP tool: ${name}`, { args: JSON.stringify(args).substring(0, 300) } as any);
       },
@@ -397,6 +398,7 @@ export class ArchitectAgent extends BaseAgent {
           maxIterations: 30,
           temperature: config.parameters.temperature,
           maxTokens: config.parameters.maxTokens,
+          agentTaskId: ctx.agentTaskId,
           onToolCall: (name, args) => {
             this.log(ctx.agentTaskId, 'DEBUG', `Grounding MCP: ${name}`, { issue: issue.title } as any);
           },

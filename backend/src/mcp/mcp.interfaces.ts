@@ -67,4 +67,6 @@ export interface McpAgentLoopOptions {
   onToolCall?: (name: string, args: Record<string, unknown>, result: string) => void;
   /** Called on each LLM iteration */
   onIteration?: (iteration: number, content: string) => void;
+  /** Agent task ID — used for activity logging to prevent stuck-task cleanup */
+  agentTaskId?: string;
 }

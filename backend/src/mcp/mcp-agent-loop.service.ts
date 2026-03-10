@@ -2,6 +2,7 @@ import { Injectable, Logger } from '@nestjs/common';
 import { LlmService } from '../llm/llm.service';
 import { LlmMessage } from '../llm/llm.interfaces';
 import { McpClientService } from './mcp-client.service';
+import { PrismaService } from '../prisma/prisma.service';
 import { McpAgentLoopOptions, McpAgentLoopResult } from './mcp.interfaces';
 
 const DEFAULT_MAX_ITERATIONS = 30;
@@ -20,6 +21,7 @@ export class McpAgentLoopService {
   constructor(
     private readonly llmService: LlmService,
     private readonly mcpClient: McpClientService,
+    private readonly prisma: PrismaService,
   ) {}
 
   /**
@@ -60,6 +62,17 @@ export class McpAgentLoopService {
       while (iterations < maxIterations) {
         iterations++;
         this.logger.debug(`Agent loop iteration ${iterations}/${maxIterations}`);
+
+        // Write activity log every 5 iterations to prevent stuck-task cleanup
+        if (options.agentTaskId && iterations % 5 === 1) {
+          this.prisma.agentLog.create({
+            data: {
+              agentTaskId: options.agentTaskId,
+              level: 'INFO',
+              message: `MCP agent loop active — iteration ${iterations}/${maxIterations}, ${totalToolCalls} tool calls`,
+            },
+          }).catch(() => {}); // Fire-and-forget, don't block the loop
+        }
 
         // Call LLM with tools
         const result = await this.llmService.complete({

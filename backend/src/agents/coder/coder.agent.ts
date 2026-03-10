@@ -596,6 +596,7 @@ export class CoderAgent extends BaseAgent {
       maxIterations: 30,
       temperature: config.parameters.temperature,
       maxTokens: config.parameters.maxTokens,
+      agentTaskId,
       onToolCall: (name, args) => {
         this.logger.debug(`Tool call: ${name}(${JSON.stringify(args).substring(0, 150)})`);
       },
