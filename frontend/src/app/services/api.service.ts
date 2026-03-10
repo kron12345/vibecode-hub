@@ -336,6 +336,13 @@ export class ApiService {
     return this.http.post<ChatMessage>(`${this.baseUrl}/chat/messages`, data);
   }
 
+  uploadChatFile(chatSessionId: string, file: File) {
+    const formData = new FormData();
+    formData.append('file', file);
+    formData.append('chatSessionId', chatSessionId);
+    return this.http.post<ChatMessage>(`${this.baseUrl}/chat/upload`, formData);
+  }
+
   // ─── Settings ────────────────────────────────────────────
 
   getUserSettings() {

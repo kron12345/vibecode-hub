@@ -32,6 +32,19 @@ export interface AgentRoleConfig {
   dualStrategy?: 'merge' | 'consensus' | 'enrich';
 }
 
+export interface MergeConfig {
+  /** Auto-merge after all agents pass */
+  autoMerge: boolean;
+  /** Merge method: merge commit, squash, or rebase */
+  method: 'merge' | 'squash' | 'rebase';
+  /** Remove feature branch after merge */
+  removeSourceBranch: boolean;
+  /** Require manual approval before merge (shows merge button in chat) */
+  requireApproval: boolean;
+  /** Close GitLab issue after successful merge */
+  closeIssueOnMerge: boolean;
+}
+
 export interface PipelineConfig {
   enabled: boolean;
   autoStart: boolean;
@@ -40,6 +53,7 @@ export interface PipelineConfig {
   timeoutMinutes: number;
   maxParallelOllamaModels: number;
   maxFixAttempts: number;
+  merge: MergeConfig;
 }
 
 /**
@@ -241,6 +255,13 @@ export class SystemSettingsService implements OnModuleInit {
       timeoutMinutes: 30,
       maxParallelOllamaModels: 1,
       maxFixAttempts: 5,
+      merge: {
+        autoMerge: true,
+        method: 'merge',
+        removeSourceBranch: true,
+        requireApproval: false,
+        closeIssueOnMerge: true,
+      },
     };
   }
 

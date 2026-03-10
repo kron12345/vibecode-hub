@@ -1,3 +1,11 @@
+/** A single feature with priority and optional details */
+export interface InterviewFeature {
+  title: string;
+  description?: string;
+  priority: 'must-have' | 'should-have' | 'nice-to-have';
+  acceptanceCriteria?: string[];
+}
+
 /** Structured output from the interviewer agent */
 export interface InterviewResult {
   description: string;
@@ -8,7 +16,8 @@ export interface InterviewResult {
     database?: string;
     additional?: string[];
   };
-  features: string[];
+  /** Rich features with priority — also accepts plain strings for backward compat */
+  features: (InterviewFeature | string)[];
   mcpServers?: {
     name: string;
     purpose: string;
@@ -23,4 +32,14 @@ export interface InterviewResult {
     devServerCommand?: string;
     buildCommand?: string;
   };
+}
+
+/** Partial progress emitted during interview for live requirement card */
+export interface InterviewProgress {
+  framework?: string;
+  language?: string;
+  backend?: string;
+  database?: string;
+  features?: InterviewFeature[];
+  setupReady?: boolean;
 }

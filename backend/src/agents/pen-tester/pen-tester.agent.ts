@@ -12,6 +12,7 @@ import { GitlabService } from '../../gitlab/gitlab.service';
 import { LlmMessage } from '../../llm/llm.interfaces';
 import { BaseAgent, AgentContext } from '../agent-base';
 import { MonitorGateway } from '../../monitor/monitor.gateway';
+import { DualTestService } from '../dual-test.service';
 import { postAgentComment, getAgentCommentHistory } from '../agent-comment.utils';
 import { PenTestResult, SecurityFinding } from './pen-test-result.interface';
 import {
@@ -117,6 +118,7 @@ export class PenTesterAgent extends BaseAgent {
     private readonly gitlabService: GitlabService,
     monitorGateway: MonitorGateway,
     private readonly eventEmitter: EventEmitter2,
+    private readonly dualTestService: DualTestService,
   ) {
     super(prisma, settings, chatService, chatGateway, llmService, monitorGateway);
   }
@@ -250,16 +252,39 @@ Do NOT omit the JSON block.`;
         { role: 'user', content: userPrompt },
       ];
 
-      const result = await this.callLlm(messages);
+      // Call primary (and optional secondary for dual-testing)
+      const dualResult = await this.dualTestService.callDual(config, messages);
 
-      if (result.finishReason === 'error') {
+      if (dualResult.primary.finishReason === 'error') {
         await this.sendAgentMessage(ctx, 'Pen Tester LLM call failed');
         await this.markFailed(ctx, 'LLM call failed');
         return;
       }
 
-      // Parse result
-      const testResult = this.parseTestResult(result.content, issueId, auditResult);
+      // Parse primary result
+      let testResult = this.parseTestResult(dualResult.primary.content, issueId, auditResult);
+
+      // Dual-testing: parse secondary and merge/consensus findings
+      if (testResult && dualResult.secondary && dualResult.secondary.finishReason !== 'error') {
+        const secondaryResult = this.parseTestResult(dualResult.secondary.content, issueId, auditResult);
+        if (secondaryResult) {
+          const strategy = config.dualStrategy ?? 'consensus';
+          const { merged, stats } = this.dualTestService.mergeFindings(
+            testResult.findings,
+            secondaryResult.findings,
+            strategy,
+            (f: SecurityFinding) => `${f.category}:${f.file ?? ''}:${f.severity}:${f.description.substring(0, 40).toLowerCase()}`,
+          );
+
+          const passed = this.dualTestService.determineApproval(merged, maxWarnings);
+          testResult = { ...testResult, findings: merged, passed };
+
+          await this.sendAgentMessage(
+            ctx,
+            `🔀 **Dual-test** (${strategy}): ${stats.primaryCount} + ${stats.secondaryCount} → ${stats.mergedCount} findings [${dualResult.providers.primary} + ${dualResult.providers.secondary}]`,
+          );
+        }
+      }
 
       if (!testResult) {
         await this.sendAgentMessage(ctx, 'Could not parse security test result — defaulting to pass');

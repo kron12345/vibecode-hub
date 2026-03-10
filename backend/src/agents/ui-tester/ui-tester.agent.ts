@@ -9,6 +9,7 @@ import { GitlabService } from '../../gitlab/gitlab.service';
 import { LlmMessage } from '../../llm/llm.interfaces';
 import { BaseAgent, AgentContext } from '../agent-base';
 import { MonitorGateway } from '../../monitor/monitor.gateway';
+import { DualTestService } from '../dual-test.service';
 import { postAgentComment, getAgentCommentHistory } from '../agent-comment.utils';
 import { UiTestResult, UiTestFinding } from './ui-test-result.interface';
 import { PlaywrightRunner, PageCapture, A11yResult } from './playwright-runner';
@@ -79,6 +80,7 @@ export class UiTesterAgent extends BaseAgent {
     private readonly gitlabService: GitlabService,
     monitorGateway: MonitorGateway,
     private readonly eventEmitter: EventEmitter2,
+    private readonly dualTestService: DualTestService,
   ) {
     super(prisma, settings, chatService, chatGateway, llmService, monitorGateway);
   }
@@ -219,17 +221,44 @@ Do NOT omit the JSON block.`;
         { role: 'user', content: userPrompt },
       ];
 
-      // Call LLM
-      const result = await this.callLlm(messages);
+      // Call primary (and optional secondary for dual-testing)
+      const dualResult = await this.dualTestService.callDual(config, messages);
 
-      if (result.finishReason === 'error') {
+      if (dualResult.primary.finishReason === 'error') {
         await this.sendAgentMessage(ctx, 'UI Tester LLM call failed');
         await this.markFailed(ctx, 'LLM call failed');
         return;
       }
 
-      // Parse result
-      const testResult = this.parseTestResult(result.content, issueId);
+      // Parse primary result
+      let testResult = this.parseTestResult(dualResult.primary.content, issueId);
+
+      // Dual-testing: parse secondary and merge findings
+      if (testResult && dualResult.secondary && dualResult.secondary.finishReason !== 'error') {
+        const secondaryResult = this.parseTestResult(dualResult.secondary.content, issueId);
+        if (secondaryResult) {
+          const strategy = config.dualStrategy ?? 'merge';
+          const { merged, stats } = this.dualTestService.mergeFindings(
+            testResult.findings,
+            secondaryResult.findings,
+            strategy,
+            (f: UiTestFinding) => `${f.type}:${f.page}:${f.description.substring(0, 40).toLowerCase()}`,
+          );
+
+          const passed = this.dualTestService.determineApproval(merged, 3);
+          testResult = {
+            ...testResult,
+            findings: merged,
+            passed,
+            pagesChecked: Math.max(testResult.pagesChecked, secondaryResult.pagesChecked),
+          };
+
+          await this.sendAgentMessage(
+            ctx,
+            `🔀 **Dual-test** (${strategy}): ${stats.primaryCount} + ${stats.secondaryCount} → ${stats.mergedCount} findings [${dualResult.providers.primary} + ${dualResult.providers.secondary}]`,
+          );
+        }
+      }
 
       if (!testResult) {
         await this.sendAgentMessage(ctx, 'Could not parse UI test result — defaulting to pass');

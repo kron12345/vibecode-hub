@@ -30,6 +30,24 @@ export interface StreamEndEvent {
   chatSessionId: string;
 }
 
+export interface ChatSuggestionsEvent {
+  chatSessionId: string;
+  suggestions: string[];
+}
+
+export interface InterviewProgressEvent {
+  chatSessionId: string;
+  projectId: string;
+  progress: {
+    framework?: string;
+    language?: string;
+    backend?: string;
+    database?: string;
+    features?: { title: string; priority: string; description?: string }[];
+    setupReady?: boolean;
+  };
+}
+
 @Injectable({ providedIn: 'root' })
 export class ChatSocketService implements OnDestroy {
   private socket: Socket | null = null;
@@ -45,6 +63,9 @@ export class ChatSocketService implements OnDestroy {
   readonly streamStart$ = new Subject<StreamStartEvent>();
   readonly streamToken$ = new Subject<StreamTokenEvent>();
   readonly streamEnd$ = new Subject<StreamEndEvent>();
+  /** Interview-specific events */
+  readonly chatSuggestions$ = new Subject<ChatSuggestionsEvent>();
+  readonly interviewProgress$ = new Subject<InterviewProgressEvent>();
 
   private connect() {
     if (this.socket) return;
@@ -77,6 +98,14 @@ export class ChatSocketService implements OnDestroy {
 
     this.socket.on('chatStreamEnd', (event: StreamEndEvent) => {
       this.streamEnd$.next(event);
+    });
+
+    this.socket.on('chatSuggestions', (event: ChatSuggestionsEvent) => {
+      this.chatSuggestions$.next(event);
+    });
+
+    this.socket.on('interviewProgress', (event: InterviewProgressEvent) => {
+      this.interviewProgress$.next(event);
     });
   }
 

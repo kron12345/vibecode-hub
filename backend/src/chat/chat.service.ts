@@ -56,7 +56,7 @@ export class ChatService {
     });
   }
 
-  async addMessage(dto: SendMessageDto) {
+  async addMessage(dto: SendMessageDto & { metadata?: Record<string, unknown> }) {
     const message = await this.prisma.chatMessage.create({
       data: {
         chatSessionId: dto.chatSessionId,
@@ -64,6 +64,7 @@ export class ChatService {
         content: dto.content,
         issueId: dto.issueId,
         agentTaskId: dto.agentTaskId,
+        ...(dto.metadata && { metadata: dto.metadata as any }),
       },
     });
 

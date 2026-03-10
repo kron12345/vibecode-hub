@@ -16,12 +16,14 @@ import { FunctionalTesterAgent } from './functional-tester/functional-tester.age
 import { UiTesterAgent } from './ui-tester/ui-tester.agent';
 import { PenTesterAgent } from './pen-tester/pen-tester.agent';
 import { DocumenterAgent } from './documenter/documenter.agent';
+import { DualTestService } from './dual-test.service';
 
 @Module({
   imports: [ChatModule, PreviewModule, GitlabModule, IssuesModule, MonitorModule],
   controllers: [AgentsController],
   providers: [
     AgentOrchestratorService,
+    DualTestService,
     InterviewerAgent,
     DevopsAgent,
     ArchitectAgent,

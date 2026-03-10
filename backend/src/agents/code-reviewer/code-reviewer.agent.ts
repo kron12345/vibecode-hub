@@ -9,6 +9,7 @@ import { GitlabService } from '../../gitlab/gitlab.service';
 import { LlmMessage } from '../../llm/llm.interfaces';
 import { BaseAgent, AgentContext } from '../agent-base';
 import { MonitorGateway } from '../../monitor/monitor.gateway';
+import { DualTestService } from '../dual-test.service';
 import { postAgentComment } from '../agent-comment.utils';
 import { ReviewResult, ReviewFinding } from './review-result.interface';
 import {
@@ -79,6 +80,7 @@ export class CodeReviewerAgent extends BaseAgent {
     private readonly gitlabService: GitlabService,
     monitorGateway: MonitorGateway,
     private readonly eventEmitter: EventEmitter2,
+    private readonly dualTestService: DualTestService,
   ) {
     super(prisma, settings, chatService, chatGateway, llmService, monitorGateway);
   }
@@ -168,16 +170,39 @@ Provide your review analysis and end with the completion marker and JSON result.
         { role: 'user', content: userPrompt },
       ];
 
-      const result = await this.callLlm(messages);
+      // Call primary (and optional secondary for dual-testing)
+      const dualResult = await this.dualTestService.callDual(config, messages);
 
-      if (result.finishReason === 'error') {
+      if (dualResult.primary.finishReason === 'error') {
         await this.sendAgentMessage(ctx, '❌ Code Reviewer LLM call failed');
         await this.markFailed(ctx, 'LLM call failed');
         return;
       }
 
-      // Parse review result
-      const reviewResult = this.parseReviewResult(result.content, issueId, mrIid);
+      // Parse primary review result
+      let reviewResult = this.parseReviewResult(dualResult.primary.content, issueId, mrIid);
+
+      // Dual-testing: parse secondary and merge findings
+      if (reviewResult && dualResult.secondary && dualResult.secondary.finishReason !== 'error') {
+        const secondaryReview = this.parseReviewResult(dualResult.secondary.content, issueId, mrIid);
+        if (secondaryReview) {
+          const strategy = config.dualStrategy ?? 'merge';
+          const { merged, stats } = this.dualTestService.mergeFindings(
+            reviewResult.findings,
+            secondaryReview.findings,
+            strategy,
+            (f: ReviewFinding) => `${f.file}:${f.line ?? ''}:${f.message.substring(0, 50).toLowerCase()}`,
+          );
+
+          const approved = this.dualTestService.determineApproval(merged);
+          reviewResult = { ...reviewResult, findings: merged, approved };
+
+          await this.sendAgentMessage(
+            ctx,
+            `🔀 **Dual-test** (${strategy}): ${stats.primaryCount} + ${stats.secondaryCount} → ${stats.mergedCount} findings [${dualResult.providers.primary} + ${dualResult.providers.secondary}]`,
+          );
+        }
+      }
 
       if (!reviewResult) {
         await this.sendAgentMessage(ctx, '⚠️ Could not parse review result — defaulting to approved');

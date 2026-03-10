@@ -312,6 +312,40 @@ type Tab = 'overview' | 'settings';
             </div>
 
             @if (activeSession()) {
+              <!-- Live Requirement Card (during interview) -->
+              @if (interviewProgress()) {
+                <div class="mx-5 mt-3 mb-1 rounded-xl bg-black/30 border border-white/5 p-3 text-xs space-y-2">
+                  <div class="flex items-center justify-between">
+                    <span class="text-slate-400 font-mono uppercase tracking-wider text-[10px]">Requirements</span>
+                    @if (interviewProgress()!.setupReady) {
+                      <span class="px-2 py-0.5 rounded-full bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 text-[10px]">Ready</span>
+                    } @else {
+                      <span class="px-2 py-0.5 rounded-full bg-amber-500/10 text-amber-400 border border-amber-500/20 text-[10px]">Gathering...</span>
+                    }
+                  </div>
+                  <div class="grid grid-cols-2 gap-x-4 gap-y-1 text-slate-500">
+                    <div>Framework: <span class="text-slate-300">{{ interviewProgress()!.framework ?? '—' }}</span></div>
+                    <div>Language: <span class="text-slate-300">{{ interviewProgress()!.language ?? '—' }}</span></div>
+                    <div>Backend: <span class="text-slate-300">{{ interviewProgress()!.backend ?? '—' }}</span></div>
+                    <div>Database: <span class="text-slate-300">{{ interviewProgress()!.database ?? '—' }}</span></div>
+                  </div>
+                  @if (interviewProgress()!.features && interviewProgress()!.features!.length > 0) {
+                    <div class="flex flex-wrap gap-1.5 pt-1">
+                      @for (f of interviewProgress()!.features!; track f.title) {
+                        <span class="px-2 py-0.5 rounded-full text-[10px] font-medium border"
+                          [class]="f.priority === 'must-have'
+                            ? 'bg-rose-500/10 text-rose-400 border-rose-500/20'
+                            : f.priority === 'nice-to-have'
+                              ? 'bg-sky-500/10 text-sky-400 border-sky-500/20'
+                              : 'bg-amber-500/10 text-amber-400 border-amber-500/20'">
+                          {{ f.title }}
+                        </span>
+                      }
+                    </div>
+                  }
+                </div>
+              }
+
               <!-- Messages -->
               <div class="flex-1 overflow-y-auto p-5 font-mono text-sm space-y-1.5" #messageContainer>
                 @for (msg of messages(); track msg.id) {
@@ -354,6 +388,20 @@ type Tab = 'overview' | 'settings';
                 }
               </div>
 
+              <!-- Suggestion Chips -->
+              @if (suggestions().length > 0) {
+                <div class="px-5 py-2 border-t border-white/5 flex flex-wrap gap-2">
+                  @for (s of suggestions(); track s) {
+                    <button
+                      (click)="useSuggestion(s)"
+                      class="px-3 py-1 rounded-full bg-indigo-500/10 text-indigo-400 text-xs font-medium border border-indigo-500/20 hover:bg-indigo-500/20 hover:border-indigo-500/40 transition-all cursor-pointer"
+                    >
+                      {{ s }}
+                    </button>
+                  }
+                </div>
+              }
+
               <!-- Input -->
               <div class="px-5 py-3 border-t border-white/5">
                 <div class="flex items-center gap-2 bg-black/40 rounded-xl px-4 py-2.5">
@@ -365,6 +413,20 @@ type Tab = 'overview' | 'settings';
                     [placeholder]="'project.chatPlaceholder' | translate"
                     class="flex-1 bg-transparent border-none outline-none text-white font-mono text-sm placeholder-slate-600"
                   />
+                  <input
+                    type="file"
+                    #fileInput
+                    (change)="onFileSelected($event)"
+                    accept=".pdf,.png,.jpg,.jpeg,.webp,.txt,.md"
+                    class="hidden"
+                  />
+                  <button
+                    (click)="fileInput.click()"
+                    class="text-slate-600 hover:text-amber-400 transition-colors shrink-0"
+                    title="Upload PDF, image, or text file"
+                  >
+                    <app-icon name="paperclip" [size]="16" />
+                  </button>
                   <button
                     (click)="sendMessage()"
                     class="text-slate-600 hover:text-indigo-400 transition-colors shrink-0"
@@ -894,6 +956,17 @@ export class ProjectPage implements OnInit, OnDestroy {
   streamingContent = signal('');
   isStreaming = signal(false);
 
+  // Interview suggestions + progress
+  suggestions = signal<string[]>([]);
+  interviewProgress = signal<{
+    framework?: string;
+    language?: string;
+    backend?: string;
+    database?: string;
+    features?: { title: string; priority: string; description?: string }[];
+    setupReady?: boolean;
+  } | null>(null);
+
   saving = signal(false);
   toast = signal<'success' | 'error' | null>(null);
 
@@ -909,6 +982,8 @@ export class ProjectPage implements OnInit, OnDestroy {
   private streamStartSub: Subscription | null = null;
   private streamTokenSub: Subscription | null = null;
   private streamEndSub: Subscription | null = null;
+  private suggestionsSub: Subscription | null = null;
+  private progressSub: Subscription | null = null;
 
   /** Build agent entries from the 10 roles, filling in instance data if available */
   agentEntries = computed(() => {
@@ -1061,6 +1136,14 @@ export class ProjectPage implements OnInit, OnDestroy {
       this.streamingContent.set('');
       this.isStreaming.set(false);
     });
+
+    this.suggestionsSub = this.chatSocket.chatSuggestions$.subscribe((event) => {
+      this.suggestions.set(event.suggestions);
+    });
+
+    this.progressSub = this.chatSocket.interviewProgress$.subscribe((event) => {
+      this.interviewProgress.set(event.progress);
+    });
   }
 
   ngOnDestroy() {
@@ -1071,6 +1154,8 @@ export class ProjectPage implements OnInit, OnDestroy {
     this.streamStartSub?.unsubscribe();
     this.streamTokenSub?.unsubscribe();
     this.streamEndSub?.unsubscribe();
+    this.suggestionsSub?.unsubscribe();
+    this.progressSub?.unsubscribe();
   }
 
   populateSettingsForm(p: Project) {
@@ -1266,6 +1351,8 @@ export class ProjectPage implements OnInit, OnDestroy {
     const content = this.messageInput.trim();
     if (!session || !content) return;
 
+    this.suggestions.set([]); // Clear chips on send
+
     this.api
       .sendChatMessage({
         chatSessionId: session.id,
@@ -1277,6 +1364,36 @@ export class ProjectPage implements OnInit, OnDestroy {
       });
 
     this.messageInput = '';
+  }
+
+  useSuggestion(text: string) {
+    this.messageInput = text;
+    this.sendMessage();
+  }
+
+  onFileSelected(event: Event) {
+    const input = event.target as HTMLInputElement;
+    const file = input.files?.[0];
+    const session = this.activeSession();
+    if (!file || !session) return;
+
+    // Size check (10 MB)
+    if (file.size > 10 * 1024 * 1024) {
+      alert('File too large (max 10 MB)');
+      input.value = '';
+      return;
+    }
+
+    this.api.uploadChatFile(session.id, file).subscribe({
+      next: (msg) => {
+        this.messages.update((msgs) => [...msgs, msg]);
+      },
+      error: (err) => {
+        console.error('Upload failed:', err);
+      },
+    });
+
+    input.value = ''; // Reset for re-upload
   }
 
   formatTime(dateStr: string): string {

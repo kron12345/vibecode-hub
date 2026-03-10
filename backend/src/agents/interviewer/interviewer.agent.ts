@@ -9,7 +9,7 @@ import { LlmMessage } from '../../llm/llm.interfaces';
 import { PreviewService } from '../../preview/preview.service';
 import { MonitorGateway } from '../../monitor/monitor.gateway';
 import { BaseAgent, AgentContext } from '../agent-base';
-import { InterviewResult } from './interview-result.interface';
+import { InterviewResult, InterviewProgress } from './interview-result.interface';
 import {
   AgentRole,
   AgentStatus,
@@ -19,6 +19,10 @@ import {
 
 /** Marker the LLM emits when the interview is complete */
 const COMPLETION_MARKER = ':::INTERVIEW_COMPLETE:::';
+/** Marker for clickable suggestion chips */
+const SUGGESTIONS_MARKER = ':::SUGGESTIONS:::';
+/** Marker for partial interview progress */
+const PROGRESS_MARKER = ':::PROGRESS:::';
 
 /** Max messages per interview to prevent runaway conversations */
 const MAX_INTERVIEW_MESSAGES = 50;
@@ -62,6 +66,32 @@ Your job is NOT to plan the implementation. Your job is to collect enough inform
 - Keep it short: 3-5 questions total should be enough for a simple project
 - When you have the setup info (framework, init command, dev server) + a brief feature list, finalize immediately
 
+## Features — Detailed Capture
+For each feature, capture:
+- **title**: Short name (e.g. "User Authentication")
+- **priority**: must-have, should-have, or nice-to-have
+- **description**: 1-2 sentences about what it does
+- **acceptanceCriteria**: How do we know it works? (e.g. "User can log in with email/password")
+
+Ask briefly: "What should [feature] do? Is it must-have or nice-to-have?"
+
+## Suggestions
+After EVERY response (except the final completion), add 2-4 clickable suggestions.
+These help the user answer faster. Format them on a NEW line at the very end:
+${SUGGESTIONS_MARKER}["Option A", "Option B", "Option C"]
+
+Examples:
+- After asking about framework: ${SUGGESTIONS_MARKER}["Angular", "React + Next.js", "Vue + Nuxt", "NestJS API only"]
+- After asking about features: ${SUGGESTIONS_MARKER}["Authentication", "Dashboard", "REST API", "Real-time updates"]
+- After asking about database: ${SUGGESTIONS_MARKER}["PostgreSQL", "MongoDB", "SQLite", "No database"]
+
+## Progress Tracking
+After EVERY response (except the first), include a progress snapshot so the UI can show what's captured.
+Put it on a NEW line AFTER suggestions:
+${PROGRESS_MARKER}{"framework":"angular","language":"typescript","backend":"nestjs","database":"postgresql","features":[{"title":"Login","priority":"must-have"}],"setupReady":false}
+
+Only include fields that have been determined. Omit unknown fields. "setupReady" is true when you have enough for the completion JSON.
+
 ## Completion
 When you have enough info, finalize immediately — do NOT ask for extra confirmation.`;
 
@@ -83,7 +113,10 @@ ${COMPLETION_MARKER}
     "database": "none",
     "additional": ["tailwindcss"]
   },
-  "features": ["Feature 1", "Feature 2", "Feature 3"],
+  "features": [
+    { "title": "Feature 1", "priority": "must-have", "description": "What it does", "acceptanceCriteria": ["It works when..."] },
+    { "title": "Feature 2", "priority": "should-have", "description": "What it does" }
+  ],
   "mcpServers": [
     { "name": "angular-mcp-server", "purpose": "Angular documentation" }
   ],
@@ -159,8 +192,12 @@ export class InterviewerAgent extends BaseAgent {
       return;
     }
 
-    // Save the streamed message to DB (frontend already saw it via tokens)
-    await this.sendAgentMessage(ctx, result.content);
+    // Extract suggestions + progress, strip from displayed content
+    const { content, suggestions, progress } = this.extractMetadata(result.content);
+
+    // Save the cleaned message to DB (frontend already saw raw tokens)
+    await this.sendAgentMessage(ctx, content);
+    this.emitSuggestionsAndProgress(ctx, suggestions, progress);
     await this.updateStatus(ctx, AgentStatus.WAITING);
   }
 
@@ -227,9 +264,80 @@ export class InterviewerAgent extends BaseAgent {
         COMPLETION_MARKER + '\n' + result.content,
       );
     } else {
-      // Save the streamed content to DB (frontend already saw tokens)
-      await this.sendAgentMessage(ctx, result.content);
+      // Extract suggestions + progress, strip from displayed content
+      const { content, suggestions, progress } = this.extractMetadata(result.content);
+
+      // Save the cleaned message to DB (frontend already saw tokens)
+      await this.sendAgentMessage(ctx, content);
+      this.emitSuggestionsAndProgress(ctx, suggestions, progress);
       await this.updateStatus(ctx, AgentStatus.WAITING);
+    }
+  }
+
+  // ─── Suggestion & Progress Extraction ─────────────────────
+
+  /**
+   * Extract suggestions and progress markers from LLM response.
+   * Returns cleaned content (without markers) + parsed data.
+   */
+  private extractMetadata(rawContent: string): {
+    content: string;
+    suggestions: string[];
+    progress: InterviewProgress | null;
+  } {
+    let content = rawContent;
+    let suggestions: string[] = [];
+    let progress: InterviewProgress | null = null;
+
+    // Extract suggestions: :::SUGGESTIONS:::["A", "B", "C"]
+    const sugMatch = content.match(new RegExp(`${SUGGESTIONS_MARKER.replace(/:/g, '\\:')}\\s*(\\[.*?\\])`, 's'));
+    if (sugMatch) {
+      try {
+        const parsed = JSON.parse(sugMatch[1]);
+        if (Array.isArray(parsed)) {
+          suggestions = parsed.map(String).slice(0, 6);
+        }
+      } catch {
+        this.logger.debug('Failed to parse suggestions JSON');
+      }
+      content = content.replace(sugMatch[0], '').trim();
+    }
+
+    // Extract progress: :::PROGRESS:::{...}
+    const progMatch = content.match(new RegExp(`${PROGRESS_MARKER.replace(/:/g, '\\:')}\\s*(\\{.*?\\})`, 's'));
+    if (progMatch) {
+      try {
+        progress = JSON.parse(progMatch[1]);
+      } catch {
+        this.logger.debug('Failed to parse progress JSON');
+      }
+      content = content.replace(progMatch[0], '').trim();
+    }
+
+    return { content, suggestions, progress };
+  }
+
+  /**
+   * Emit suggestions and progress to frontend via WebSocket.
+   */
+  private emitSuggestionsAndProgress(
+    ctx: AgentContext,
+    suggestions: string[],
+    progress: InterviewProgress | null,
+  ) {
+    if (suggestions.length > 0) {
+      this.chatGateway.emitToSession(ctx.chatSessionId, 'chatSuggestions', {
+        chatSessionId: ctx.chatSessionId,
+        suggestions,
+      });
+    }
+
+    if (progress) {
+      this.chatGateway.emitToSession(ctx.chatSessionId, 'interviewProgress', {
+        chatSessionId: ctx.chatSessionId,
+        projectId: ctx.projectId,
+        progress,
+      });
     }
   }
 
@@ -290,10 +398,25 @@ export class InterviewerAgent extends BaseAgent {
       };
     }
 
-    // Normalize features — could be array of strings or array of objects
+    // Normalize features — accepts strings, objects, or mixed
     let features = pick('features', 'core_features', 'feature_list') ?? [];
-    if (Array.isArray(features) && features.length > 0 && typeof features[0] === 'object') {
-      features = features.map((f: any) => f.name || f.title || f.description || String(f));
+    if (Array.isArray(features)) {
+      features = features.map((f: any) => {
+        if (typeof f === 'string') {
+          return { title: f, priority: 'should-have' as const };
+        }
+        if (typeof f === 'object' && f !== null) {
+          return {
+            title: String(f.title ?? f.name ?? f.description ?? 'Unnamed'),
+            description: f.description ? String(f.description) : undefined,
+            priority: this.normalizePriority(f.priority),
+            acceptanceCriteria: Array.isArray(f.acceptanceCriteria ?? f.acceptance_criteria)
+              ? (f.acceptanceCriteria ?? f.acceptance_criteria).map(String)
+              : undefined,
+          };
+        }
+        return { title: String(f), priority: 'should-have' as const };
+      });
     }
 
     // Normalize setupInstructions
@@ -334,6 +457,15 @@ export class InterviewerAgent extends BaseAgent {
     );
 
     return result;
+  }
+
+  /** Normalize priority string to one of the three valid values */
+  private normalizePriority(raw: any): 'must-have' | 'should-have' | 'nice-to-have' {
+    if (!raw) return 'should-have';
+    const s = String(raw).toLowerCase().replace(/[_\s]+/g, '-');
+    if (s.includes('must') || s.includes('critical') || s.includes('high') || s.includes('required')) return 'must-have';
+    if (s.includes('nice') || s.includes('low') || s.includes('optional')) return 'nice-to-have';
+    return 'should-have';
   }
 
   /** Sensible deployment defaults per framework (fallback when LLM omits) */
@@ -427,7 +559,11 @@ export class InterviewerAgent extends BaseAgent {
       },
     });
 
-    let completionMsg = `Interview complete! I've gathered all the project details. The project is now ready for setup.\n\n**Tech Stack:** ${interviewResult.techStack.framework ?? 'N/A'} + ${interviewResult.techStack.backend ?? 'N/A'}\n**Features:** ${interviewResult.features?.join(', ') ?? 'N/A'}`;
+    const featureList = (interviewResult.features ?? [])
+      .map(f => typeof f === 'string' ? f : `${f.title} (${f.priority})`)
+      .join(', ');
+
+    let completionMsg = `Interview complete! I've gathered all the project details. The project is now ready for setup.\n\n**Tech Stack:** ${interviewResult.techStack.framework ?? 'N/A'} + ${interviewResult.techStack.backend ?? 'N/A'}\n**Features:** ${featureList || 'N/A'}`;
 
     // Setup preview if it's a web project
     if (interviewResult.deployment?.isWebProject) {

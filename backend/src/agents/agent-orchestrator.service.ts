@@ -2,6 +2,7 @@ import { Injectable, Logger, NotFoundException, OnModuleInit, OnModuleDestroy } 
 import { OnEvent } from '@nestjs/event-emitter';
 import { PrismaService } from '../prisma/prisma.service';
 import { ChatService } from '../chat/chat.service';
+import { ChatGateway } from '../chat/chat.gateway';
 import { SystemSettingsService } from '../settings/system-settings.service';
 import { GitlabService } from '../gitlab/gitlab.service';
 import { InterviewerAgent } from './interviewer/interviewer.agent';
@@ -57,6 +58,7 @@ export class AgentOrchestratorService implements OnModuleInit, OnModuleDestroy {
   constructor(
     private readonly prisma: PrismaService,
     private readonly chatService: ChatService,
+    private readonly chatGateway: ChatGateway,
     private readonly settings: SystemSettingsService,
     private readonly gitlabService: GitlabService,
     private readonly interviewer: InterviewerAgent,
@@ -1139,8 +1141,35 @@ export class AgentOrchestratorService implements OnModuleInit, OnModuleDestroy {
     mrIid: number;
     gitlabProjectId: number;
   }) {
-    const { issueId, mrIid, gitlabProjectId, projectId } = payload;
-    this.logger.log(`Documentation complete for issue ${issueId} — merging MR !${mrIid} to main`);
+    const { issueId, mrIid, gitlabProjectId, projectId, chatSessionId } = payload;
+    const pipelineConfig = this.settings.getPipelineConfig();
+    const mergeConfig = pipelineConfig.merge ?? {
+      autoMerge: true, method: 'merge' as const, removeSourceBranch: true,
+      requireApproval: false, closeIssueOnMerge: true,
+    };
+
+    this.logger.log(`Documentation complete for issue ${issueId} — merge config: ${JSON.stringify(mergeConfig)}`);
+
+    // If manual approval required, emit suggestion and wait
+    if (mergeConfig.requireApproval) {
+      this.logger.log(`Merge requires approval — waiting for user action on MR !${mrIid}`);
+      // Emit chat suggestions for merge approval
+      this.chatGateway.emitToSession(chatSessionId, 'chatSuggestions', {
+        chatSessionId,
+        suggestions: ['✅ Merge to main', '⚠️ Review first', '❌ Reject MR'],
+      });
+      // Store pending merge info on the issue for later approval
+      await this.prisma.issue.update({
+        where: { id: issueId },
+        data: { status: IssueStatus.NEEDS_REVIEW },
+      });
+      return;
+    }
+
+    if (!mergeConfig.autoMerge) {
+      this.logger.log(`Auto-merge disabled — MR !${mrIid} stays open`);
+      return;
+    }
 
     // Auto-merge the MR with retry for transient failures
     const MAX_MERGE_RETRIES = 3;
@@ -1150,10 +1179,10 @@ export class AgentOrchestratorService implements OnModuleInit, OnModuleDestroy {
     for (let attempt = 1; attempt <= MAX_MERGE_RETRIES; attempt++) {
       try {
         await this.gitlabService.acceptMergeRequest(gitlabProjectId, mrIid, {
-          squash: false, // Keep individual commits for traceability
-          removeSourceBranch: true,
+          squash: mergeConfig.method === 'squash',
+          removeSourceBranch: mergeConfig.removeSourceBranch,
         });
-        this.logger.log(`MR !${mrIid} merged to main for issue ${issueId}`);
+        this.logger.log(`MR !${mrIid} merged to main (method: ${mergeConfig.method}) for issue ${issueId}`);
         merged = true;
         break;
       } catch (mergeErr) {
@@ -1161,7 +1190,6 @@ export class AgentOrchestratorService implements OnModuleInit, OnModuleDestroy {
         const isConflict = /conflict|cannot be merged|merge_request_not_mergeable/i.test(msg);
 
         if (isConflict) {
-          // Merge conflict — no point retrying, needs manual resolution
           this.logger.error(`MR !${mrIid} has merge conflicts — needs manual resolution: ${msg}`);
           await this.prisma.issue.update({
             where: { id: issueId },
@@ -1183,8 +1211,24 @@ export class AgentOrchestratorService implements OnModuleInit, OnModuleDestroy {
       }
     }
 
-    // Pull latest main in the workspace so the Coder has the updated code
     if (merged) {
+      // Post-merge: close GitLab issue if configured
+      if (mergeConfig.closeIssueOnMerge) {
+        const issue = await this.prisma.issue.findUnique({
+          where: { id: issueId },
+          select: { gitlabIid: true },
+        });
+        if (issue?.gitlabIid) {
+          try {
+            await this.gitlabService.closeIssue(gitlabProjectId, issue.gitlabIid);
+            this.logger.log(`Closed GitLab issue #${issue.gitlabIid} after merge`);
+          } catch (err) {
+            this.logger.warn(`Failed to close GitLab issue: ${err.message}`);
+          }
+        }
+      }
+
+      // Pull latest main in the workspace so the Coder has the updated code
       const project = await this.prisma.project.findUnique({ where: { id: projectId } });
       if (project) {
         const workspace = require('path').resolve(
