@@ -60,6 +60,7 @@
   name?: string;
   description?: string;
   status?: 'INTERVIEWING' | 'SETTING_UP' | 'READY' | 'ARCHIVED';
+  workBranch?: string | null;  // Target branch for feature branches (null = GitLab default)
   techStack?: {
     techStack?: {
       framework?: string;
@@ -82,7 +83,7 @@
 }
 ```
 
-**Hinweis**: `slug` ist absichtlich NICHT editierbar (URL-Bestandteil). `techStack` wird deep-gemerged — nur übergebene Sub-Objekte überschreiben existierende Werte, der Rest bleibt erhalten.
+**Hinweis**: `slug` ist absichtlich NICHT editierbar (URL-Bestandteil). `techStack` wird deep-gemerged — nur übergebene Sub-Objekte überschreiben existierende Werte, der Rest bleibt erhalten. `workBranch` definiert den Ziel-Branch für Feature-Branches und Merge Requests — bei `null` wird der GitLab-Default-Branch verwendet.
 
 ---
 

@@ -97,7 +97,7 @@ Dev-Server auf localhost:{port}
 
 ## Datenmodell
 
-- **Project** → hat Issues, ChatSessions, AgentInstances. Status: `INTERVIEWING` | `SETTING_UP` | `READY` | `ARCHIVED`. Optional: `techStack` (JSON, Interview-Ergebnis), `previewPort` (unique, für Subdomain-Preview)
+- **Project** → hat Issues, ChatSessions, AgentInstances. Status: `INTERVIEWING` | `SETTING_UP` | `READY` | `ARCHIVED`. Optional: `techStack` (JSON, Interview-Ergebnis), `previewPort` (unique, für Subdomain-Preview), `workBranch` (String?, Ziel-Branch für Feature-Branches — Feature-Branches werden davon abgezweigt und MRs dagegen erstellt; bei `null` wird der GitLab-Default-Branch verwendet)
 - **Milestone** → Gruppierung von Issues pro Projekt, optional GitLab-gespiegelt (`gitlabMilestoneId`). Felder: title, description, sortOrder, startDate, dueDate. Wird vom Issue Compiler Agent automatisch erzeugt.
 - **Issue** → hierarchisch (parent/sub-issues), gespiegelt von GitLab, optional einem Milestone zugeordnet (`milestoneId`), `sortOrder` für Reihenfolge
 - **IssueComment** → Kommentare auf Issues, Typ: AGENT/USER/SYSTEM, GitLab-Note-ID (`gitlabNoteId`) für 2-Wege-Sync, gleicher rich Markdown wie GitLab-Note, optional an AgentTask gebunden. Agent-Kommentare bilden einen sichtbaren "Chat" auf jedem Issue (Coder → Reviewer → Functional → UI → Pen → Docs)
