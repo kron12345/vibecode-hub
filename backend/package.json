@@ -20,6 +20,7 @@
     "test:e2e": "jest --config ./test/jest-e2e.json"
   },
   "dependencies": {
+    "@angular/cdk": "^21.2.1",
     "@modelcontextprotocol/sdk": "^1.27.1",
     "@modelcontextprotocol/server-filesystem": "^2026.1.14",
     "@nestjs/axios": "^4.0.1",
@@ -31,11 +32,13 @@
     "@nestjs/passport": "^11.0.5",
     "@nestjs/platform-express": "^11.0.1",
     "@nestjs/platform-socket.io": "^11.1.14",
+    "@nestjs/schedule": "^6.1.1",
     "@nestjs/swagger": "^11.2.6",
     "@nestjs/websockets": "^11.1.14",
     "@prisma/adapter-pg": "^7.4.2",
     "@prisma/client": "^7.4.2",
     "axios": "^1.13.6",
+    "chart.js": "^4.5.1",
     "class-transformer": "^0.5.1",
     "class-validator": "^0.14.4",
     "jwks-rsa": "^4.0.0",

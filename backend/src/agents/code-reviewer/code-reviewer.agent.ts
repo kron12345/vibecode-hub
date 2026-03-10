@@ -363,15 +363,28 @@ Provide your review analysis and end with the completion marker and JSON result.
         summary = approved ? 'Code review passed' : `Changes requested (${findings.length} finding(s))`;
       }
 
+      // Apply decision rules ourselves — don't blindly trust LLM's "approved" field
+      // APPROVE if: no critical findings AND ≤2 warnings (matches system prompt)
+      const criticalFindings = findings.filter(f => f.severity === 'critical');
+      const warningFindings = findings.filter(f => f.severity === 'warning');
+      const ruleBasedApproval = criticalFindings.length === 0 && warningFindings.length <= 2;
+
+      if (ruleBasedApproval !== approved) {
+        this.logger.warn(
+          `Overriding LLM approval (${approved}) → ${ruleBasedApproval} based on decision rules: ` +
+          `${criticalFindings.length} critical, ${warningFindings.length} warnings, ${findings.length} total findings`,
+        );
+      }
+
       const result: ReviewResult = {
         issueId,
         mrIid,
-        approved,
+        approved: ruleBasedApproval,
         summary,
         findings,
       };
 
-      this.logger.log(`Parsed review: approved=${result.approved}, findings=${result.findings.length}, summary="${result.summary.substring(0, 80)}"`);
+      this.logger.log(`Parsed review: approved=${result.approved}, findings=${result.findings.length} (${criticalFindings.length}C/${warningFindings.length}W), summary="${result.summary.substring(0, 80)}"`);
       return result;
 
     } catch (err) {
@@ -521,9 +534,16 @@ Provide your review analysis and end with the completion marker and JSON result.
       });
     }
 
-    const approved = hasApproved && !hasChangesRequested && criticalCount === 0;
+    // Apply decision rules: no critical findings AND ≤2 warnings → approve
+    // This prevents false rejections when the LLM doesn't output clear keywords
+    const criticalFindings = findings.filter(f => f.severity === 'critical');
+    const warningFindings = findings.filter(f => f.severity === 'warning');
+    const ruleBasedApproval = criticalFindings.length === 0 && warningFindings.length <= 2;
 
-    this.logger.log(`Text-based review: approved=${approved}, criticals=${criticalCount}, warnings=${warningCount}, findings=${findings.length}`);
+    // Use rule-based approval but let explicit rejection override if findings back it up
+    const approved = ruleBasedApproval || (hasApproved && !hasChangesRequested);
+
+    this.logger.log(`Text-based review: approved=${approved} (rule=${ruleBasedApproval}, keywords: approve=${hasApproved}, reject=${hasChangesRequested}), criticals=${criticalCount}, warnings=${warningCount}, findings=${findings.length}`);
 
     return { issueId, mrIid, approved, summary, findings };
   }

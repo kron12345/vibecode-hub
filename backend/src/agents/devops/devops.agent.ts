@@ -119,6 +119,9 @@ export class DevopsAgent extends BaseAgent {
       // Step 6b: Generate .gitlab-ci.yml
       await this.stepGenerateCiConfig(ctx, result, projectDir, interviewResult);
 
+      // Step 6c: Generate .gitignore
+      await this.stepGenerateGitignore(ctx, result, projectDir, interviewResult);
+
       // Step 7: Git commit & push
       await this.stepGitCommitAndPush(
         ctx, result, projectDir, gitlabProject.default_branch,
@@ -642,6 +645,62 @@ build:
     - echo "Configure CI/CD pipeline for your project"
     - echo "Framework detection did not match a known template"
 `;
+  }
+
+  // ─── Step 6c: Generate .gitignore ──────────────────────────
+
+  private async stepGenerateGitignore(
+    ctx: AgentContext,
+    result: DevopsSetupResult,
+    projectDir: string,
+    interviewResult: InterviewResult,
+  ): Promise<void> {
+    const start = Date.now();
+    try {
+      const framework = (interviewResult.techStack?.framework ?? '').toLowerCase();
+      const language = (interviewResult.techStack?.language ?? '').toLowerCase();
+
+      const gitignore = this.buildGitignore(framework, language);
+      const gitignorePath = path.join(projectDir, '.gitignore');
+      await fs.writeFile(gitignorePath, gitignore, 'utf-8');
+
+      result.steps.push(this.step('generateGitignore', 'success', '.gitignore generated', start));
+      await this.sendAgentMessage(ctx, `📋 Generated \`.gitignore\` for ${framework || language || 'generic'} project`);
+    } catch (err) {
+      result.steps.push(this.step('generateGitignore', 'failed', err.message, start));
+      await this.log(ctx.agentTaskId, 'WARN', `.gitignore generation failed: ${err.message}`);
+    }
+  }
+
+  /** Build a .gitignore appropriate for the tech stack */
+  private buildGitignore(framework: string, language: string): string {
+    const sections: string[] = ['# Dependencies', 'node_modules/', '.pnp/', '.pnp.js', ''];
+
+    // Build output
+    sections.push('# Build output', 'dist/', 'build/', '.next/', '.nuxt/', '.output/', '.angular/', '');
+
+    // Environment and secrets
+    sections.push('# Environment', '.env', '.env.local', '.env.*.local', '');
+
+    // IDE
+    sections.push('# IDE', '.idea/', '.vscode/', '*.swp', '*.swo', '.DS_Store', 'Thumbs.db', '');
+
+    // Logs
+    sections.push('# Logs', 'logs/', '*.log', 'npm-debug.log*', '');
+
+    // Testing
+    sections.push('# Testing', 'coverage/', '.nyc_output/', '');
+
+    // Prisma (common for NestJS projects)
+    if (framework === 'angular' || framework === 'react' || framework === 'vue' ||
+        language === 'typescript' || language === 'javascript') {
+      sections.push('# Prisma', '*.db', '*.db-journal', '');
+    }
+
+    // Misc
+    sections.push('# Misc', '.cache/', 'tmp/', '.tmp/', '');
+
+    return sections.join('\n') + '\n';
   }
 
   // ─── Step 7: Git Commit & Push ─────────────────────────────

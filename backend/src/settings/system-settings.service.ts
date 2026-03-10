@@ -234,7 +234,7 @@ export class SystemSettingsService implements OnModuleInit {
       maxConcurrentAgents: 2,
       timeoutMinutes: 30,
       maxParallelOllamaModels: 1,
-      maxFixAttempts: 20,
+      maxFixAttempts: 5,
     };
   }
 
