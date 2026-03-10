@@ -176,21 +176,17 @@ export class CoderAgent extends BaseAgent {
       durationMs: 0,
     };
 
-    let agentTask: { id: string } | null = null;
+    // Reuse the orchestrator-created task instead of creating a duplicate
+    const agentTask = { id: ctx.agentTaskId };
 
     try {
       // Update issue status
       await this.issuesService.update(issue.id, { status: IssueStatus.IN_PROGRESS });
 
-      // Create agent task
-      agentTask = await this.prisma.agentTask.create({
-        data: {
-          agentId: ctx.agentInstanceId,
-          issueId: issue.id,
-          type: AgentTaskType.WRITE_CODE,
-          status: AgentTaskStatus.RUNNING,
-          startedAt: new Date(),
-        },
+      // Link orchestrator task to this issue
+      await this.prisma.agentTask.update({
+        where: { id: ctx.agentTaskId },
+        data: { issueId: issue.id },
       });
 
       await this.sendAgentMessage(
@@ -380,14 +376,12 @@ export class CoderAgent extends BaseAgent {
       result.durationMs = Date.now() - start;
 
       // Mark task as FAILED in DB (prevents orphaned RUNNING tasks)
-      if (agentTask) {
-        try {
-          await this.prisma.agentTask.update({
-            where: { id: agentTask.id },
-            data: { status: AgentTaskStatus.FAILED, completedAt: new Date(), output: result as any },
-          });
-        } catch { /* best effort */ }
-      }
+      try {
+        await this.prisma.agentTask.update({
+          where: { id: agentTask.id },
+          data: { status: AgentTaskStatus.FAILED, completedAt: new Date(), output: result as any },
+        });
+      } catch { /* best effort */ }
 
       await this.sendAgentMessage(
         ctx,
