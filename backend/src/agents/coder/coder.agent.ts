@@ -79,14 +79,14 @@ export class CoderAgent extends BaseAgent {
       // Pull latest on default branch
       await this.gitPull(workspace);
 
-      // Find the first milestone with OPEN issues
-      const milestone = await this.prisma.milestone.findFirst({
+      // Find ALL milestones with OPEN issues (process them in order)
+      const milestones = await this.prisma.milestone.findMany({
         where: {
           projectId: ctx.projectId,
           issues: {
             some: {
               status: IssueStatus.OPEN,
-              parentId: null, // Only top-level issues
+              parentId: null,
             },
           },
         },
@@ -102,55 +102,67 @@ export class CoderAgent extends BaseAgent {
         orderBy: { sortOrder: 'asc' },
       });
 
-      if (!milestone || milestone.issues.length === 0) {
+      if (milestones.length === 0) {
         await this.sendAgentMessage(ctx, '📭 No open issues found in any milestone — nothing to code.');
         await this.updateStatus(ctx, AgentStatus.IDLE);
         return;
       }
 
+      const totalIssues = milestones.reduce((sum, m) => sum + m.issues.length, 0);
       await this.sendAgentMessage(
         ctx,
-        `🏁 Working on milestone **${milestone.title}** — ${milestone.issues.length} issue(s)`,
+        `🏁 Processing ${milestones.length} milestone(s) with ${totalIssues} open issue(s)`,
       );
-
-      const milestoneResult: CoderMilestoneResult = {
-        milestoneId: milestone.id,
-        milestoneTitle: milestone.title,
-        issueResults: [],
-        counts: { total: milestone.issues.length, success: 0, failed: 0, skipped: 0 },
-      };
 
       // Get the default branch
       const glProject = await this.gitlabService.getProject(project.gitlabProjectId);
       const defaultBranch = glProject.default_branch;
 
-      // Process each issue sequentially
-      for (const issue of milestone.issues) {
-        const issueResult = await this.processIssue(ctx, issue, workspace, project.gitlabProjectId, defaultBranch, glProject.path_with_namespace);
-        milestoneResult.issueResults.push(issueResult);
+      const allResults: CoderMilestoneResult[] = [];
+      let globalSuccess = 0, globalFailed = 0, globalSkipped = 0;
 
-        if (issueResult.status === 'success') milestoneResult.counts.success++;
-        else if (issueResult.status === 'failed') milestoneResult.counts.failed++;
-        else milestoneResult.counts.skipped++;
+      for (const milestone of milestones) {
+        await this.sendAgentMessage(
+          ctx,
+          `📦 Milestone **${milestone.title}** — ${milestone.issues.length} issue(s)`,
+        );
+
+        const milestoneResult: CoderMilestoneResult = {
+          milestoneId: milestone.id,
+          milestoneTitle: milestone.title,
+          issueResults: [],
+          counts: { total: milestone.issues.length, success: 0, failed: 0, skipped: 0 },
+        };
+
+        for (const issue of milestone.issues) {
+          const issueResult = await this.processIssue(ctx, issue, workspace, project.gitlabProjectId, defaultBranch, glProject.path_with_namespace);
+          milestoneResult.issueResults.push(issueResult);
+
+          if (issueResult.status === 'success') { milestoneResult.counts.success++; globalSuccess++; }
+          else if (issueResult.status === 'failed') { milestoneResult.counts.failed++; globalFailed++; }
+          else { milestoneResult.counts.skipped++; globalSkipped++; }
+        }
+
+        allResults.push(milestoneResult);
       }
 
       // Summary
-      const { counts } = milestoneResult;
       await this.sendAgentMessage(
         ctx,
         [
-          `✅ **Milestone "${milestone.title}" coding complete!**`,
+          `✅ **All milestones coding complete!**`,
           '',
           `| Status | Count |`,
           `|--------|-------|`,
-          `| Success | ${counts.success} |`,
-          `| Failed | ${counts.failed} |`,
-          `| Skipped | ${counts.skipped} |`,
+          `| Success | ${globalSuccess} |`,
+          `| Failed | ${globalFailed} |`,
+          `| Skipped | ${globalSkipped} |`,
           '',
-          milestoneResult.issueResults
-            .filter(r => r.mrUrl)
-            .map(r => `- [!${r.mrIid}](${r.mrUrl}) — ${r.branch}`)
-            .join('\n'),
+          ...allResults.flatMap(mr =>
+            mr.issueResults
+              .filter(r => r.mrUrl)
+              .map(r => `- [!${r.mrIid}](${r.mrUrl}) — ${r.branch}`),
+          ),
         ].join('\n'),
       );
 
