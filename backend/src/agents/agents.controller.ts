@@ -70,6 +70,11 @@ export class AgentsController {
     return this.orchestrator.startInterview(dto.projectId);
   }
 
+  @Post('devops/start')
+  startDevops(@Body() dto: StartCodingDto) {
+    return this.orchestrator.startDevopsSetup(dto.projectId, dto.chatSessionId);
+  }
+
   @Post('architect/start')
   startArchitect(@Body() dto: StartCodingDto) {
     return this.orchestrator.startArchitectDesign(dto.projectId, dto.chatSessionId);

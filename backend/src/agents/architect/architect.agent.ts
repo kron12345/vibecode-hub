@@ -207,10 +207,12 @@ export class ArchitectAgent extends BaseAgent {
       }
 
       // Find all OPEN issues for this project
+      // Only ground top-level issues (not sub-tasks)
       const issues = await this.prisma.issue.findMany({
         where: {
           projectId: ctx.projectId,
           status: IssueStatus.OPEN,
+          parentId: null,
         },
         orderBy: { createdAt: 'asc' },
         include: {
