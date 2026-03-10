@@ -196,12 +196,14 @@ export class CoderAgent extends BaseAgent {
       durationMs: 0,
     };
 
+    let agentTask: { id: string } | null = null;
+
     try {
       // Update issue status
       await this.issuesService.update(issue.id, { status: IssueStatus.IN_PROGRESS });
 
       // Create agent task
-      const agentTask = await this.prisma.agentTask.create({
+      agentTask = await this.prisma.agentTask.create({
         data: {
           agentId: ctx.agentInstanceId,
           issueId: issue.id,
@@ -397,10 +399,25 @@ export class CoderAgent extends BaseAgent {
       result.status = 'failed';
       result.durationMs = Date.now() - start;
 
+      // Mark task as FAILED in DB (prevents orphaned RUNNING tasks)
+      if (agentTask) {
+        try {
+          await this.prisma.agentTask.update({
+            where: { id: agentTask.id },
+            data: { status: AgentTaskStatus.FAILED, completedAt: new Date(), output: result as any },
+          });
+        } catch { /* best effort */ }
+      }
+
       await this.sendAgentMessage(
         ctx,
         `❌ Failed to code issue #${issue.gitlabIid ?? '?'}: ${err.message}`,
       );
+
+      // Reset issue status so it can be retried
+      try {
+        await this.issuesService.update(issue.id, { status: IssueStatus.OPEN });
+      } catch { /* best effort */ }
 
       // Try to switch back to default branch
       try {
@@ -425,6 +442,8 @@ export class CoderAgent extends BaseAgent {
     feedback: string,
     feedbackSource: 'review' | 'pipeline' | 'user',
   ): Promise<void> {
+    let agentTask: { id: string } | null = null;
+
     try {
       await this.updateStatus(ctx, AgentStatus.WORKING);
 
@@ -449,7 +468,7 @@ export class CoderAgent extends BaseAgent {
       await this.issuesService.update(issueId, { status: IssueStatus.IN_PROGRESS });
 
       // Create fix task
-      const agentTask = await this.prisma.agentTask.create({
+      agentTask = await this.prisma.agentTask.create({
         data: {
           agentId: ctx.agentInstanceId,
           issueId,
@@ -586,6 +605,22 @@ export class CoderAgent extends BaseAgent {
 
     } catch (err) {
       this.logger.error(`fixIssue failed: ${err.message}`, err.stack);
+
+      // Mark task as FAILED in DB (prevents orphaned RUNNING tasks)
+      if (agentTask) {
+        try {
+          await this.prisma.agentTask.update({
+            where: { id: agentTask.id },
+            data: { status: AgentTaskStatus.FAILED, completedAt: new Date() },
+          });
+        } catch { /* best effort */ }
+      }
+
+      // Reset issue status so it can be retried
+      try {
+        await this.issuesService.update(issueId, { status: IssueStatus.OPEN });
+      } catch { /* best effort */ }
+
       await this.sendAgentMessage(ctx, `❌ Fix failed: ${err.message}`);
       await this.updateStatus(ctx, AgentStatus.ERROR);
     }
