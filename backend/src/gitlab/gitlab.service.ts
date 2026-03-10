@@ -628,6 +628,27 @@ export class GitlabService {
     return data;
   }
 
+  /**
+   * Find an existing open MR by source branch.
+   * Returns the first matching MR or null if none found.
+   */
+  async findMergeRequestByBranch(projectId: number, sourceBranch: string): Promise<GitLabMergeRequest | null> {
+    try {
+      const { data } = await firstValueFrom(
+        this.httpService.get<GitLabMergeRequest[]>(
+          `${this.apiUrl}/projects/${projectId}/merge_requests`,
+          {
+            headers: this.headers,
+            params: { source_branch: sourceBranch, state: 'opened', per_page: 1 },
+          },
+        ),
+      );
+      return data.length > 0 ? data[0] : null;
+    } catch {
+      return null;
+    }
+  }
+
   async getMergeRequest(projectId: number, mrIid: number): Promise<GitLabMergeRequest> {
     const { data } = await firstValueFrom(
       this.httpService.get<GitLabMergeRequest>(

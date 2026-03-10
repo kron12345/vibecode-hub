@@ -287,8 +287,26 @@ export class CoderAgent extends BaseAgent {
             data: { gitlabMrIid: mr.iid },
           });
         } catch (mrErr) {
-          this.logger.warn(`MR creation failed: ${mrErr.message}`);
-          await this.log(agentTask.id, 'WARN', `MR creation failed: ${mrErr.message}`);
+          // Handle 409 Conflict — MR already exists for this branch
+          if (mrErr?.response?.status === 409 || mrErr?.message?.includes('409')) {
+            this.logger.log(`MR already exists for ${branchName}, looking up existing MR`);
+            const existingMr = await this.gitlabService.findMergeRequestByBranch(gitlabProjectId, branchName);
+            if (existingMr) {
+              result.mrIid = existingMr.iid;
+              result.mrUrl = existingMr.web_url;
+              await this.prisma.agentTask.update({
+                where: { id: agentTask.id },
+                data: { gitlabMrIid: existingMr.iid },
+              });
+              this.logger.log(`Found existing MR !${existingMr.iid} for ${branchName}`);
+            } else {
+              this.logger.warn(`MR creation failed with 409 but no existing MR found for ${branchName}`);
+              await this.log(agentTask.id, 'WARN', `MR creation failed: ${mrErr.message}`);
+            }
+          } else {
+            this.logger.warn(`MR creation failed: ${mrErr.message}`);
+            await this.log(agentTask.id, 'WARN', `MR creation failed: ${mrErr.message}`);
+          }
         }
       }
 
