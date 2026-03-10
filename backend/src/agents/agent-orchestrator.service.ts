@@ -1156,7 +1156,7 @@ export class AgentOrchestratorService implements OnModuleInit, OnModuleDestroy {
       // Emit chat suggestions for merge approval
       this.chatGateway.emitToSession(chatSessionId, 'chatSuggestions', {
         chatSessionId,
-        suggestions: ['✅ Merge to main', '⚠️ Review first', '❌ Reject MR'],
+        suggestions: ['✅ Merge', '⚠️ Review first', '❌ Reject MR'],
       });
       // Store pending merge info on the issue for later approval
       await this.prisma.issue.update({
@@ -1182,7 +1182,7 @@ export class AgentOrchestratorService implements OnModuleInit, OnModuleDestroy {
           squash: mergeConfig.method === 'squash',
           removeSourceBranch: mergeConfig.removeSourceBranch,
         });
-        this.logger.log(`MR !${mrIid} merged to main (method: ${mergeConfig.method}) for issue ${issueId}`);
+        this.logger.log(`MR !${mrIid} merged (method: ${mergeConfig.method}) for issue ${issueId}`);
         merged = true;
         break;
       } catch (mergeErr) {
@@ -1228,9 +1228,10 @@ export class AgentOrchestratorService implements OnModuleInit, OnModuleDestroy {
         }
       }
 
-      // Pull latest main in the workspace so the Coder has the updated code
+      // Pull latest base branch in the workspace so the Coder has the updated code
       const project = await this.prisma.project.findUnique({ where: { id: projectId } });
       if (project) {
+        const baseBranch = project.workBranch || 'main';
         const workspace = require('path').resolve(
           this.settings.devopsWorkspacePath,
           project.slug,
@@ -1239,11 +1240,11 @@ export class AgentOrchestratorService implements OnModuleInit, OnModuleDestroy {
           const { execFile } = require('child_process');
           const { promisify } = require('util');
           const execFileAsync = promisify(execFile);
-          await execFileAsync('git', ['checkout', 'main'], { cwd: workspace, timeout: 10_000 });
+          await execFileAsync('git', ['checkout', baseBranch], { cwd: workspace, timeout: 10_000 });
           await execFileAsync('git', ['pull', '--ff-only'], { cwd: workspace, timeout: 30_000 });
-          this.logger.log(`Pulled latest main in workspace ${workspace}`);
+          this.logger.log(`Pulled latest ${baseBranch} in workspace ${workspace}`);
         } catch (pullErr) {
-          this.logger.warn(`Failed to pull main in workspace: ${pullErr.message}`);
+          this.logger.warn(`Failed to pull ${baseBranch} in workspace: ${pullErr.message}`);
         }
       }
     }

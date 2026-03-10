@@ -114,9 +114,9 @@ export class CoderAgent extends BaseAgent {
         `🏁 Processing ${milestones.length} milestone(s) with ${totalIssues} open issue(s)`,
       );
 
-      // Get the default branch
+      // Get the base branch: prefer project.workBranch (e.g. "develop"), fallback to GitLab default
       const glProject = await this.gitlabService.getProject(project.gitlabProjectId);
-      const defaultBranch = glProject.default_branch;
+      const defaultBranch = project.workBranch || glProject.default_branch;
 
       const allResults: CoderMilestoneResult[] = [];
       let globalSuccess = 0, globalFailed = 0, globalSkipped = 0;
@@ -450,7 +450,7 @@ export class CoderAgent extends BaseAgent {
       const issue = await this.prisma.issue.findUnique({
         where: { id: issueId },
         include: {
-          project: { select: { id: true, slug: true, gitlabProjectId: true } },
+          project: { select: { id: true, slug: true, gitlabProjectId: true, workBranch: true } },
           subIssues: { orderBy: { sortOrder: 'asc' } },
         },
       });
@@ -512,7 +512,7 @@ export class CoderAgent extends BaseAgent {
       // Fetch GitLab project info (needed for default branch detection + commit URL)
       const glProject = await this.gitlabService.getProject(issue.project.gitlabProjectId);
       const gitlabBaseUrl = await this.settings.get('GITLAB_URL', 'https://git.example.com');
-      const fixDefaultBranch = glProject?.default_branch || 'main';
+      const fixDefaultBranch = issue.project.workBranch || glProject?.default_branch || 'main';
 
       // Run MCP agent loop (LLM + filesystem tools)
       await this.runMcpAgentLoop(workspace, fixPrompt, agentTask.id, ctx.projectId);
@@ -646,9 +646,11 @@ export class CoderAgent extends BaseAgent {
       'You are a skilled software developer. Your task is to implement features by reading and modifying files in the project.',
       '',
       `IMPORTANT — Working Directory: ${workspace}`,
+      'You are ALREADY inside the project directory. All files exist directly here.',
       'All file operations MUST use paths RELATIVE to this directory.',
-      'Example: To create "packages/backend/src/main.ts", use path "packages/backend/src/main.ts".',
+      'Example: To create "src/main.ts", use path "src/main.ts" — NOT "project-name/src/main.ts".',
       'NEVER use absolute paths like "/home/..." — always use relative paths from the project root.',
+      'NEVER create a subfolder named after the project. Files go directly into the current directory.',
       '',
       'Available tools:',
       '- File tools: browse directories, read/write/edit files, search',

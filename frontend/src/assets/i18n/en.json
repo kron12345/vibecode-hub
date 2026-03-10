@@ -91,6 +91,8 @@
       "name": "Name",
       "description": "Description",
       "status": "Status",
+      "workBranch": "Work Branch",
+      "workBranchHint": "Feature branches are created from and merged into this branch. Empty = GitLab default (main).",
       "slug": "Slug (URL)",
       "createdAt": "Created at",
       "techStack": "Tech Stack",

@@ -91,6 +91,8 @@
       "name": "Name",
       "description": "Beschreibung",
       "status": "Status",
+      "workBranch": "Arbeitsbranch",
+      "workBranchHint": "Feature-Branches werden von diesem Branch erstellt und dorthin gemergt. Leer = GitLab-Default (main).",
       "slug": "Slug (URL)",
       "createdAt": "Erstellt am",
       "techStack": "Tech Stack",

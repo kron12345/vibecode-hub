@@ -495,6 +495,11 @@ type Tab = 'overview' | 'settings';
                 </div>
               </div>
               <div>
+                <label class="block text-xs text-slate-500 mb-1">{{ 'project.settings.workBranch' | translate }}</label>
+                <input type="text" [(ngModel)]="settingsWorkBranch" placeholder="main (default)" class="w-full bg-black/40 rounded-xl px-4 py-2.5 text-sm text-white border border-white/5 outline-none focus:border-indigo-500/50 transition-colors placeholder-slate-600" />
+                <p class="text-xs text-slate-600 mt-1">{{ 'project.settings.workBranchHint' | translate }}</p>
+              </div>
+              <div>
                 <label class="block text-xs text-slate-500 mb-1">{{ 'project.settings.slug' | translate }}</label>
                 <input type="text" [value]="p.slug" disabled class="w-full bg-black/20 rounded-xl px-4 py-2.5 text-sm text-slate-500 border border-white/5 cursor-not-allowed" />
               </div>
@@ -933,6 +938,7 @@ export class ProjectPage implements OnInit, OnDestroy {
   // Settings form fields
   settingsName = '';
   settingsDescription = '';
+  settingsWorkBranch = '';
   settingsStatus: ProjectStatus = 'READY';
   settingsFramework = '';
   settingsLanguage = '';
@@ -1161,6 +1167,7 @@ export class ProjectPage implements OnInit, OnDestroy {
   populateSettingsForm(p: Project) {
     this.settingsName = p.name;
     this.settingsDescription = p.description ?? '';
+    this.settingsWorkBranch = p.workBranch ?? '';
     this.settingsStatus = p.status ?? 'READY';
 
     const ts = p.techStack as Record<string, unknown> | null;
@@ -1212,6 +1219,7 @@ export class ProjectPage implements OnInit, OnDestroy {
     this.api.updateProject(p.id, {
       name: this.settingsName,
       description: this.settingsDescription || undefined,
+      workBranch: this.settingsWorkBranch || null,
       status: this.settingsStatus,
       techStack: {
         techStack: {

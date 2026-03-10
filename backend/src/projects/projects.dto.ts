@@ -134,6 +134,11 @@ export class UpdateProjectDto {
   @IsEnum(ProjectStatus)
   status?: ProjectStatus;
 
+  @ApiProperty({ required: false, description: 'Base branch for feature branches (e.g. "develop"). Null = GitLab default.' })
+  @IsOptional()
+  @IsString()
+  workBranch?: string | null;
+
   @IsOptional()
   @ValidateNested()
   @Type(() => TechStackUpdateDto)

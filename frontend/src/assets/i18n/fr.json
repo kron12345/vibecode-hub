@@ -91,6 +91,8 @@
       "name": "Nom",
       "description": "Description",
       "status": "Statut",
+      "workBranch": "Branche de travail",
+      "workBranchHint": "Les branches de fonctionnalités sont créées et fusionnées dans cette branche. Vide = défaut GitLab (main).",
       "slug": "Slug (URL)",
       "createdAt": "Créé le",
       "techStack": "Tech Stack",

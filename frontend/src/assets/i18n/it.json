@@ -91,6 +91,8 @@
       "name": "Nome",
       "description": "Descrizione",
       "status": "Stato",
+      "workBranch": "Branch di lavoro",
+      "workBranchHint": "I branch delle feature vengono creati e uniti in questo branch. Vuoto = default GitLab (main).",
       "slug": "Slug (URL)",
       "createdAt": "Creato il",
       "techStack": "Tech Stack",

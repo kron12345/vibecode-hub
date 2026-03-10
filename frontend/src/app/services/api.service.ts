@@ -7,6 +7,7 @@ export type ProjectStatus = 'INTERVIEWING' | 'SETTING_UP' | 'READY' | 'ARCHIVED'
 export interface UpdateProjectPayload {
   name?: string;
   description?: string;
+  workBranch?: string | null;
   status?: ProjectStatus;
   techStack?: {
     techStack?: {
@@ -38,6 +39,7 @@ export interface Project {
   techStack?: Record<string, unknown>;
   gitlabProjectId?: number;
   gitlabUrl?: string;
+  workBranch?: string | null;
   previewPort?: number;
   createdAt: string;
   updatedAt: string;
