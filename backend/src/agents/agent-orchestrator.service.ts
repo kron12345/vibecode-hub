@@ -623,11 +623,24 @@ export class AgentOrchestratorService implements OnModuleInit, OnModuleDestroy {
     const { projectId, chatSessionId, issueId, mrIid, gitlabProjectId } = payload;
 
     if (!mrIid) {
-      this.logger.warn(`No MR for issue ${issueId} — skipping code review, marking NEEDS_REVIEW`);
+      this.logger.warn(`No MR for issue ${issueId} — skipping pipeline, marking NEEDS_REVIEW`);
       await this.prisma.issue.update({
         where: { id: issueId },
         data: { status: IssueStatus.NEEDS_REVIEW },
       });
+
+      // Sequential pipeline: skip this issue, trigger Coder for the next open one
+      const nextOpen = await this.prisma.issue.findFirst({
+        where: { projectId, status: IssueStatus.OPEN, parentId: null },
+      });
+      if (nextOpen) {
+        this.logger.log(`No MR for ${issueId} — moving to next issue ${nextOpen.id}`);
+        try {
+          await this.startCoding(projectId, chatSessionId);
+        } catch (err) {
+          this.logger.error(`Failed to start Coder for next issue: ${err.message}`);
+        }
+      }
       return;
     }
 
@@ -650,6 +663,33 @@ export class AgentOrchestratorService implements OnModuleInit, OnModuleDestroy {
       await this.startCodeReview(projectId, chatSessionId, issueId, mrIid, gitlabProjectId);
     } catch (err) {
       this.logger.error(`Failed to start Code Review: ${err.message}`);
+    }
+  }
+
+  /**
+   * Handle coding failure — skip to next open issue in sequential pipeline.
+   */
+  @OnEvent('agent.codingFailed')
+  async handleCodingFailed(payload: {
+    projectId: string;
+    chatSessionId: string;
+    issueId: string;
+  }) {
+    const { projectId, chatSessionId, issueId } = payload;
+
+    const nextOpen = await this.prisma.issue.findFirst({
+      where: { projectId, status: IssueStatus.OPEN, parentId: null },
+    });
+
+    if (nextOpen) {
+      this.logger.log(`Coding failed for ${issueId} — moving to next issue ${nextOpen.id}`);
+      try {
+        await this.startCoding(projectId, chatSessionId);
+      } catch (err) {
+        this.logger.error(`Failed to start Coder for next issue after failure: ${err.message}`);
+      }
+    } else {
+      this.logger.log(`Coding failed for ${issueId} — no more open issues`);
     }
   }
 
@@ -1212,6 +1252,12 @@ export class AgentOrchestratorService implements OnModuleInit, OnModuleDestroy {
     }
 
     if (merged) {
+      // Mark issue as DONE
+      await this.prisma.issue.update({
+        where: { id: issueId },
+        data: { status: IssueStatus.DONE },
+      });
+
       // Post-merge: close GitLab issue if configured
       if (mergeConfig.closeIssueOnMerge) {
         const issue = await this.prisma.issue.findUnique({
@@ -1246,6 +1292,25 @@ export class AgentOrchestratorService implements OnModuleInit, OnModuleDestroy {
         } catch (pullErr) {
           this.logger.warn(`Failed to pull ${baseBranch} in workspace: ${pullErr.message}`);
         }
+      }
+
+      // Sequential pipeline: trigger Coder for the next open issue
+      const nextOpen = await this.prisma.issue.findFirst({
+        where: { projectId, status: IssueStatus.OPEN, parentId: null },
+      });
+      if (nextOpen) {
+        this.logger.log(`Issue ${issueId} merged — ${nextOpen.id} is next in queue, triggering Coder`);
+        try {
+          await this.startCoding(projectId, chatSessionId);
+        } catch (err) {
+          this.logger.error(`Failed to start Coder for next issue: ${err.message}`);
+        }
+      } else {
+        this.logger.log(`Issue ${issueId} merged — no more open issues, pipeline complete!`);
+        this.chatGateway.emitToSession(chatSessionId, 'chatSuggestions', {
+          chatSessionId,
+          suggestions: ['🎉 All issues done!', '📋 Show summary'],
+        });
       }
     }
   }

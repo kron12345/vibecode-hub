@@ -15,7 +15,7 @@ import { McpRegistryService } from '../../mcp/mcp-registry.service';
 import { BaseAgent, AgentContext } from '../agent-base';
 import { MonitorGateway } from '../../monitor/monitor.gateway';
 import { postAgentComment } from '../agent-comment.utils';
-import { CoderIssueResult, CoderMilestoneResult } from './coder-result.interface';
+import { CoderIssueResult } from './coder-result.interface';
 import {
   AgentRole,
   AgentStatus,
@@ -61,7 +61,6 @@ export class CoderAgent extends BaseAgent {
   async runMilestoneCoding(ctx: AgentContext): Promise<void> {
     try {
       await this.updateStatus(ctx, AgentStatus.WORKING);
-      await this.sendAgentMessage(ctx, '💻 **Coder Agent** starting — processing issues...');
 
       // Load project
       const project = await this.prisma.project.findUnique({
@@ -76,10 +75,12 @@ export class CoderAgent extends BaseAgent {
       // Resolve workspace path
       const workspace = path.resolve(this.settings.devopsWorkspacePath, project.slug);
 
-      // Pull latest on default branch
+      // Pull latest on base branch
       await this.gitPull(workspace);
 
-      // Find ALL milestones with OPEN issues (process them in order)
+      // Find the NEXT open issue (first by milestone sortOrder, then by issue sortOrder)
+      // Sequential strategy: we only process ONE issue at a time.
+      // After the full pipeline (Review → Test → Docs → Merge), the orchestrator triggers us again.
       const milestones = await this.prisma.milestone.findMany({
         where: {
           projectId: ctx.projectId,
@@ -97,74 +98,53 @@ export class CoderAgent extends BaseAgent {
               subIssues: { orderBy: { sortOrder: 'asc' } },
             },
             orderBy: { sortOrder: 'asc' },
+            take: 1, // Only the first open issue per milestone
           },
         },
         orderBy: { sortOrder: 'asc' },
+        take: 1, // Only the first milestone with open issues
       });
 
-      if (milestones.length === 0) {
-        await this.sendAgentMessage(ctx, '📭 No open issues found in any milestone — nothing to code.');
+      if (milestones.length === 0 || milestones[0].issues.length === 0) {
+        await this.sendAgentMessage(ctx, '📭 No open issues found — all done!');
         await this.updateStatus(ctx, AgentStatus.IDLE);
         return;
       }
 
-      const totalIssues = milestones.reduce((sum, m) => sum + m.issues.length, 0);
+      const milestone = milestones[0];
+      const issue = milestone.issues[0];
+
+      // Count remaining open issues for context
+      const remainingCount = await this.prisma.issue.count({
+        where: { projectId: ctx.projectId, status: IssueStatus.OPEN, parentId: null },
+      });
+
       await this.sendAgentMessage(
         ctx,
-        `🏁 Processing ${milestones.length} milestone(s) with ${totalIssues} open issue(s)`,
+        `💻 **Coder Agent** — processing issue #${issue.gitlabIid ?? '?'}: **${issue.title}** (${remainingCount} remaining)`,
       );
 
       // Get the base branch: prefer project.workBranch (e.g. "develop"), fallback to GitLab default
       const glProject = await this.gitlabService.getProject(project.gitlabProjectId);
       const defaultBranch = project.workBranch || glProject.default_branch;
 
-      const allResults: CoderMilestoneResult[] = [];
-      let globalSuccess = 0, globalFailed = 0, globalSkipped = 0;
+      const issueResult = await this.processIssue(ctx, issue, workspace, project.gitlabProjectId, defaultBranch, glProject.path_with_namespace);
 
-      for (const milestone of milestones) {
-        await this.sendAgentMessage(
-          ctx,
-          `📦 Milestone **${milestone.title}** — ${milestone.issues.length} issue(s)`,
-        );
-
-        const milestoneResult: CoderMilestoneResult = {
-          milestoneId: milestone.id,
-          milestoneTitle: milestone.title,
-          issueResults: [],
-          counts: { total: milestone.issues.length, success: 0, failed: 0, skipped: 0 },
-        };
-
-        for (const issue of milestone.issues) {
-          const issueResult = await this.processIssue(ctx, issue, workspace, project.gitlabProjectId, defaultBranch, glProject.path_with_namespace);
-          milestoneResult.issueResults.push(issueResult);
-
-          if (issueResult.status === 'success') { milestoneResult.counts.success++; globalSuccess++; }
-          else if (issueResult.status === 'failed') { milestoneResult.counts.failed++; globalFailed++; }
-          else { milestoneResult.counts.skipped++; globalSkipped++; }
-        }
-
-        allResults.push(milestoneResult);
-      }
-
-      // Summary
+      const statusEmoji = issueResult.status === 'success' ? '✅' : issueResult.status === 'failed' ? '❌' : '⏭️';
       await this.sendAgentMessage(
         ctx,
-        [
-          `✅ **All milestones coding complete!**`,
-          '',
-          `| Status | Count |`,
-          `|--------|-------|`,
-          `| Success | ${globalSuccess} |`,
-          `| Failed | ${globalFailed} |`,
-          `| Skipped | ${globalSkipped} |`,
-          '',
-          ...allResults.flatMap(mr =>
-            mr.issueResults
-              .filter(r => r.mrUrl)
-              .map(r => `- [!${r.mrIid}](${r.mrUrl}) — ${r.branch}`),
-          ),
-        ].join('\n'),
+        `${statusEmoji} Issue #${issue.gitlabIid ?? '?'} ${issueResult.status}${issueResult.mrIid ? ` — MR !${issueResult.mrIid}` : ''} (${remainingCount - 1} issues remaining)`,
       );
+
+      // If coding failed (no codingComplete event), emit codingFailed so
+      // the orchestrator can skip to the next issue in the sequential pipeline
+      if (issueResult.status === 'failed') {
+        this.eventEmitter.emit('agent.codingFailed', {
+          projectId: ctx.projectId,
+          chatSessionId: ctx.chatSessionId,
+          issueId: issue.id,
+        });
+      }
 
       await this.updateStatus(ctx, AgentStatus.IDLE);
 
