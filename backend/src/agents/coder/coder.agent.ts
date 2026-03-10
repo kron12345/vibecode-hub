@@ -97,7 +97,7 @@ export class CoderAgent extends BaseAgent {
             include: {
               subIssues: { orderBy: { sortOrder: 'asc' } },
             },
-            orderBy: { sortOrder: 'asc' },
+            orderBy: [{ sortOrder: 'asc' }, { createdAt: 'asc' }],
             take: 1, // Only the first open issue per milestone
           },
         },

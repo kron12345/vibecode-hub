@@ -611,8 +611,9 @@ Create well-structured milestones with issues and actionable tasks. Group logica
 
       await this.sendAgentMessage(ctx, `🏁 Milestone: **${milestone.title}**`);
 
-      // Create issues within this milestone
-      for (const compiledIssue of milestone.issues) {
+      // Create issues within this milestone (order matters for sequential pipeline!)
+      for (let issueIdx = 0; issueIdx < milestone.issues.length; issueIdx++) {
+        const compiledIssue = milestone.issues[issueIdx];
         try {
           // Deduplication: skip if issue with same title already exists in this project
           const existing = await this.prisma.issue.findFirst({
@@ -633,6 +634,7 @@ Create well-structured milestones with issues and actionable tasks. Group logica
             labels: compiledIssue.labels,
             milestoneId: dbMilestoneId,
             gitlabMilestoneId: gitlabMilestoneId,
+            sortOrder: issueIdx,
             syncToGitlab: true,
           });
 

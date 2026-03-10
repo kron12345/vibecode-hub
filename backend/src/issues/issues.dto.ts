@@ -49,6 +49,11 @@ export class CreateIssueDto {
   @IsInt()
   gitlabMilestoneId?: number;
 
+  @ApiProperty({ required: false, description: 'Sort order within milestone (lower = first)' })
+  @IsOptional()
+  @IsInt()
+  sortOrder?: number;
+
   @ApiProperty({ required: false, description: 'Sync to GitLab on creation' })
   @IsOptional()
   syncToGitlab?: boolean;
