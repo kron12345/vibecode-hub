@@ -238,8 +238,19 @@ export class ProviderDiscoveryService {
         provider: 'CODEX_CLI',
         available: true,
         models: [
-          { name: 'codex-mini', displayName: 'Codex Mini' },
-          { name: 'o4-mini', displayName: 'o4-mini' },
+          { name: 'gpt-5.4', displayName: 'GPT-5.4 (Allrounder)' },
+          { name: 'gpt-5.3-codex', displayName: 'GPT-5.3-Codex (Code-Spezialist)' },
+          { name: 'codex-mini-latest', displayName: 'Codex Mini (schnell)' },
+        ],
+      },
+      GEMINI_CLI: {
+        provider: 'GEMINI_CLI',
+        available: true,
+        models: [
+          { name: 'gemini-3-pro', displayName: 'Gemini 3 Pro' },
+          { name: 'gemini-3-flash', displayName: 'Gemini 3 Flash' },
+          { name: 'gemini-2.5-pro', displayName: 'Gemini 2.5 Pro' },
+          { name: 'gemini-2.5-flash', displayName: 'Gemini 2.5 Flash' },
         ],
       },
       QWEN3_CODER: {
@@ -254,11 +265,12 @@ export class ProviderDiscoveryService {
 
   // ─── CLI Tools ─────────────────────────────────────────────
 
-  /** Detect installed CLI tools (claude, codex, qwen3-coder) */
+  /** Detect installed CLI tools (claude, codex, gemini, qwen3-coder) */
   async detectCliTools(): Promise<CliToolStatus[]> {
     const tools = [
       { name: 'Claude Code', command: 'claude' },
       { name: 'Codex CLI', command: 'codex' },
+      { name: 'Gemini CLI', command: 'gemini' },
       { name: 'Qwen Code', command: 'qwen' },
     ];
 

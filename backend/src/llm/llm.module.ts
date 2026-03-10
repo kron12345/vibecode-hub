@@ -6,6 +6,7 @@ import { OpenAIProvider } from './providers/openai.provider';
 import { GoogleProvider } from './providers/google.provider';
 import { ClaudeCodeProvider } from './providers/claude-code.provider';
 import { CodexCliProvider } from './providers/codex-cli.provider';
+import { GeminiCliProvider } from './providers/gemini-cli.provider';
 import { QwenCoderProvider } from './providers/qwen-coder.provider';
 
 @Global()
@@ -18,6 +19,7 @@ import { QwenCoderProvider } from './providers/qwen-coder.provider';
     GoogleProvider,
     ClaudeCodeProvider,
     CodexCliProvider,
+    GeminiCliProvider,
     QwenCoderProvider,
   ],
   exports: [LlmService],

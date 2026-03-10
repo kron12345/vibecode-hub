@@ -149,7 +149,7 @@ export class SettingsController {
       const current = currentConfigs[role];
       if (!current) continue;
 
-      const merged = {
+      const merged: any = {
         ...current,
         provider: override.provider,
         model: override.model,
@@ -159,6 +159,17 @@ export class SettingsController {
           maxTokens: override.maxTokens,
         },
       };
+
+      // Dual-testing fields — set or clear depending on preset
+      if (override.dualProvider) {
+        merged.dualProvider = override.dualProvider;
+        merged.dualModel = override.dualModel;
+        merged.dualStrategy = override.dualStrategy ?? 'merge';
+      } else {
+        delete merged.dualProvider;
+        delete merged.dualModel;
+        delete merged.dualStrategy;
+      }
 
       settings.push({
         key: `agents.roles.${role}`,

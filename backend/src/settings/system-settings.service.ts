@@ -24,6 +24,12 @@ export interface AgentRoleConfig {
   description: string;
   color: string;
   icon: string;
+  /** Dual-testing: secondary provider (e.g. 'CLAUDE_CODE') */
+  dualProvider?: string;
+  /** Dual-testing: secondary model (e.g. 'sonnet') */
+  dualModel?: string;
+  /** Dual-testing strategy: merge (union), consensus (intersection), enrich (primary→secondary) */
+  dualStrategy?: 'merge' | 'consensus' | 'enrich';
 }
 
 export interface PipelineConfig {

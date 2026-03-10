@@ -12,6 +12,7 @@ import { OpenAIProvider } from './providers/openai.provider';
 import { GoogleProvider } from './providers/google.provider';
 import { ClaudeCodeProvider } from './providers/claude-code.provider';
 import { CodexCliProvider } from './providers/codex-cli.provider';
+import { GeminiCliProvider } from './providers/gemini-cli.provider';
 import { QwenCoderProvider } from './providers/qwen-coder.provider';
 
 @Injectable()
@@ -26,6 +27,7 @@ export class LlmService {
     google: GoogleProvider,
     claudeCode: ClaudeCodeProvider,
     codexCli: CodexCliProvider,
+    geminiCli: GeminiCliProvider,
     qwenCoder: QwenCoderProvider,
   ) {
     this.providers.set('OLLAMA', ollama);
@@ -34,6 +36,7 @@ export class LlmService {
     this.providers.set('GOOGLE', google);
     this.providers.set('CLAUDE_CODE', claudeCode);
     this.providers.set('CODEX_CLI', codexCli);
+    this.providers.set('GEMINI_CLI', geminiCli);
     this.providers.set('QWEN3_CODER', qwenCoder);
   }
 

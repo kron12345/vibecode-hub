@@ -7,8 +7,12 @@ import {
 } from '../llm.interfaces';
 
 /**
- * Base class for CLI-based LLM providers (Claude Code, Codex CLI, Qwen Code).
+ * Base class for CLI-based LLM providers (Claude Code, Codex CLI, Gemini CLI, Qwen Code).
  * Executes the CLI tool as a subprocess with the prompt via stdin.
+ *
+ * CLI tools handle their own tool-use loops internally — we just send the prompt
+ * and collect the final output. This is fundamentally different from API providers
+ * where the Hub manages the tool-call loop.
  */
 export abstract class CliBaseProvider implements LlmProvider {
   abstract readonly providerType: string;
@@ -17,13 +21,32 @@ export abstract class CliBaseProvider implements LlmProvider {
 
   protected abstract buildArgs(options: LlmCompletionOptions): string[];
 
+  /**
+   * Resolve the system prompt from the messages array.
+   * Convention: first message with role='system' is the system prompt.
+   */
+  protected getSystemPrompt(options: LlmCompletionOptions): string | undefined {
+    const systemMsg = options.messages.find((m) => m.role === 'system');
+    return systemMsg?.content;
+  }
+
+  /**
+   * Build the user prompt from non-system messages.
+   */
+  protected getUserPrompt(options: LlmCompletionOptions): string {
+    return options.messages
+      .filter((m) => m.role !== 'system')
+      .map((m) => m.content)
+      .join('\n\n');
+  }
+
   async complete(options: LlmCompletionOptions): Promise<LlmCompletionResult> {
     const args = this.buildArgs(options);
 
-    // Build prompt from messages: system prompt first, then conversation
-    const prompt = options.messages.map((m) => m.content).join('\n\n');
+    // User prompt is sent via stdin (or as positional arg, depending on CLI)
+    const prompt = this.getUserPrompt(options);
 
-    this.logger.debug(`CLI request: ${this.command} ${args.join(' ')}`);
+    this.logger.log(`CLI request: ${this.command} ${args.join(' ')} (${prompt.length} chars)`);
 
     return new Promise((resolve) => {
       const child = execFile(
