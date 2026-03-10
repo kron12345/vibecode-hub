@@ -312,7 +312,16 @@ export class IssueCompilerAgent extends BaseAgent {
     const systemPrompt = basePrompt + ISSUE_COMPLETION_INSTRUCTIONS;
 
     const featureList = interviewResult.features
-      .map((f, i) => `${i + 1}. ${f}`)
+      .map((f, i) => {
+        if (typeof f === 'string') return `${i + 1}. ${f}`;
+        // Rich feature object from interview
+        const parts = [`${i + 1}. **${f.title}** [${f.priority ?? 'medium'}]`];
+        if (f.description) parts.push(`   ${f.description}`);
+        if (f.acceptanceCriteria?.length) {
+          parts.push(`   Acceptance Criteria: ${f.acceptanceCriteria.join('; ')}`);
+        }
+        return parts.join('\n');
+      })
       .join('\n');
 
     const techInfo = [
@@ -370,6 +379,13 @@ Create well-structured milestones with issues and actionable tasks. Group logica
       // Strip thinking tags that local LLMs (qwen3.5) often wrap around output
       jsonPart = jsonPart.replace(/<think>[\s\S]*?<\/think>/g, '').trim();
 
+      // Strip Markdown code fences (```json ... ``` or ``` ... ```)
+      const codeFenceMatch = jsonPart.match(/```(?:json)?\s*\n?([\s\S]*?)```/);
+      if (codeFenceMatch) {
+        jsonPart = codeFenceMatch[1].trim();
+      }
+
+      // Try to find the outermost JSON object containing "milestones" or "issues"
       const jsonMatch = jsonPart.match(/\{[\s\S]*\}/);
       if (!jsonMatch) {
         throw new Error('No JSON object found in LLM response');
@@ -380,9 +396,22 @@ Create well-structured milestones with issues and actionable tasks. Group logica
       // Remove trailing commas before } or ]
       jsonStr = jsonStr.replace(/,\s*([}\]])/g, '$1');
 
-      return JSON.parse(jsonStr);
+      // Try parsing as-is first
+      try {
+        return JSON.parse(jsonStr);
+      } catch (firstErr) {
+        // Attempt bracket-balanced extraction from the beginning
+        this.logger.warn(`First JSON parse failed (${firstErr.message}), trying bracket-balanced extraction`);
+        const balanced = this.extractBalancedJson(jsonStr);
+        if (balanced) {
+          const cleaned = balanced.replace(/,\s*([}\]])/g, '$1');
+          return JSON.parse(cleaned);
+        }
+        throw firstErr;
+      }
     } catch (err) {
       this.logger.error(`Failed to parse compilation result: ${err.message}`);
+      this.logger.debug(`LLM response (first 500 chars): ${result.content.substring(0, 500)}`);
       await this.sendAgentMessage(
         ctx,
         `❌ Failed to parse LLM response. The Issue Compiler will retry or the issues can be created manually.`,
@@ -390,6 +419,50 @@ Create well-structured milestones with issues and actionable tasks. Group logica
       await this.markFailed(ctx, `JSON parse failed: ${err.message}`);
       return null;
     }
+  }
+
+  /**
+   * Extract a balanced JSON object from a string by counting brackets.
+   * Handles cases where LLM adds text after the JSON.
+   */
+  private extractBalancedJson(str: string): string | null {
+    const start = str.indexOf('{');
+    if (start === -1) return null;
+
+    let depth = 0;
+    let inString = false;
+    let escape = false;
+
+    for (let i = start; i < str.length; i++) {
+      const ch = str[i];
+
+      if (escape) {
+        escape = false;
+        continue;
+      }
+
+      if (ch === '\\' && inString) {
+        escape = true;
+        continue;
+      }
+
+      if (ch === '"') {
+        inString = !inString;
+        continue;
+      }
+
+      if (inString) continue;
+
+      if (ch === '{') depth++;
+      else if (ch === '}') {
+        depth--;
+        if (depth === 0) {
+          return str.substring(start, i + 1);
+        }
+      }
+    }
+
+    return null;
   }
 
   // ─── Step 3: Normalize ──────────────────────────────────────

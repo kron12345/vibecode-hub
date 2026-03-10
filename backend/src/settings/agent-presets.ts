@@ -64,14 +64,14 @@ export const AGENT_PRESETS: Record<string, AgentPreset> = {
       INTERVIEWER:       { provider: 'CLAUDE_CODE',  model: 'haiku',            temperature: 0.7, maxTokens: 4096 },
       // Claude Opus: best reasoning for complex architecture decisions, 1M context
       ARCHITECT:         { provider: 'CLAUDE_CODE',  model: 'opus',             temperature: 0.5, maxTokens: 8192 },
-      // Codex: unlimited, structured text output — no reason to save here
-      ISSUE_COMPILER:    { provider: 'CODEX_CLI',    model: 'codex-mini-latest', temperature: 0.3, maxTokens: 4096 },
+      // Claude Sonnet: reliable JSON output for structured compilation (Codex tends to use tools instead of outputting JSON)
+      ISSUE_COMPILER:    { provider: 'CLAUDE_CODE',  model: 'sonnet',           temperature: 0.3, maxTokens: 8192 },
 
       // ── Implementation ──
       // Codex GPT-5.3: Terminal-Bench #1, unlimited, specialized for code generation
       CODER:             { provider: 'CODEX_CLI',    model: 'gpt-5.3-codex',    temperature: 0.2, maxTokens: 16384 },
-      // DevOps: shell ops, project setup — Codex unlimited, mini is fast enough
-      DEVOPS:            { provider: 'CODEX_CLI',    model: 'codex-mini-latest', temperature: 0.1, maxTokens: 4096 },
+      // DevOps: shell ops, project setup — Codex unlimited (gpt-5.3-codex, mini not available)
+      DEVOPS:            { provider: 'CODEX_CLI',    model: 'gpt-5.3-codex',    temperature: 0.1, maxTokens: 4096 },
 
       // ── Review & Testing (with Dual-Testing) ──
       // Code Review: Codex primary (unlimited + security-focused), Claude secondary
@@ -87,8 +87,8 @@ export const AGENT_PRESETS: Record<string, AgentPreset> = {
                            dualProvider: 'CLAUDE_CODE', dualModel: 'opus', dualStrategy: 'consensus' },
 
       // ── Documentation ──
-      // Codex mini: unlimited, fast, docs are straightforward
-      DOCUMENTER:        { provider: 'CODEX_CLI',    model: 'codex-mini-latest', temperature: 0.3, maxTokens: 8192 },
+      // Codex: unlimited, docs are straightforward (gpt-5.3-codex, mini not available)
+      DOCUMENTER:        { provider: 'CODEX_CLI',    model: 'gpt-5.3-codex',    temperature: 0.3, maxTokens: 8192 },
     },
   },
 };
