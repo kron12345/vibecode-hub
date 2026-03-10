@@ -69,4 +69,6 @@ export interface McpAgentLoopOptions {
   onIteration?: (iteration: number, content: string) => void;
   /** Agent task ID — used for activity logging to prevent stuck-task cleanup */
   agentTaskId?: string;
+  /** Working directory for CLI providers (e.g., Codex -C, Claude --cwd) */
+  cwd?: string;
 }

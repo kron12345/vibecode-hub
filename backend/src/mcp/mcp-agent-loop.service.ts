@@ -82,6 +82,7 @@ export class McpAgentLoopService {
           tools: tools.length > 0 ? tools : undefined,
           temperature: options.temperature,
           maxTokens: options.maxTokens,
+          cwd: options.cwd,
           // No timeout — LLMs get unlimited time per iteration (only maxIterations limits the loop)
         });
 

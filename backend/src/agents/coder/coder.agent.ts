@@ -618,6 +618,7 @@ export class CoderAgent extends BaseAgent {
       temperature: config.parameters.temperature,
       maxTokens: config.parameters.maxTokens,
       agentTaskId,
+      cwd: workspace,
       onToolCall: (name, args) => {
         this.logger.debug(`Tool call: ${name}(${JSON.stringify(args).substring(0, 150)})`);
       },
