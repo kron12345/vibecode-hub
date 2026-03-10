@@ -621,7 +621,11 @@ export class AgentOrchestratorService implements OnModuleInit, OnModuleDestroy {
     const { projectId, chatSessionId, issueId, mrIid, gitlabProjectId } = payload;
 
     if (!mrIid) {
-      this.logger.warn(`No MR for issue ${issueId} — skipping code review`);
+      this.logger.warn(`No MR for issue ${issueId} — skipping code review, marking NEEDS_REVIEW`);
+      await this.prisma.issue.update({
+        where: { id: issueId },
+        data: { status: IssueStatus.NEEDS_REVIEW },
+      });
       return;
     }
 
@@ -1138,15 +1142,49 @@ export class AgentOrchestratorService implements OnModuleInit, OnModuleDestroy {
     const { issueId, mrIid, gitlabProjectId, projectId } = payload;
     this.logger.log(`Documentation complete for issue ${issueId} — merging MR !${mrIid} to main`);
 
-    // Auto-merge the MR so subsequent issues can build on this work
-    try {
-      await this.gitlabService.acceptMergeRequest(gitlabProjectId, mrIid, {
-        squash: false, // Keep individual commits for traceability
-        removeSourceBranch: true,
-      });
-      this.logger.log(`MR !${mrIid} merged to main for issue ${issueId}`);
+    // Auto-merge the MR with retry for transient failures
+    const MAX_MERGE_RETRIES = 3;
+    const RETRY_DELAY_MS = 5_000;
+    let merged = false;
 
-      // Pull latest main in the workspace so the Coder has the updated code
+    for (let attempt = 1; attempt <= MAX_MERGE_RETRIES; attempt++) {
+      try {
+        await this.gitlabService.acceptMergeRequest(gitlabProjectId, mrIid, {
+          squash: false, // Keep individual commits for traceability
+          removeSourceBranch: true,
+        });
+        this.logger.log(`MR !${mrIid} merged to main for issue ${issueId}`);
+        merged = true;
+        break;
+      } catch (mergeErr) {
+        const msg = mergeErr.message ?? String(mergeErr);
+        const isConflict = /conflict|cannot be merged|merge_request_not_mergeable/i.test(msg);
+
+        if (isConflict) {
+          // Merge conflict — no point retrying, needs manual resolution
+          this.logger.error(`MR !${mrIid} has merge conflicts — needs manual resolution: ${msg}`);
+          await this.prisma.issue.update({
+            where: { id: issueId },
+            data: { status: IssueStatus.NEEDS_REVIEW },
+          });
+          break;
+        }
+
+        if (attempt < MAX_MERGE_RETRIES) {
+          this.logger.warn(`Merge attempt ${attempt}/${MAX_MERGE_RETRIES} failed for MR !${mrIid}: ${msg} — retrying in ${RETRY_DELAY_MS / 1000}s`);
+          await new Promise(r => setTimeout(r, RETRY_DELAY_MS));
+        } else {
+          this.logger.error(`All ${MAX_MERGE_RETRIES} merge attempts failed for MR !${mrIid}: ${msg}`);
+          await this.prisma.issue.update({
+            where: { id: issueId },
+            data: { status: IssueStatus.NEEDS_REVIEW },
+          });
+        }
+      }
+    }
+
+    // Pull latest main in the workspace so the Coder has the updated code
+    if (merged) {
       const project = await this.prisma.project.findUnique({ where: { id: projectId } });
       if (project) {
         const workspace = require('path').resolve(
@@ -1164,9 +1202,6 @@ export class AgentOrchestratorService implements OnModuleInit, OnModuleDestroy {
           this.logger.warn(`Failed to pull main in workspace: ${pullErr.message}`);
         }
       }
-    } catch (mergeErr) {
-      this.logger.error(`Failed to merge MR !${mrIid}: ${mergeErr.message}`);
-      // Not fatal — the pipeline still completed, MR can be merged manually
     }
   }
 

@@ -235,13 +235,29 @@ export class CoderAgent extends BaseAgent {
       result.filesChanged = changedFiles;
 
       if (changedFiles.length === 0) {
-        await this.sendAgentMessage(ctx, `⚠️ Agent produced no file changes for #${issue.gitlabIid ?? '?'}`);
+        await this.sendAgentMessage(ctx, `⚠️ Agent produced no file changes for #${issue.gitlabIid ?? '?'} — marking for manual review`);
         result.status = 'skipped';
         await this.gitCheckout(workspace, defaultBranch);
+
+        // Reset issue status so it doesn't stay orphaned in IN_PROGRESS
+        await this.issuesService.update(issue.id, { status: IssueStatus.NEEDS_REVIEW });
+
         await this.prisma.agentTask.update({
           where: { id: agentTask.id },
           data: { status: AgentTaskStatus.COMPLETED, completedAt: new Date() },
         });
+
+        // Emit event so orchestrator can advance (no MR → review will be skipped)
+        this.eventEmitter.emit('agent.codingComplete', {
+          projectId: ctx.projectId,
+          chatSessionId: ctx.chatSessionId,
+          issueId: issue.id,
+          gitlabIid: issue.gitlabIid,
+          mrIid: undefined,
+          gitlabProjectId,
+          branch: branchName,
+        });
+
         result.durationMs = Date.now() - start;
         return result;
       }
@@ -326,19 +342,18 @@ export class CoderAgent extends BaseAgent {
       result.status = 'success';
       result.durationMs = Date.now() - start;
 
-      // Emit coding complete (only if MR was created — Code Review needs it)
-      if (result.mrIid) {
-        this.eventEmitter.emit('agent.codingComplete', {
-          projectId: ctx.projectId,
-          chatSessionId: ctx.chatSessionId,
-          issueId: issue.id,
-          gitlabIid: issue.gitlabIid,
-          mrIid: result.mrIid,
-          gitlabProjectId,
-          branch: branchName,
-        });
-      } else {
-        this.logger.warn(`No MR created for issue ${issue.gitlabIid} — skipping code review trigger`);
+      // Emit coding complete — always emit so the pipeline advances
+      this.eventEmitter.emit('agent.codingComplete', {
+        projectId: ctx.projectId,
+        chatSessionId: ctx.chatSessionId,
+        issueId: issue.id,
+        gitlabIid: issue.gitlabIid,
+        mrIid: result.mrIid,
+        gitlabProjectId,
+        branch: branchName,
+      });
+      if (!result.mrIid) {
+        this.logger.warn(`No MR created for issue ${issue.gitlabIid} — codingComplete emitted without MR`);
       }
 
       // Switch back to default branch for next issue
@@ -518,20 +533,19 @@ export class CoderAgent extends BaseAgent {
         select: { gitlabMrIid: true },
       });
 
-      // Re-emit coding complete for review (only if MR exists)
+      // Re-emit coding complete for review — always emit so the pipeline advances
       const mrIid = existingTask?.gitlabMrIid;
-      if (mrIid) {
-        this.eventEmitter.emit('agent.codingComplete', {
-          projectId: ctx.projectId,
-          chatSessionId: ctx.chatSessionId,
-          issueId,
-          gitlabIid: issue.gitlabIid,
-          mrIid,
-          gitlabProjectId: issue.project.gitlabProjectId,
-          branch: branchName,
-        });
-      } else {
-        this.logger.warn(`No MR found for fixIssue ${issueId} — skipping code review trigger`);
+      this.eventEmitter.emit('agent.codingComplete', {
+        projectId: ctx.projectId,
+        chatSessionId: ctx.chatSessionId,
+        issueId,
+        gitlabIid: issue.gitlabIid,
+        mrIid: mrIid ?? undefined,
+        gitlabProjectId: issue.project.gitlabProjectId,
+        branch: branchName,
+      });
+      if (!mrIid) {
+        this.logger.warn(`No MR found for fixIssue ${issueId} — codingComplete emitted without MR`);
       }
 
       // Switch back to default
