@@ -703,6 +703,16 @@ export class CoderAgent extends BaseAgent {
   }
 
   private async gitCheckout(cwd: string, branch: string): Promise<void> {
+    // Stash any uncommitted changes before switching branches (parallel coder safety)
+    try {
+      const { stdout: status } = await execFileAsync('git', ['status', '--porcelain'], { cwd, timeout: GIT_TIMEOUT_MS });
+      if (status.trim()) {
+        this.logger.debug(`Stashing ${status.trim().split('\n').length} uncommitted changes before checkout`);
+        await execFileAsync('git', ['stash', 'push', '-m', `auto-stash before checkout ${branch}`], { cwd, timeout: GIT_TIMEOUT_MS });
+      }
+    } catch (stashErr) {
+      this.logger.warn(`git stash failed: ${stashErr.message}`);
+    }
     await execFileAsync('git', ['checkout', branch], { cwd, timeout: GIT_TIMEOUT_MS });
   }
 
