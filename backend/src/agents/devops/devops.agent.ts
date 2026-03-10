@@ -674,7 +674,7 @@ build:
 
   /** Build a .gitignore appropriate for the tech stack */
   private buildGitignore(framework: string, language: string): string {
-    const sections: string[] = ['# Dependencies', 'node_modules/', '.pnp/', '.pnp.js', ''];
+    const sections: string[] = ['# Dependencies', 'node_modules/', '**/node_modules/', '.pnp/', '.pnp.js', ''];
 
     // Build output
     sections.push('# Build output', 'dist/', 'build/', '.next/', '.nuxt/', '.output/', '.angular/', '');

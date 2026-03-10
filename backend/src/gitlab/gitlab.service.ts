@@ -605,6 +605,29 @@ export class GitlabService {
     return data;
   }
 
+  /**
+   * Accept (merge) a merge request.
+   * Squash-merges by default and removes the source branch.
+   */
+  async acceptMergeRequest(
+    projectId: number,
+    mrIid: number,
+    options?: { squash?: boolean; removeSourceBranch?: boolean },
+  ): Promise<GitLabMergeRequest> {
+    const { data } = await firstValueFrom(
+      this.httpService.put<GitLabMergeRequest>(
+        `${this.apiUrl}/projects/${projectId}/merge_requests/${mrIid}/merge`,
+        {
+          squash: options?.squash ?? true,
+          should_remove_source_branch: options?.removeSourceBranch ?? true,
+        },
+        { headers: this.headers },
+      ),
+    );
+    this.logger.log(`Merged MR !${mrIid} in project ${projectId}`);
+    return data;
+  }
+
   async getMergeRequest(projectId: number, mrIid: number): Promise<GitLabMergeRequest> {
     const { data } = await firstValueFrom(
       this.httpService.get<GitLabMergeRequest>(

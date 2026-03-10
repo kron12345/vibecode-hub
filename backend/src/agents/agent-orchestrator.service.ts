@@ -1135,8 +1135,39 @@ export class AgentOrchestratorService implements OnModuleInit, OnModuleDestroy {
     mrIid: number;
     gitlabProjectId: number;
   }) {
-    const { issueId } = payload;
-    this.logger.log(`Documentation complete for issue ${issueId} — pipeline finished`);
+    const { issueId, mrIid, gitlabProjectId, projectId } = payload;
+    this.logger.log(`Documentation complete for issue ${issueId} — merging MR !${mrIid} to main`);
+
+    // Auto-merge the MR so subsequent issues can build on this work
+    try {
+      await this.gitlabService.acceptMergeRequest(gitlabProjectId, mrIid, {
+        squash: false, // Keep individual commits for traceability
+        removeSourceBranch: true,
+      });
+      this.logger.log(`MR !${mrIid} merged to main for issue ${issueId}`);
+
+      // Pull latest main in the workspace so the Coder has the updated code
+      const project = await this.prisma.project.findUnique({ where: { id: projectId } });
+      if (project) {
+        const workspace = require('path').resolve(
+          this.settings.devopsWorkspacePath,
+          project.slug,
+        );
+        try {
+          const { execFile } = require('child_process');
+          const { promisify } = require('util');
+          const execFileAsync = promisify(execFile);
+          await execFileAsync('git', ['checkout', 'main'], { cwd: workspace, timeout: 10_000 });
+          await execFileAsync('git', ['pull', '--ff-only'], { cwd: workspace, timeout: 30_000 });
+          this.logger.log(`Pulled latest main in workspace ${workspace}`);
+        } catch (pullErr) {
+          this.logger.warn(`Failed to pull main in workspace: ${pullErr.message}`);
+        }
+      }
+    } catch (mergeErr) {
+      this.logger.error(`Failed to merge MR !${mrIid}: ${mergeErr.message}`);
+      // Not fatal — the pipeline still completed, MR can be merged manually
+    }
   }
 
   // ─── Shared: Re-trigger Coder ──────────────────────────
