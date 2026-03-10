@@ -242,8 +242,8 @@ export class CoderAgent extends BaseAgent {
       await this.log(agentTask.id, 'INFO', `Running MCP agent loop for issue: ${issue.title}`);
       await this.runMcpAgentLoop(workspace, prompt, agentTask.id, ctx.projectId);
 
-      // Check what changed
-      const changedFiles = await this.getChangedFiles(workspace);
+      // Check what changed (includes both uncommitted AND committed changes vs default branch)
+      const changedFiles = await this.getChangedFiles(workspace, defaultBranch);
       result.filesChanged = changedFiles;
 
       if (changedFiles.length === 0) {
@@ -490,15 +490,16 @@ export class CoderAgent extends BaseAgent {
       // Build fix prompt with feedback context
       const fixPrompt = this.buildFixPrompt(issue, feedback, feedbackSource);
 
+      // Fetch GitLab project info (needed for default branch detection + commit URL)
+      const glProject = await this.gitlabService.getProject(issue.project.gitlabProjectId);
+      const gitlabBaseUrl = await this.settings.get('GITLAB_URL', 'https://git.example.com');
+      const fixDefaultBranch = glProject?.default_branch || 'main';
+
       // Run MCP agent loop (LLM + filesystem tools)
       await this.runMcpAgentLoop(workspace, fixPrompt, agentTask.id, ctx.projectId);
 
-      // Check changes
-      const changedFiles = await this.getChangedFiles(workspace);
-
-      // Fetch GitLab project info (reused for commit URL + default branch checkout)
-      const glProject = await this.gitlabService.getProject(issue.project.gitlabProjectId);
-      const gitlabBaseUrl = await this.settings.get('GITLAB_URL', 'https://git.example.com');
+      // Check changes (includes both uncommitted AND committed changes vs default branch)
+      const changedFiles = await this.getChangedFiles(workspace, fixDefaultBranch);
 
       let commitSha: string | undefined;
       let commitUrl: string | undefined;
@@ -737,23 +738,62 @@ export class CoderAgent extends BaseAgent {
     }
   }
 
-  private async getChangedFiles(cwd: string): Promise<string[]> {
-    const { stdout } = await execFileAsync(
-      'git', ['status', '--porcelain'],
-      { cwd, timeout: GIT_TIMEOUT_MS, maxBuffer: 10 * 1024 * 1024 },
-    );
-    return stdout
-      .trim()
-      .split('\n')
-      .filter(line => line.trim())
-      .map(line => line.substring(3).trim());
+  /**
+   * Get changed files — checks both uncommitted changes (git status) AND
+   * committed changes vs default branch (git diff). CLI providers like Codex
+   * commit changes directly, so git status alone returns empty.
+   */
+  private async getChangedFiles(cwd: string, defaultBranch = 'main'): Promise<string[]> {
+    const files = new Set<string>();
+
+    // 1. Uncommitted changes (for MCP/API providers that don't commit)
+    try {
+      const { stdout } = await execFileAsync(
+        'git', ['status', '--porcelain'],
+        { cwd, timeout: GIT_TIMEOUT_MS, maxBuffer: 10 * 1024 * 1024 },
+      );
+      for (const line of stdout.trim().split('\n')) {
+        if (line.trim()) files.add(line.substring(3).trim());
+      }
+    } catch { /* ignore */ }
+
+    // 2. Committed changes vs default branch (for CLI providers that auto-commit)
+    try {
+      const { stdout } = await execFileAsync(
+        'git', ['diff', '--name-only', defaultBranch + '...HEAD'],
+        { cwd, timeout: GIT_TIMEOUT_MS, maxBuffer: 10 * 1024 * 1024 },
+      );
+      for (const line of stdout.trim().split('\n')) {
+        if (line.trim()) files.add(line.trim());
+      }
+    } catch (err) {
+      this.logger.debug(`git diff vs ${defaultBranch} failed: ${err.message}`);
+    }
+
+    return [...files];
   }
 
+  /**
+   * Commit uncommitted changes (if any) and push the branch.
+   * CLI providers may already have committed — in that case we skip the commit
+   * and just push their commits.
+   */
   private async gitCommitAndPush(cwd: string, branch: string, message: string): Promise<string> {
+    // Stage and commit any uncommitted changes (may be empty for CLI providers)
     await execFileAsync('git', ['add', '.'], { cwd, timeout: GIT_TIMEOUT_MS, maxBuffer: 10 * 1024 * 1024 });
-    await execFileAsync('git', ['commit', '-m', message], { cwd, timeout: GIT_TIMEOUT_MS, maxBuffer: 10 * 1024 * 1024 });
+    try {
+      await execFileAsync('git', ['commit', '-m', message], { cwd, timeout: GIT_TIMEOUT_MS, maxBuffer: 10 * 1024 * 1024 });
+    } catch (commitErr) {
+      // "nothing to commit" is fine — CLI provider already committed
+      if (!commitErr.message?.includes('nothing to commit') && !commitErr.message?.includes('nichts zu committen')) {
+        throw commitErr;
+      }
+      this.logger.debug('No uncommitted changes to commit — CLI provider likely already committed');
+    }
+
     const { stdout } = await execFileAsync('git', ['rev-parse', 'HEAD'], { cwd, timeout: GIT_TIMEOUT_MS });
     const commitSha = stdout.trim();
+
     await execFileAsync(
       'git', ['push', '-u', 'origin', branch],
       { cwd, timeout: GIT_TIMEOUT_MS, maxBuffer: 10 * 1024 * 1024 },
