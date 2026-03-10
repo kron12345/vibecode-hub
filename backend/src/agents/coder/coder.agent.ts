@@ -820,7 +820,9 @@ export class CoderAgent extends BaseAgent {
       await execFileAsync('git', ['commit', '-m', message], { cwd, timeout: GIT_TIMEOUT_MS, maxBuffer: 10 * 1024 * 1024 });
     } catch (commitErr) {
       // "nothing to commit" is fine — CLI provider already committed
-      if (!commitErr.message?.includes('nothing to commit') && !commitErr.message?.includes('nichts zu committen')) {
+      // Check message, stdout, AND stderr since Node distributes the text across properties
+      const errText = [commitErr.message, commitErr.stdout, commitErr.stderr].filter(Boolean).join(' ');
+      if (!errText.includes('nothing to commit') && !errText.includes('nichts zu committen')) {
         throw commitErr;
       }
       this.logger.debug('No uncommitted changes to commit — CLI provider likely already committed');
