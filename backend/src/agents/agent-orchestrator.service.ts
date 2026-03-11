@@ -1357,6 +1357,23 @@ export class AgentOrchestratorService implements OnModuleInit, OnModuleDestroy {
             `Last feedback:\n> ${feedback.substring(0, 500)}`,
           ).catch(() => {});
         }
+
+        // Continue pipeline with next open issue (don't block on stuck issues)
+        const nextOpen = await this.prisma.issue.findFirst({
+          where: { projectId, status: IssueStatus.OPEN, parentId: null },
+          orderBy: [{ sortOrder: 'asc' }, { createdAt: 'asc' }],
+        });
+        if (nextOpen) {
+          this.logger.log(`Issue ${issueId} stuck at NEEDS_REVIEW — starting next issue ${nextOpen.id}`);
+          await this.startCoding(projectId, chatSessionId);
+        } else {
+          this.logger.log(`Issue ${issueId} stuck at NEEDS_REVIEW — no more open issues`);
+          this.chatGateway.emitToSession(chatSessionId, 'chatMessage', {
+            chatSessionId,
+            content: `⚠️ Issue stuck at NEEDS_REVIEW and no more open issues. Pipeline paused.`,
+            role: 'assistant',
+          });
+        }
         return;
       }
 
