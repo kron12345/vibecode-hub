@@ -1355,7 +1355,14 @@ export class AgentOrchestratorService implements OnModuleInit, OnModuleDestroy {
     feedbackSource: 'review' | 'pipeline' | 'user' | 'functional-test' | 'ui-test' | 'security',
   ): Promise<void> {
     const pipelineCfg = this.settings.getPipelineConfig();
-    const maxAttempts = pipelineCfg.maxFixAttempts ?? 5;
+    const globalMax = pipelineCfg.maxFixAttempts ?? 5;
+
+    // Project-level override takes precedence over global setting
+    const project = await this.prisma.project.findUnique({
+      where: { id: projectId },
+      select: { maxFixAttempts: true },
+    });
+    const maxAttempts = project?.maxFixAttempts ?? globalMax;
 
     try {
       // Check how many FIX_CODE tasks already exist for this issue

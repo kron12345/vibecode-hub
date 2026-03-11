@@ -500,6 +500,11 @@ type Tab = 'overview' | 'settings';
                 <p class="text-xs text-slate-600 mt-1">{{ 'project.settings.workBranchHint' | translate }}</p>
               </div>
               <div>
+                <label class="block text-xs text-slate-500 mb-1">{{ 'project.settings.maxFixAttempts' | translate }}</label>
+                <input type="number" [(ngModel)]="settingsMaxFixAttempts" [placeholder]="'project.settings.maxFixAttemptsPlaceholder' | translate" min="1" max="50" class="w-full bg-black/40 rounded-xl px-4 py-2.5 text-sm text-white border border-white/5 outline-none focus:border-indigo-500/50 transition-colors placeholder-slate-600" />
+                <p class="text-xs text-slate-600 mt-1">{{ 'project.settings.maxFixAttemptsHint' | translate }}</p>
+              </div>
+              <div>
                 <label class="block text-xs text-slate-500 mb-1">{{ 'project.settings.slug' | translate }}</label>
                 <input type="text" [value]="p.slug" disabled class="w-full bg-black/20 rounded-xl px-4 py-2.5 text-sm text-slate-500 border border-white/5 cursor-not-allowed" />
               </div>
@@ -939,6 +944,7 @@ export class ProjectPage implements OnInit, OnDestroy {
   settingsName = '';
   settingsDescription = '';
   settingsWorkBranch = '';
+  settingsMaxFixAttempts: number | null = null;
   settingsStatus: ProjectStatus = 'READY';
   settingsFramework = '';
   settingsLanguage = '';
@@ -1168,6 +1174,7 @@ export class ProjectPage implements OnInit, OnDestroy {
     this.settingsName = p.name;
     this.settingsDescription = p.description ?? '';
     this.settingsWorkBranch = p.workBranch ?? '';
+    this.settingsMaxFixAttempts = (p as any).maxFixAttempts ?? null;
     this.settingsStatus = p.status ?? 'READY';
 
     const ts = p.techStack as Record<string, unknown> | null;
@@ -1220,6 +1227,7 @@ export class ProjectPage implements OnInit, OnDestroy {
       name: this.settingsName,
       description: this.settingsDescription || undefined,
       workBranch: this.settingsWorkBranch || null,
+      maxFixAttempts: this.settingsMaxFixAttempts || null,
       status: this.settingsStatus,
       techStack: {
         techStack: {

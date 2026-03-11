@@ -8,6 +8,8 @@ import {
   Matches,
   MinLength,
   MaxLength,
+  Min,
+  Max,
   ValidateNested,
 } from 'class-validator';
 import { Type } from 'class-transformer';
@@ -138,6 +140,13 @@ export class UpdateProjectDto {
   @IsOptional()
   @IsString()
   workBranch?: string | null;
+
+  @ApiProperty({ required: false, description: 'Override global maxFixAttempts per project. Null = use global setting.' })
+  @IsOptional()
+  @IsInt()
+  @Min(1)
+  @Max(50)
+  maxFixAttempts?: number | null;
 
   @IsOptional()
   @ValidateNested()

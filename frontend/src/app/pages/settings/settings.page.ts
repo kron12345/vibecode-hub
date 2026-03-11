@@ -1068,7 +1068,7 @@ export class SettingsPage implements OnInit {
     maxConcurrentAgents: 2,
     timeoutMinutes: 30,
     maxParallelOllamaModels: 1,
-    maxFixAttempts: 20,
+    maxFixAttempts: 5,
   };
   expandedRoles: Record<string, boolean> = {};
   availablePresets = signal<AgentPresetInfo[]>([]);

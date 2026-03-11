@@ -8,6 +8,7 @@ export interface UpdateProjectPayload {
   name?: string;
   description?: string;
   workBranch?: string | null;
+  maxFixAttempts?: number | null;
   status?: ProjectStatus;
   techStack?: {
     techStack?: {

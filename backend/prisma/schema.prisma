@@ -25,6 +25,7 @@ model Project {
   gitlabProjectId Int?          @unique
   gitlabUrl       String?
   workBranch      String?       // Base branch for feature branches (e.g. "develop"). Null = GitLab default.
+  maxFixAttempts  Int?          // Override global maxFixAttempts per project. Null = use global setting.
   previewPort     Int?          @unique
   createdAt       DateTime      @default(now())
   updatedAt       DateTime      @updatedAt
