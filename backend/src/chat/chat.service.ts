@@ -1,6 +1,7 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { CreateChatSessionDto, SendMessageDto } from './chat.dto';
+import { ChatSessionType, SessionStatus } from '@prisma/client';
 
 @Injectable()
 export class ChatService {
@@ -8,9 +9,12 @@ export class ChatService {
 
   // ─── Sessions ────────────────────────────────────────────────
 
-  async findSessionsByProject(projectId: string) {
+  async findSessionsByProject(projectId: string, type?: ChatSessionType) {
     return this.prisma.chatSession.findMany({
-      where: { projectId },
+      where: {
+        projectId,
+        ...(type && { type }),
+      },
       orderBy: { updatedAt: 'desc' },
       include: {
         messages: {
@@ -18,6 +22,26 @@ export class ChatService {
           take: 1,
           select: { content: true, role: true, createdAt: true },
         },
+        _count: { select: { issues: true } },
+      },
+    });
+  }
+
+  async getArchivedSessions(projectId: string) {
+    return this.prisma.chatSession.findMany({
+      where: {
+        projectId,
+        type: ChatSessionType.DEV_SESSION,
+        status: SessionStatus.ARCHIVED,
+      },
+      orderBy: { archivedAt: 'desc' },
+      include: {
+        messages: {
+          orderBy: { createdAt: 'desc' },
+          take: 1,
+          select: { content: true, role: true, createdAt: true },
+        },
+        _count: { select: { issues: true } },
       },
     });
   }

@@ -3,6 +3,7 @@ import {
   Get,
   Post,
   Delete,
+  Patch,
   Body,
   Param,
   Query,
@@ -14,9 +15,10 @@ import {
 import { FileInterceptor } from '@nestjs/platform-express';
 import { ApiTags, ApiQuery, ApiConsumes, ApiBody } from '@nestjs/swagger';
 import { EventEmitter2 } from '@nestjs/event-emitter';
-import { MessageRole } from '@prisma/client';
+import { ChatSessionType, MessageRole } from '@prisma/client';
 import { ChatService } from './chat.service';
-import { CreateChatSessionDto, SendMessageDto } from './chat.dto';
+import { SessionBranchService } from './session-branch.service';
+import { CreateChatSessionDto, CreateDevSessionDto, UpdateSessionDto, SendMessageDto } from './chat.dto';
 
 const MAX_FILE_SIZE = 10 * 1024 * 1024; // 10 MB
 const ALLOWED_MIME_TYPES = [
@@ -35,6 +37,7 @@ export class ChatController {
 
   constructor(
     private readonly chatService: ChatService,
+    private readonly sessionBranch: SessionBranchService,
     private readonly eventEmitter: EventEmitter2,
   ) {}
 
@@ -42,8 +45,18 @@ export class ChatController {
 
   @Get('sessions')
   @ApiQuery({ name: 'projectId', required: true })
-  findSessions(@Query('projectId') projectId: string) {
-    return this.chatService.findSessionsByProject(projectId);
+  @ApiQuery({ name: 'type', required: false, enum: ChatSessionType })
+  findSessions(
+    @Query('projectId') projectId: string,
+    @Query('type') type?: ChatSessionType,
+  ) {
+    return this.chatService.findSessionsByProject(projectId, type);
+  }
+
+  @Get('sessions/archived')
+  @ApiQuery({ name: 'projectId', required: true })
+  getArchivedSessions(@Query('projectId') projectId: string) {
+    return this.chatService.getArchivedSessions(projectId);
   }
 
   @Get('sessions/:id')
@@ -59,6 +72,33 @@ export class ChatController {
   @Delete('sessions/:id')
   deleteSession(@Param('id') id: string) {
     return this.chatService.deleteSession(id);
+  }
+
+  // ─── Dev Sessions (Branching) ───────────────────────────────
+
+  @Post('sessions/dev')
+  createDevSession(@Body() dto: CreateDevSessionDto) {
+    return this.sessionBranch.createDevSession(dto.projectId, dto.title, dto.branch);
+  }
+
+  @Post('sessions/:id/archive')
+  archiveSession(@Param('id') id: string) {
+    return this.sessionBranch.archiveSession(id);
+  }
+
+  @Post('sessions/:id/resolve')
+  resolveConflict(@Param('id') id: string) {
+    return this.sessionBranch.resolveConflict(id);
+  }
+
+  @Post('sessions/:id/continue')
+  continueSession(@Param('id') id: string) {
+    return this.sessionBranch.continueSession(id);
+  }
+
+  @Patch('sessions/:id')
+  updateSession(@Param('id') id: string, @Body() dto: UpdateSessionDto) {
+    return this.sessionBranch.updateSession(id, dto);
   }
 
   // ─── Messages ────────────────────────────────────────────────

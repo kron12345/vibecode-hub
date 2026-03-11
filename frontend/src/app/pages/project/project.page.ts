@@ -20,6 +20,8 @@ import {
   IssueComment,
   Milestone,
   ChatSession,
+  ChatSessionType,
+  SessionStatus,
   ChatMessage,
   McpServerDefinition,
   McpProjectOverride,
@@ -290,21 +292,40 @@ type Tab = 'overview' | 'settings';
           <div class="glass card-glow rounded-3xl flex flex-col max-h-[65vh] animate-in stagger-6">
             <!-- Session bar -->
             <div class="flex items-center justify-between px-5 py-3 border-b border-white/5">
-              <div class="flex items-center gap-3">
-                <div class="terminal-dots">
+              <div class="flex items-center gap-3 min-w-0">
+                <div class="terminal-dots shrink-0">
                   <span></span><span></span><span></span>
                 </div>
                 @if (activeSession()) {
-                  <span class="text-[10px] font-mono text-slate-500 uppercase tracking-widest">
-                    {{ activeSession()!.title }}
-                  </span>
+                  <div class="flex items-center gap-2 min-w-0">
+                    @if (activeSession()!.type === 'DEV_SESSION') {
+                      <span class="shrink-0 w-2 h-2 rounded-full" [class]="sessionStatusColor(activeSession()!.status)"></span>
+                    } @else {
+                      <app-icon name="hard-hat" [size]="12" class="text-amber-400 shrink-0" />
+                    }
+                    <span class="text-[10px] font-mono text-slate-500 uppercase tracking-widest truncate">
+                      {{ activeSession()!.title }}
+                    </span>
+                    @if (activeSession()!.branch) {
+                      <span class="text-[9px] font-mono text-slate-700 truncate hidden sm:inline">{{ activeSession()!.branch }}</span>
+                    }
+                  </div>
                 } @else {
                   <span class="text-[10px] font-mono text-slate-500 uppercase tracking-widest">
                     {{ 'project.liveSystemFeed' | translate }}
                   </span>
                 }
               </div>
-              <div class="flex items-center gap-2">
+              <div class="flex items-center gap-2 shrink-0">
+                @if (activeSession()?.type === 'DEV_SESSION' && activeSession()?.status === 'ACTIVE') {
+                  <button
+                    (click)="archiveCurrentSession()"
+                    class="text-slate-600 hover:text-amber-400 transition-colors"
+                    [title]="'session.archiveConfirm' | translate"
+                  >
+                    <app-icon name="archive" [size]="14" />
+                  </button>
+                }
                 @if (activeSession()) {
                   <button
                     (click)="closeSession()"
@@ -314,13 +335,6 @@ type Tab = 'overview' | 'settings';
                     <app-icon name="x" [size]="14" />
                   </button>
                 }
-                <button
-                  (click)="createSession()"
-                  class="text-slate-600 hover:text-indigo-400 transition-colors"
-                  [title]="'project.newChat' | translate"
-                >
-                  <app-icon name="plus" [size]="14" />
-                </button>
               </div>
             </div>
 
@@ -449,24 +463,96 @@ type Tab = 'overview' | 'settings';
                 </div>
               </div>
             } @else {
-              <!-- Session list -->
-              <div class="flex-1 overflow-y-auto p-5">
-                @for (s of sessions(); track s.id) {
-                  <div
-                    class="flex items-center justify-between bg-black/30 rounded-xl p-3 mb-2 cursor-pointer hover:bg-black/40 transition-colors"
-                    (click)="openSession(s)"
-                  >
-                    <div class="flex items-center gap-3">
-                      <app-icon name="message-square" [size]="14" class="text-slate-600" />
-                      <span class="text-sm text-slate-300">{{ s.title }}</span>
-                    </div>
-                    <span class="text-[10px] font-mono text-slate-600">{{ formatTime(s.updatedAt) }}</span>
+              <!-- Session Navigator (3 sections) -->
+              <div class="flex-1 overflow-y-auto p-4 space-y-4">
+
+                <!-- Section 1: Infrastructure -->
+                <div>
+                  <div class="flex items-center gap-2 mb-2">
+                    <app-icon name="hard-hat" [size]="14" class="text-amber-400" />
+                    <span class="text-[10px] font-bold text-slate-500 uppercase tracking-widest">{{ 'session.infrastructure' | translate }}</span>
                   </div>
-                }
-                @if (sessions().length === 0) {
-                  <div class="text-center py-12">
-                    <app-icon name="message-square-plus" [size]="32" class="text-slate-700 mx-auto mb-3" />
-                    <p class="text-slate-600 text-sm">{{ 'project.startNewChat' | translate }}</p>
+                  @if (infraSession()) {
+                    <div
+                      class="flex items-center justify-between bg-black/30 rounded-xl p-3 cursor-pointer hover:bg-black/40 transition-colors border border-amber-500/10"
+                      (click)="openSession(infraSession()!)"
+                    >
+                      <div class="flex items-center gap-3 min-w-0">
+                        <span class="w-2 h-2 rounded-full bg-amber-400 shrink-0"></span>
+                        <span class="text-sm text-slate-300 truncate">{{ infraSession()!.title }}</span>
+                      </div>
+                      <span class="text-[10px] font-mono text-slate-600 shrink-0">{{ formatTime(infraSession()!.updatedAt) }}</span>
+                    </div>
+                  } @else {
+                    <p class="text-slate-700 text-xs px-3">{{ 'project.startNewChat' | translate }}</p>
+                  }
+                </div>
+
+                <!-- Section 2: Dev Sessions -->
+                <div>
+                  <div class="flex items-center justify-between mb-2">
+                    <div class="flex items-center gap-2">
+                      <app-icon name="git-branch" [size]="14" class="text-indigo-400" />
+                      <span class="text-[10px] font-bold text-slate-500 uppercase tracking-widest">{{ 'session.devSessions' | translate }}</span>
+                    </div>
+                    <button
+                      (click)="showNewSessionModal.set(true)"
+                      class="text-slate-600 hover:text-indigo-400 transition-colors"
+                      [title]="'session.new' | translate"
+                    >
+                      <app-icon name="plus" [size]="14" />
+                    </button>
+                  </div>
+                  @for (s of devSessions(); track s.id) {
+                    <div
+                      class="flex items-center justify-between bg-black/30 rounded-xl p-3 mb-2 cursor-pointer hover:bg-black/40 transition-colors"
+                      (click)="openSession(s)"
+                    >
+                      <div class="flex items-center gap-3 min-w-0 flex-1">
+                        <span class="w-2 h-2 rounded-full shrink-0" [class]="sessionStatusColor(s.status)"></span>
+                        <div class="min-w-0 flex-1">
+                          <span class="text-sm text-slate-300 block truncate">{{ s.title }}</span>
+                          <span class="text-[9px] font-mono text-slate-700 block truncate">{{ s.branch }}</span>
+                        </div>
+                      </div>
+                      <div class="text-right shrink-0 ml-2">
+                        <span class="text-[10px] font-mono text-slate-600 block">{{ formatTime(s.updatedAt) }}</span>
+                        @if (s._count && s._count.issues) {
+                          <span class="text-[9px] text-slate-700">{{ s._count!.issues }} issues</span>
+                        }
+                      </div>
+                    </div>
+                  }
+                  @if (devSessions().length === 0) {
+                    <p class="text-slate-700 text-xs px-3">{{ 'session.noSessions' | translate }}</p>
+                  }
+                </div>
+
+                <!-- Section 3: Archive -->
+                @if (archivedSessions().length > 0) {
+                  <div>
+                    <button
+                      (click)="showArchive.set(!showArchive())"
+                      class="flex items-center gap-2 mb-2 w-full text-left"
+                    >
+                      <app-icon name="archive" [size]="14" class="text-slate-600" />
+                      <span class="text-[10px] font-bold text-slate-600 uppercase tracking-widest">{{ 'session.archive' | translate }}</span>
+                      <app-icon [name]="showArchive() ? 'chevron-down' : 'chevron-right'" [size]="12" class="text-slate-700" />
+                    </button>
+                    @if (showArchive()) {
+                      @for (s of archivedSessions(); track s.id) {
+                        <div
+                          class="flex items-center justify-between bg-black/20 rounded-xl p-3 mb-2 cursor-pointer hover:bg-black/30 transition-colors opacity-60"
+                          (click)="openSession(s)"
+                        >
+                          <div class="flex items-center gap-3 min-w-0">
+                            <app-icon name="archive" [size]="12" class="text-slate-700 shrink-0" />
+                            <span class="text-sm text-slate-500 truncate">{{ s.title }}</span>
+                          </div>
+                          <span class="text-[10px] font-mono text-slate-700 shrink-0">{{ formatDate(s.archivedAt || s.updatedAt) }}</span>
+                        </div>
+                      }
+                    }
                   </div>
                 }
               </div>
@@ -926,6 +1012,81 @@ type Tab = 'overview' | 'settings';
         </div>
       }
 
+      <!-- New Session Modal -->
+      @if (showNewSessionModal()) {
+        <div class="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 flex items-center justify-center p-4" (click)="showNewSessionModal.set(false)">
+          <div class="glass card-glow rounded-2xl p-6 w-full max-w-md border border-white/10" (click)="$event.stopPropagation()">
+            <h3 class="text-lg font-bold text-white mb-4 flex items-center gap-2">
+              <app-icon name="git-branch" [size]="20" class="text-indigo-400" />
+              {{ 'session.newTitle' | translate }}
+            </h3>
+            <div class="space-y-4">
+              <div>
+                <label class="block text-xs text-slate-500 mb-1">{{ 'common.name' | translate }}</label>
+                <input
+                  type="text"
+                  [(ngModel)]="newSessionTitle"
+                  (ngModelChange)="autoGenerateBranch($event)"
+                  class="w-full bg-black/40 rounded-xl px-4 py-2.5 text-sm text-white border border-white/5 outline-none focus:border-indigo-500/50 transition-colors"
+                  placeholder="User Authentication System"
+                />
+              </div>
+              <div>
+                <label class="block text-xs text-slate-500 mb-1">{{ 'session.branch' | translate }}
+                  <span class="text-slate-700">— {{ 'session.branchAutoGen' | translate }}</span>
+                </label>
+                <input
+                  type="text"
+                  [(ngModel)]="newSessionBranch"
+                  class="w-full bg-black/40 rounded-xl px-4 py-2.5 text-sm text-slate-400 font-mono border border-white/5 outline-none focus:border-indigo-500/50 transition-colors"
+                  placeholder="session/user-authentication-system"
+                />
+              </div>
+            </div>
+            <div class="flex justify-end gap-3 mt-6">
+              <button
+                (click)="showNewSessionModal.set(false)"
+                class="px-4 py-2 rounded-xl text-sm text-slate-400 hover:text-white transition-colors"
+              >{{ 'common.cancel' | translate }}</button>
+              <button
+                (click)="createDevSession()"
+                class="px-5 py-2 rounded-xl text-sm font-medium bg-indigo-600 text-white hover:bg-indigo-500 transition-colors shadow-lg shadow-indigo-500/20"
+              >{{ 'common.create' | translate }}</button>
+            </div>
+          </div>
+        </div>
+      }
+
+      <!-- Archive Confirm Modal -->
+      @if (showArchiveModal()) {
+        <div class="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 flex items-center justify-center p-4" (click)="showArchiveModal.set(false)">
+          <div class="glass card-glow rounded-2xl p-6 w-full max-w-md border border-white/10" (click)="$event.stopPropagation()">
+            <h3 class="text-lg font-bold text-white mb-2 flex items-center gap-2">
+              <app-icon name="archive" [size]="20" class="text-amber-400" />
+              {{ 'session.archiveConfirm' | translate }}
+            </h3>
+            <p class="text-sm text-slate-400 mb-4">
+              "{{ activeSession()?.title }}" {{ 'session.archiveDesc' | translate }}
+            </p>
+            @if (activeSession()?.branch) {
+              <div class="text-xs font-mono text-slate-600 mb-4">
+                {{ 'session.branch' | translate }}: {{ activeSession()!.branch }}
+              </div>
+            }
+            <div class="flex justify-end gap-3">
+              <button
+                (click)="showArchiveModal.set(false)"
+                class="px-4 py-2 rounded-xl text-sm text-slate-400 hover:text-white transition-colors"
+              >{{ 'common.cancel' | translate }}</button>
+              <button
+                (click)="confirmArchiveSession()"
+                class="px-5 py-2 rounded-xl text-sm font-medium bg-amber-600 text-white hover:bg-amber-500 transition-colors shadow-lg shadow-amber-500/20"
+              >{{ 'session.archived' | translate }}</button>
+            </div>
+          </div>
+        </div>
+      }
+
     } @else {
       <!-- Skeleton Loading -->
       <div class="space-y-6">
@@ -962,6 +1123,29 @@ export class ProjectPage implements OnInit, OnDestroy {
   messageInput = '';
   issueSteps = ISSUE_STEPS;
   projectStatuses = PROJECT_STATUSES;
+
+  // Session-based branching
+  showNewSessionModal = signal(false);
+  showArchiveModal = signal(false);
+  showArchive = signal(false);
+  newSessionTitle = '';
+  newSessionBranch = '';
+
+  /** Infrastructure session (always first, permanent) */
+  infraSession = computed(() => this.sessions().find(s => s.type === 'INFRASTRUCTURE') ?? null);
+  /** Active dev sessions */
+  devSessions = computed(() =>
+    this.sessions().filter(s => s.type === 'DEV_SESSION' && s.status !== 'ARCHIVED')
+      .sort((a, b) => {
+        // ACTIVE first, then MERGING, then CONFLICT
+        const order: Record<string, number> = { ACTIVE: 0, MERGING: 1, CONFLICT: 2 };
+        return (order[a.status] ?? 9) - (order[b.status] ?? 9);
+      }),
+  );
+  /** Archived sessions */
+  archivedSessions = computed(() =>
+    this.sessions().filter(s => s.type === 'DEV_SESSION' && s.status === 'ARCHIVED'),
+  );
 
   // Tab
   activeTab = signal<Tab>('overview');
@@ -1386,6 +1570,91 @@ export class ProjectPage implements OnInit, OnDestroy {
     this.chatSocket.leaveSession();
     this.activeSession.set(null);
     this.messages.set([]);
+  }
+
+  // ─── Session-Based Branching ─────────────────────────────
+
+  autoGenerateBranch(title: string) {
+    const slug = title
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, '-')
+      .replace(/^-+|-+$/g, '')
+      .substring(0, 40);
+    this.newSessionBranch = slug ? `session/${slug}` : '';
+  }
+
+  createDevSession() {
+    const p = this.project();
+    if (!p || !this.newSessionTitle.trim()) return;
+
+    this.api.createDevSession({
+      projectId: p.id,
+      title: this.newSessionTitle.trim(),
+      branch: this.newSessionBranch.trim() || undefined,
+    }).subscribe({
+      next: (session) => {
+        this.sessions.update(s => [session, ...s]);
+        this.showNewSessionModal.set(false);
+        this.newSessionTitle = '';
+        this.newSessionBranch = '';
+        this.openSession(session);
+      },
+      error: (err) => {
+        console.error('Failed to create dev session:', err);
+      },
+    });
+  }
+
+  archiveCurrentSession() {
+    this.showArchiveModal.set(true);
+  }
+
+  confirmArchiveSession() {
+    const session = this.activeSession();
+    if (!session) return;
+
+    this.showArchiveModal.set(false);
+    this.api.archiveSession(session.id).subscribe({
+      next: (result) => {
+        if (result.success) {
+          // Reload sessions to reflect archived state
+          const p = this.project();
+          if (p) this.loadSessions(p.id);
+          this.closeSession();
+        } else if (result.error) {
+          console.error('Archive failed:', result.error);
+          // Reload to reflect CONFLICT status
+          const p = this.project();
+          if (p) this.loadSessions(p.id);
+        }
+      },
+      error: (err) => {
+        console.error('Archive request failed:', err);
+      },
+    });
+  }
+
+  continueArchivedSession(sessionId: string) {
+    this.api.continueSession(sessionId).subscribe({
+      next: (newSession) => {
+        const p = this.project();
+        if (p) this.loadSessions(p.id);
+        this.openSession(newSession);
+      },
+      error: (err) => {
+        console.error('Continue session failed:', err);
+      },
+    });
+  }
+
+  sessionStatusColor(status: SessionStatus | string): string {
+    switch (status) {
+      case 'ACTIVE': return 'bg-emerald-400';
+      case 'MERGING': return 'bg-amber-400';
+      case 'CONFLICT': return 'bg-red-400';
+      case 'ARCHIVED': return 'bg-slate-600';
+      default: return 'bg-slate-600';
+    }
   }
 
   sendMessage() {

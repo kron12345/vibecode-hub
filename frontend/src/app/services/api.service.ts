@@ -100,13 +100,22 @@ export interface IssueComment {
   createdAt: string;
 }
 
+export type ChatSessionType = 'INFRASTRUCTURE' | 'DEV_SESSION';
+export type SessionStatus = 'ACTIVE' | 'MERGING' | 'ARCHIVED' | 'CONFLICT';
+
 export interface ChatSession {
   id: string;
   projectId: string;
   title: string;
+  type: ChatSessionType;
+  status: SessionStatus;
+  branch?: string | null;
+  archivedAt?: string | null;
+  parentId?: string | null;
   createdAt: string;
   updatedAt: string;
   messages?: ChatMessage[];
+  _count?: { issues: number };
 }
 
 export interface ChatMessage {
@@ -307,10 +316,10 @@ export class ApiService {
 
   // ─── Chat ──────────────────────────────────────────────────
 
-  getChatSessions(projectId: string) {
-    return this.http.get<ChatSession[]>(`${this.baseUrl}/chat/sessions`, {
-      params: { projectId },
-    });
+  getChatSessions(projectId: string, type?: ChatSessionType) {
+    const params: any = { projectId };
+    if (type) params.type = type;
+    return this.http.get<ChatSession[]>(`${this.baseUrl}/chat/sessions`, { params });
   }
 
   getChatSession(id: string) {
@@ -323,6 +332,40 @@ export class ApiService {
 
   deleteChatSession(id: string) {
     return this.http.delete(`${this.baseUrl}/chat/sessions/${id}`);
+  }
+
+  // ─── Dev Sessions (Branching) ───────────────────────────────
+
+  createDevSession(data: { projectId: string; title?: string; branch?: string }) {
+    return this.http.post<ChatSession>(`${this.baseUrl}/chat/sessions/dev`, data);
+  }
+
+  archiveSession(id: string) {
+    return this.http.post<{ success: boolean; merged: boolean; conflicts?: string[]; error?: string }>(
+      `${this.baseUrl}/chat/sessions/${id}/archive`, {},
+    );
+  }
+
+  resolveSessionConflict(id: string) {
+    return this.http.post<{ success: boolean; merged: boolean; error?: string }>(
+      `${this.baseUrl}/chat/sessions/${id}/resolve`, {},
+    );
+  }
+
+  continueSession(id: string) {
+    return this.http.post<ChatSession>(
+      `${this.baseUrl}/chat/sessions/${id}/continue`, {},
+    );
+  }
+
+  updateSession(id: string, data: { title?: string }) {
+    return this.http.patch<ChatSession>(`${this.baseUrl}/chat/sessions/${id}`, data);
+  }
+
+  getArchivedSessions(projectId: string) {
+    return this.http.get<ChatSession[]>(`${this.baseUrl}/chat/sessions/archived`, {
+      params: { projectId },
+    });
   }
 
   getChatMessages(sessionId: string) {

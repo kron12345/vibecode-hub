@@ -13,6 +13,29 @@ export class CreateChatSessionDto {
   title?: string;
 }
 
+export class CreateDevSessionDto {
+  @ApiProperty()
+  @IsString()
+  projectId: string;
+
+  @ApiProperty({ required: false })
+  @IsOptional()
+  @IsString()
+  title?: string;
+
+  @ApiProperty({ required: false })
+  @IsOptional()
+  @IsString()
+  branch?: string;
+}
+
+export class UpdateSessionDto {
+  @ApiProperty({ required: false })
+  @IsOptional()
+  @IsString()
+  title?: string;
+}
+
 export class SendMessageDto {
   @ApiProperty()
   @IsString()

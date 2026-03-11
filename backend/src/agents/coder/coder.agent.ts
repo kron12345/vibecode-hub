@@ -128,7 +128,16 @@ export class CoderAgent extends BaseAgent {
       const glProject = await this.gitlabService.getProject(project.gitlabProjectId);
       const defaultBranch = project.workBranch || glProject.default_branch;
 
-      const issueResult = await this.processIssue(ctx, issue, workspace, project.gitlabProjectId, defaultBranch, glProject.path_with_namespace);
+      // Check if this session has its own branch (session-based branching)
+      const chatSession = ctx.chatSessionId
+        ? await this.prisma.chatSession.findUnique({
+            where: { id: ctx.chatSessionId },
+            select: { branch: true, type: true },
+          })
+        : null;
+      const sessionBranch = chatSession?.type === 'DEV_SESSION' ? chatSession.branch : null;
+
+      const issueResult = await this.processIssue(ctx, issue, workspace, project.gitlabProjectId, defaultBranch, glProject.path_with_namespace, sessionBranch);
 
       const statusEmoji = issueResult.status === 'success' ? '✅' : issueResult.status === 'failed' ? '❌' : '⏭️';
       await this.sendAgentMessage(
@@ -164,9 +173,12 @@ export class CoderAgent extends BaseAgent {
     gitlabProjectId: number,
     defaultBranch: string,
     projectPath: string,
+    sessionBranch?: string | null,
   ): Promise<CoderIssueResult> {
     const start = Date.now();
-    const branchName = `feature/${issue.gitlabIid ?? issue.id}-${this.slugify(issue.title)}`;
+    // Option A: If session has a branch, commit directly on it. Otherwise create feature branch.
+    const branchName = sessionBranch || `feature/${issue.gitlabIid ?? issue.id}-${this.slugify(issue.title)}`;
+    const baseBranch = sessionBranch ? sessionBranch : defaultBranch;
     const result: CoderIssueResult = {
       issueId: issue.id,
       gitlabIid: issue.gitlabIid,
@@ -208,10 +220,15 @@ export class CoderAgent extends BaseAgent {
         });
       }
 
-      // Checkout default branch and create feature branch
-      await this.gitCheckout(workspace, defaultBranch);
-      await this.gitPull(workspace);
-      await this.gitCreateBranch(workspace, branchName);
+      // Checkout branch: either session branch (already exists) or create feature branch
+      if (sessionBranch) {
+        await this.gitCheckout(workspace, sessionBranch);
+        await this.gitPull(workspace);
+      } else {
+        await this.gitCheckout(workspace, defaultBranch);
+        await this.gitPull(workspace);
+        await this.gitCreateBranch(workspace, branchName);
+      }
 
       // Build the coding prompt
       const prompt = this.buildCodingPrompt(issue);
@@ -220,7 +237,7 @@ export class CoderAgent extends BaseAgent {
       await this.log(agentTask.id, 'INFO', `Running MCP agent loop for issue: ${issue.title}`);
       await this.runMcpAgentLoop(workspace, prompt, agentTask.id, ctx.projectId);
 
-      // Check what changed (includes both uncommitted AND committed changes vs default branch)
+      // Check what changed (includes both uncommitted AND committed changes vs base)
       const changedFiles = await this.getChangedFiles(workspace, defaultBranch);
       result.filesChanged = changedFiles;
 
@@ -259,8 +276,8 @@ export class CoderAgent extends BaseAgent {
         `feat: implement ${issue.title}\n\nCloses #${issue.gitlabIid ?? ''}`,
       );
 
-      // Create MR
-      if (gitlabProjectId) {
+      // Create MR — skip for session branches (session merge handles this)
+      if (gitlabProjectId && !sessionBranch) {
         try {
           const mr = await this.gitlabService.createMergeRequest(gitlabProjectId, {
             source_branch: branchName,
@@ -364,8 +381,8 @@ export class CoderAgent extends BaseAgent {
         this.logger.warn(`No MR created for issue ${issue.gitlabIid} — codingComplete emitted without MR`);
       }
 
-      // Switch back to default branch for next issue
-      await this.gitCheckout(workspace, defaultBranch);
+      // Switch back to base branch for next issue (session branch stays, feature branch goes back to default)
+      await this.gitCheckout(workspace, sessionBranch || defaultBranch);
 
       return result;
 

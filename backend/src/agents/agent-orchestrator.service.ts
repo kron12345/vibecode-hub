@@ -20,8 +20,10 @@ import {
   AgentStatus,
   AgentTaskType,
   AgentTaskStatus,
+  ChatSessionType,
   IssueStatus,
   ProjectStatus,
+  SessionStatus,
 } from '@prisma/client';
 
 /** Default: check for stuck tasks every 5 minutes */
@@ -195,13 +197,24 @@ export class AgentOrchestratorService implements OnModuleInit, OnModuleDestroy {
   }) {
     const { chatSessionId } = payload;
 
-    // Find an active interview task for this chat session
+    // Find the chat session with type info
     const chatSession = await this.prisma.chatSession.findUnique({
       where: { id: chatSessionId },
-      select: { projectId: true },
+      select: { projectId: true, type: true, status: true },
     });
 
     if (!chatSession) return;
+
+    // DEV_SESSION: Only process if session is ACTIVE
+    if (chatSession.type === ChatSessionType.DEV_SESSION) {
+      if (chatSession.status !== SessionStatus.ACTIVE) {
+        this.logger.debug(`Ignoring message for non-active dev session ${chatSessionId}`);
+        return;
+      }
+      // Dev sessions route to the issue pipeline (Architect → IssueCompiler → Coder etc.)
+      // For now, user messages in dev sessions are handled the same as infrastructure
+      // (route to interviewer if active, otherwise just stored)
+    }
 
     // Look for an active interviewer agent with a running task
     const activeAgent = await this.prisma.agentInstance.findFirst({
@@ -863,16 +876,24 @@ export class AgentOrchestratorService implements OnModuleInit, OnModuleDestroy {
     // Sync status label to GitLab
     await this.gitlabService.syncStatusLabel(gitlabProjectId, gitlabIid, 'IN_PROGRESS').catch(() => {});
 
-    // Find chat session for the project
-    const chatSession = await this.prisma.chatSession.findFirst({
-      where: { projectId },
-      orderBy: { createdAt: 'desc' },
+    // Find chat session — prefer the session that owns this issue
+    const issueWithSession = await this.prisma.issue.findUnique({
+      where: { id: issue.id },
+      select: { chatSessionId: true },
     });
+    let chatSessionId = issueWithSession?.chatSessionId;
+    if (!chatSessionId) {
+      const fallbackSession = await this.prisma.chatSession.findFirst({
+        where: { projectId },
+        orderBy: { createdAt: 'desc' },
+      });
+      chatSessionId = fallbackSession?.id;
+    }
 
-    if (!chatSession) return;
+    if (!chatSessionId) return;
 
     // Re-trigger Coder via centralized retrigger (respects maxFixAttempts)
-    await this.retriggerCoder(projectId, chatSession.id, issue.id, failureSummary, 'pipeline');
+    await this.retriggerCoder(projectId, chatSessionId, issue.id, failureSummary, 'pipeline');
   }
 
   // ─── User Feedback Loop ────────────────────────────────────
@@ -917,16 +938,24 @@ export class AgentOrchestratorService implements OnModuleInit, OnModuleDestroy {
       await this.gitlabService.syncStatusLabel(updatedIssue.project.gitlabProjectId, updatedIssue.gitlabIid, 'IN_PROGRESS').catch(() => {});
     }
 
-    // Find chat session
-    const chatSession = await this.prisma.chatSession.findFirst({
-      where: { projectId },
-      orderBy: { createdAt: 'desc' },
+    // Find chat session — prefer the session that owns this issue
+    const issueWithSession = await this.prisma.issue.findUnique({
+      where: { id: issueId },
+      select: { chatSessionId: true },
     });
+    let chatSessionForComment = issueWithSession?.chatSessionId;
+    if (!chatSessionForComment) {
+      const fallbackSession = await this.prisma.chatSession.findFirst({
+        where: { projectId },
+        orderBy: { createdAt: 'desc' },
+      });
+      chatSessionForComment = fallbackSession?.id;
+    }
 
-    if (!chatSession) return;
+    if (!chatSessionForComment) return;
 
     // Re-trigger Coder via centralized retrigger (respects maxFixAttempts)
-    await this.retriggerCoder(projectId, chatSession.id, issueId, `User feedback from ${authorName}:\n\n${content}`, 'user');
+    await this.retriggerCoder(projectId, chatSessionForComment, issueId, `User feedback from ${authorName}:\n\n${content}`, 'user');
   }
 
   // ─── Review Approved → Functional Tester ─────────────────
