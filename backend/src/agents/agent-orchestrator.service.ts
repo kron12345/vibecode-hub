@@ -15,6 +15,7 @@ import { FunctionalTesterAgent } from './functional-tester/functional-tester.age
 import { UiTesterAgent } from './ui-tester/ui-tester.agent';
 import { PenTesterAgent } from './pen-tester/pen-tester.agent';
 import { DocumenterAgent } from './documenter/documenter.agent';
+import { FeatureInterviewResult } from './interviewer/interview-result.interface';
 import {
   AgentRole,
   AgentStatus,
@@ -187,17 +188,22 @@ export class AgentOrchestratorService implements OnModuleInit, OnModuleDestroy {
   }
 
   /**
-   * Handle user messages — if there's an active interview, route to the interviewer.
+   * Handle user messages — route to the appropriate agent based on session type.
    * Triggered by EventEmitter from ChatGateway.
+   *
+   * Routing logic:
+   * - INFRASTRUCTURE + active interviewer → continue project interview
+   * - INFRASTRUCTURE + project READY + no active agent → YOLO mode (infra commands)
+   * - DEV_SESSION + active feature interviewer → continue feature interview
+   * - DEV_SESSION + no active agent → stored only (pipeline runs automatically)
    */
   @OnEvent('chat.userMessage')
   async handleUserMessage(payload: {
     chatSessionId: string;
     content: string;
   }) {
-    const { chatSessionId } = payload;
+    const { chatSessionId, content } = payload;
 
-    // Find the chat session with type info
     const chatSession = await this.prisma.chatSession.findUnique({
       where: { id: chatSessionId },
       select: { projectId: true, type: true, status: true },
@@ -211,13 +217,43 @@ export class AgentOrchestratorService implements OnModuleInit, OnModuleDestroy {
         this.logger.debug(`Ignoring message for non-active dev session ${chatSessionId}`);
         return;
       }
-      // Dev sessions route to the issue pipeline (Architect → IssueCompiler → Coder etc.)
-      // For now, user messages in dev sessions are handled the same as infrastructure
-      // (route to interviewer if active, otherwise just stored)
+
+      // Route to active feature interviewer if exists
+      const activeFeatureInterviewer = await this.prisma.agentInstance.findFirst({
+        where: {
+          projectId: chatSession.projectId,
+          role: AgentRole.INTERVIEWER,
+          status: { in: [AgentStatus.WAITING, AgentStatus.WORKING] },
+        },
+        include: {
+          tasks: {
+            where: {
+              status: AgentTaskStatus.RUNNING,
+              type: AgentTaskType.FEATURE_INTERVIEW,
+            },
+            take: 1,
+          },
+        },
+      });
+
+      if (activeFeatureInterviewer && activeFeatureInterviewer.tasks.length > 0) {
+        const ctx = {
+          projectId: chatSession.projectId,
+          agentInstanceId: activeFeatureInterviewer.id,
+          agentTaskId: activeFeatureInterviewer.tasks[0].id,
+          chatSessionId,
+        };
+        this.logger.debug(`Routing dev session message to feature interviewer`);
+        this.interviewer.continueFeatureInterview(ctx).catch((err) => {
+          this.logger.error(`Feature interviewer error: ${err.message}`);
+        });
+      }
+      // No active agent in dev session → message is just stored
+      return;
     }
 
-    // Look for an active interviewer agent with a running task
-    const activeAgent = await this.prisma.agentInstance.findFirst({
+    // INFRASTRUCTURE chat: check for active project interviewer first
+    const activeInterviewer = await this.prisma.agentInstance.findFirst({
       where: {
         projectId: chatSession.projectId,
         role: AgentRole.INTERVIEWER,
@@ -225,29 +261,39 @@ export class AgentOrchestratorService implements OnModuleInit, OnModuleDestroy {
       },
       include: {
         tasks: {
-          where: { status: AgentTaskStatus.RUNNING },
+          where: {
+            status: AgentTaskStatus.RUNNING,
+            type: AgentTaskType.INTERVIEW,
+          },
           take: 1,
         },
       },
     });
 
-    if (!activeAgent || activeAgent.tasks.length === 0) return;
+    if (activeInterviewer && activeInterviewer.tasks.length > 0) {
+      const ctx = {
+        projectId: chatSession.projectId,
+        agentInstanceId: activeInterviewer.id,
+        agentTaskId: activeInterviewer.tasks[0].id,
+        chatSessionId,
+      };
+      this.logger.debug(`Routing infrastructure message to project interviewer`);
+      this.interviewer.continueInterview(ctx).catch((err) => {
+        this.logger.error(`Interviewer error: ${err.message}`);
+      });
+      return;
+    }
 
-    const ctx = {
-      projectId: chatSession.projectId,
-      agentInstanceId: activeAgent.id,
-      agentTaskId: activeAgent.tasks[0].id,
-      chatSessionId,
-    };
-
-    this.logger.debug(
-      `Routing user message to interviewer for project ${chatSession.projectId}`,
-    );
-
-    // Continue the interview asynchronously
-    this.interviewer.continueInterview(ctx).catch((err) => {
-      this.logger.error(`Interviewer error: ${err.message}`);
+    // INFRASTRUCTURE + project READY + no active agent → YOLO mode
+    const project = await this.prisma.project.findUnique({
+      where: { id: chatSession.projectId },
+      select: { status: true },
     });
+
+    if (project?.status === ProjectStatus.READY) {
+      this.logger.log(`YOLO mode: routing infrastructure message to DevOps agent`);
+      await this.startInfraCommand(chatSession.projectId, chatSessionId, content);
+    }
   }
 
   /** Get agent status for a project */
@@ -346,7 +392,8 @@ export class AgentOrchestratorService implements OnModuleInit, OnModuleDestroy {
   // ─── Architect Agent ──────────────────────────────────────────
 
   /**
-   * Handle DevOps completion — start Architect Phase A (architecture design).
+   * Handle DevOps completion — STOP the infrastructure pipeline.
+   * The project is now set up. Features are built via Dev Sessions.
    */
   @OnEvent('agent.devopsComplete')
   async handleDevopsComplete(payload: {
@@ -355,17 +402,185 @@ export class AgentOrchestratorService implements OnModuleInit, OnModuleDestroy {
   }) {
     const { projectId, chatSessionId } = payload;
 
+    this.logger.log(
+      `DevOps complete for project ${projectId} — infrastructure pipeline done. ` +
+      `Create a Dev Session to start building features.`,
+    );
+
+    // Send info message to the infrastructure chat
+    const chatSession = await this.prisma.chatSession.findUnique({
+      where: { id: chatSessionId },
+    });
+    if (chatSession) {
+      await this.chatService.addMessage({
+        chatSessionId,
+        role: 'SYSTEM' as any,
+        content:
+          '✅ **Project setup complete!** The environment is ready.\n\n' +
+          'This chat is now your **Infrastructure Chat** — use it to install packages, ' +
+          'configure services, or make environment changes.\n\n' +
+          'To start building features, create a **Dev Session** from the sidebar.',
+      });
+      this.chatGateway.emitToSession(chatSessionId, 'projectUpdated', {
+        projectId,
+        status: ProjectStatus.READY,
+      });
+    }
+
+    // Emit suggestion chips
+    this.chatGateway.emitToSession(chatSessionId, 'chatSuggestions', {
+      chatSessionId,
+      suggestions: ['📦 Install a package', '⚙️ Configure database', '🆕 Create Dev Session'],
+    });
+  }
+
+  // ─── Dev Session: Feature Interview + Pipeline ──────────
+
+  /**
+   * Auto-start a feature interview when a dev session is created.
+   * Triggered by EventEmitter from SessionBranchService.
+   */
+  @OnEvent('session.devSessionCreated')
+  async handleDevSessionCreated(payload: {
+    projectId: string;
+    chatSessionId: string;
+    sessionTitle: string;
+  }) {
+    const { projectId, chatSessionId, sessionTitle } = payload;
+
+    if (!this.acquireStartLock(projectId, AgentRole.INTERVIEWER)) return;
+    try {
+      this.logger.log(`Dev session created for project ${projectId} — starting feature interview`);
+      await this.startFeatureInterview(projectId, chatSessionId, sessionTitle);
+    } catch (err) {
+      this.logger.error(`Failed to start feature interview: ${err.message}`);
+    } finally {
+      this.releaseStartLock(projectId, AgentRole.INTERVIEWER);
+    }
+  }
+
+  /**
+   * Start a feature interview for a dev session.
+   */
+  async startFeatureInterview(
+    projectId: string,
+    chatSessionId: string,
+    sessionTitle: string,
+  ) {
+    const config = this.settings.getAgentRoleConfig('INTERVIEWER');
+
+    const agentInstance = await this.prisma.agentInstance.create({
+      data: {
+        projectId,
+        role: AgentRole.INTERVIEWER,
+        provider: config.provider as any,
+        model: config.model,
+        status: AgentStatus.IDLE,
+      },
+    });
+
+    const agentTask = await this.prisma.agentTask.create({
+      data: {
+        agentId: agentInstance.id,
+        type: AgentTaskType.FEATURE_INTERVIEW,
+        status: AgentTaskStatus.RUNNING,
+        startedAt: new Date(),
+      },
+    });
+
+    const ctx = {
+      projectId,
+      agentInstanceId: agentInstance.id,
+      agentTaskId: agentTask.id,
+      chatSessionId,
+    };
+
+    this.interviewer.startFeatureInterview(ctx, sessionTitle).catch((err) => {
+      this.logger.error(`Feature interview error: ${err.message}`);
+    });
+
+    return { agentInstanceId: agentInstance.id, agentTaskId: agentTask.id, chatSessionId };
+  }
+
+  /**
+   * Handle feature interview completion — start the dev session pipeline.
+   * Flow: Feature Interview → Architect → Issue Compiler → Coder → Review → Tests → Docs
+   */
+  @OnEvent('agent.featureInterviewComplete')
+  async handleFeatureInterviewComplete(payload: {
+    projectId: string;
+    chatSessionId: string;
+    featureResult: FeatureInterviewResult;
+  }) {
+    const { projectId, chatSessionId, featureResult } = payload;
+
+    this.logger.log(
+      `Feature interview complete for project ${projectId} — ` +
+      `${featureResult.features.length} features captured, starting Architect`,
+    );
+
+    // Start Architect Phase A
     if (!this.acquireStartLock(projectId, AgentRole.ARCHITECT)) return;
     try {
       if (await this.hasActiveAgent(projectId, AgentRole.ARCHITECT)) return;
-      this.logger.log(`DevOps complete for project ${projectId} — starting Architect (Phase A)`);
       await this.startArchitectDesign(projectId, chatSessionId);
     } catch (err) {
-      this.logger.error(`Failed to start Architect: ${err.message}`);
+      this.logger.error(`Failed to start Architect after feature interview: ${err.message}`);
     } finally {
       this.releaseStartLock(projectId, AgentRole.ARCHITECT);
     }
   }
+
+  // ─── YOLO Mode: Infrastructure Commands ──────────────────
+
+  /**
+   * Start an infrastructure command via the DevOps agent (YOLO mode).
+   */
+  async startInfraCommand(
+    projectId: string,
+    chatSessionId: string,
+    userMessage: string,
+  ) {
+    // Check if there's already an active DevOps agent
+    if (await this.hasActiveAgent(projectId, AgentRole.DEVOPS)) {
+      this.logger.debug(`DevOps agent already active for project ${projectId} — queuing message`);
+      return;
+    }
+
+    const config = this.settings.getAgentRoleConfig('DEVOPS');
+
+    const agentInstance = await this.prisma.agentInstance.create({
+      data: {
+        projectId,
+        role: AgentRole.DEVOPS,
+        provider: config.provider as any,
+        model: config.model,
+        status: AgentStatus.IDLE,
+      },
+    });
+
+    const agentTask = await this.prisma.agentTask.create({
+      data: {
+        agentId: agentInstance.id,
+        type: AgentTaskType.INFRA_COMMAND,
+        status: AgentTaskStatus.RUNNING,
+        startedAt: new Date(),
+      },
+    });
+
+    const ctx = {
+      projectId,
+      agentInstanceId: agentInstance.id,
+      agentTaskId: agentTask.id,
+      chatSessionId,
+    };
+
+    this.devops.handleInfraCommand(ctx, userMessage).catch((err) => {
+      this.logger.error(`Infra command error: ${err.message}`);
+    });
+  }
+
+  // ─── Architect Agent ──────────────────────────────────────────
 
   /**
    * Start the Architect agent for Phase A: architecture design.

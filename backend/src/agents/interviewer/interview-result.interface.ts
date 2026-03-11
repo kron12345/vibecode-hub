@@ -34,6 +34,14 @@ export interface InterviewResult {
   };
 }
 
+/** Result from a feature interview (dev session) — no tech stack/deployment */
+export interface FeatureInterviewResult {
+  /** Brief description of what this session is about */
+  sessionGoal: string;
+  /** Features to build in this session */
+  features: InterviewFeature[];
+}
+
 /** Partial progress emitted during interview for live requirement card */
 export interface InterviewProgress {
   framework?: string;

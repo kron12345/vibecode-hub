@@ -1,4 +1,5 @@
 import { Injectable, Logger, BadRequestException } from '@nestjs/common';
+import { EventEmitter2 } from '@nestjs/event-emitter';
 import { execFile } from 'child_process';
 import { promisify } from 'util';
 import * as path from 'path';
@@ -12,6 +13,7 @@ import {
   SessionStatus,
   IssueStatus,
   MessageRole,
+  ProjectStatus,
 } from '@prisma/client';
 
 const execFileAsync = promisify(execFile);
@@ -34,6 +36,7 @@ export class SessionBranchService {
     private readonly gitlabService: GitlabService,
     private readonly chatService: ChatService,
     private readonly chatGateway: ChatGateway,
+    private readonly eventEmitter: EventEmitter2,
   ) {}
 
   // ─── Create Dev Session ───────────────────────────────────
@@ -102,8 +105,17 @@ export class SessionBranchService {
     await this.chatService.addMessage({
       chatSessionId: session.id,
       role: MessageRole.SYSTEM,
-      content: `🚀 Dev session started — Branch: \`${branch}\`\nDescribe what you want to build and issues will be created automatically.`,
+      content: `🚀 Dev session started — Branch: \`${branch}\``,
     });
+
+    // Auto-start feature interview if project is READY
+    if (project.status === ProjectStatus.READY) {
+      this.eventEmitter.emit('session.devSessionCreated', {
+        projectId,
+        chatSessionId: session.id,
+        sessionTitle: sessionTitle,
+      });
+    }
 
     return session;
   }

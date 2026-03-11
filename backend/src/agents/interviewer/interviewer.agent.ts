@@ -9,7 +9,7 @@ import { LlmMessage } from '../../llm/llm.interfaces';
 import { PreviewService } from '../../preview/preview.service';
 import { MonitorGateway } from '../../monitor/monitor.gateway';
 import { BaseAgent, AgentContext } from '../agent-base';
-import { InterviewResult, InterviewProgress } from './interview-result.interface';
+import { InterviewResult, FeatureInterviewResult, InterviewProgress } from './interview-result.interface';
 import {
   AgentRole,
   AgentStatus,
@@ -19,6 +19,8 @@ import {
 
 /** Marker the LLM emits when the interview is complete */
 const COMPLETION_MARKER = ':::INTERVIEW_COMPLETE:::';
+/** Marker the LLM emits when the feature interview is complete */
+const FEATURE_COMPLETION_MARKER = ':::FEATURE_INTERVIEW_COMPLETE:::';
 /** Marker for clickable suggestion chips */
 const SUGGESTIONS_MARKER = ':::SUGGESTIONS:::';
 /** Marker for partial interview progress */
@@ -620,6 +622,295 @@ export class InterviewerAgent extends BaseAgent {
     this.eventEmitter.emit('agent.interviewComplete', {
       projectId: ctx.projectId,
       chatSessionId: ctx.chatSessionId,
+    });
+  }
+
+  // ─── Feature Interview (Dev Session) ─────────────────────
+
+  /** Start a feature interview for a dev session */
+  async startFeatureInterview(ctx: AgentContext, sessionTitle: string) {
+    await this.updateStatus(ctx, AgentStatus.WORKING);
+    await this.log(ctx.agentTaskId, 'INFO', 'Feature interview started', { sessionTitle });
+
+    // Load project context
+    const project = await this.prisma.project.findUnique({
+      where: { id: ctx.projectId },
+      select: { slug: true, name: true, techStack: true, description: true },
+    });
+
+    let envContext = '';
+    let knowledgeContext = '';
+    if (project?.slug) {
+      const workspace = require('path').resolve(this.settings.devopsWorkspacePath, project.slug);
+      const envDoc = await this.readEnvironmentDoc(workspace);
+      const kb = await this.readProjectKnowledge(workspace);
+      if (envDoc) envContext = `\n## Current Project Environment\n\`\`\`\n${envDoc}\n\`\`\`\n`;
+      if (kb) knowledgeContext = `\n## Project Knowledge Base\n${kb}\n`;
+    }
+
+    const techStack = project?.techStack as any;
+    const techLine = [techStack?.techStack?.framework, techStack?.techStack?.language, techStack?.techStack?.backend]
+      .filter(Boolean).join(', ');
+
+    const systemPrompt = this.buildFeatureInterviewPrompt(envContext, knowledgeContext, techLine);
+
+    const messages: LlmMessage[] = [
+      { role: 'system', content: systemPrompt },
+      {
+        role: 'user',
+        content: `I want to start a new dev session called "${sessionTitle}" for project "${project?.name ?? 'Unknown'}".${
+          project?.description ? ` The project is: ${project.description}` : ''
+        } Help me define what features to build in this session.`,
+      },
+    ];
+
+    const result = await this.callLlmStreaming(ctx, messages);
+
+    if (result.finishReason === 'error') {
+      await this.sendAgentMessage(
+        ctx,
+        'Sorry, I could not connect to the LLM. Please check the provider configuration.',
+      );
+      await this.updateStatus(ctx, AgentStatus.ERROR);
+      return;
+    }
+
+    const { content, suggestions, progress } = this.extractMetadata(result.content);
+    await this.sendAgentMessage(ctx, content);
+    this.emitSuggestionsAndProgress(ctx, suggestions, progress);
+    await this.updateStatus(ctx, AgentStatus.WAITING);
+  }
+
+  /** Continue the feature interview after a user message */
+  async continueFeatureInterview(ctx: AgentContext) {
+    // Guard: skip if already completed
+    const task = await this.prisma.agentTask.findUnique({
+      where: { id: ctx.agentTaskId },
+      select: { status: true },
+    });
+    if (!task || task.status === AgentTaskStatus.COMPLETED) {
+      this.logger.debug(`Feature interview task ${ctx.agentTaskId} already completed`);
+      return;
+    }
+
+    const messageCount = await this.prisma.chatMessage.count({
+      where: { chatSessionId: ctx.chatSessionId },
+    });
+    if (messageCount > MAX_INTERVIEW_MESSAGES) {
+      await this.sendAgentMessage(ctx, 'Feature interview reached max messages. Please finalize or create a new session.');
+      await this.updateStatus(ctx, AgentStatus.ERROR);
+      return;
+    }
+
+    await this.updateStatus(ctx, AgentStatus.WORKING);
+
+    // Rebuild prompt with project context
+    const project = await this.prisma.project.findUnique({
+      where: { id: ctx.projectId },
+      select: { slug: true, techStack: true },
+    });
+    let envContext = '';
+    let knowledgeContext = '';
+    if (project?.slug) {
+      const workspace = require('path').resolve(this.settings.devopsWorkspacePath, project.slug);
+      const envDoc = await this.readEnvironmentDoc(workspace);
+      const kb = await this.readProjectKnowledge(workspace);
+      if (envDoc) envContext = `\n## Current Project Environment\n\`\`\`\n${envDoc}\n\`\`\`\n`;
+      if (kb) knowledgeContext = `\n## Project Knowledge Base\n${kb}\n`;
+    }
+    const techStack = project?.techStack as any;
+    const techLine = [techStack?.techStack?.framework, techStack?.techStack?.language, techStack?.techStack?.backend]
+      .filter(Boolean).join(', ');
+
+    const systemPrompt = this.buildFeatureInterviewPrompt(envContext, knowledgeContext, techLine);
+    const history = await this.getConversationHistory(ctx.chatSessionId);
+    const messages: LlmMessage[] = [
+      { role: 'system', content: systemPrompt },
+      ...history.filter((m) => m.role !== 'system'),
+    ];
+
+    const result = await this.callLlmStreaming(ctx, messages);
+
+    if (result.finishReason === 'error') {
+      await this.sendAgentMessage(ctx, 'Sorry, I could not reach the LLM. Please try again.');
+      await this.updateStatus(ctx, AgentStatus.ERROR);
+      return;
+    }
+
+    // Check for feature interview completion
+    if (result.content.includes(FEATURE_COMPLETION_MARKER)) {
+      await this.handleFeatureInterviewComplete(ctx, result.content);
+    } else if (this.detectFeatureJsonCompletion(result.content)) {
+      this.logger.log('Detected JSON-based feature interview completion');
+      await this.handleFeatureInterviewComplete(
+        ctx,
+        FEATURE_COMPLETION_MARKER + '\n' + result.content,
+      );
+    } else {
+      const { content, suggestions, progress } = this.extractMetadata(result.content);
+      await this.sendAgentMessage(ctx, content);
+      this.emitSuggestionsAndProgress(ctx, suggestions, progress);
+      await this.updateStatus(ctx, AgentStatus.WAITING);
+    }
+  }
+
+  /** Build the system prompt for feature interviews */
+  private buildFeatureInterviewPrompt(
+    envContext: string,
+    knowledgeContext: string,
+    techLine: string,
+  ): string {
+    return `You are the Feature Interviewer for VibCode Hub — a dev session planning assistant.
+
+## Your Role
+You help the user plan what features to build in this development session.
+The project is ALREADY SET UP (tech stack, repo, environment all exist).
+You do NOT need to ask about tech stack, framework, init commands, or deployment.
+
+## What You Know
+${techLine ? `- **Tech Stack:** ${techLine}` : '- Tech stack details are in the environment doc below'}
+${envContext}
+${knowledgeContext}
+
+## What You Need to Collect
+For each feature the user wants to build:
+- **title**: Short name (e.g. "User Authentication", "Dashboard Charts")
+- **priority**: must-have, should-have, or nice-to-have
+- **description**: 1-3 sentences about what it does and WHY
+- **acceptanceCriteria**: How do we know it works? (e.g. "User can log in with email/password")
+
+## Rules
+- Ask 1-2 focused questions at a time
+- Be practical: suggest related features based on what you know about the project
+- Respond in the same language the user uses
+- Keep it short: 3-6 questions total should be enough
+- When you have a clear feature list, finalize immediately — do NOT ask "shall I finalize?"
+- Draw from the project knowledge base and environment doc to understand context
+- Do NOT ask about tech stack, setup, or deployment — that's already done
+
+## Suggestions
+After EVERY response (except the final completion), add 2-4 clickable suggestions:
+${SUGGESTIONS_MARKER}["Feature idea A", "Feature idea B", "That's all, let's go!"]
+
+## Completion
+When you have enough features, finalize with EXACTLY this format:
+
+${FEATURE_COMPLETION_MARKER}
+\`\`\`json
+{
+  "sessionGoal": "Brief description of this session's goal",
+  "features": [
+    {
+      "title": "Feature Name",
+      "priority": "must-have",
+      "description": "What it does and why",
+      "acceptanceCriteria": ["Criteria 1", "Criteria 2"]
+    }
+  ]
+}
+\`\`\`
+
+CRITICAL: The marker ${FEATURE_COMPLETION_MARKER} must appear EXACTLY as shown.
+The JSON must be valid. Do NOT ask for confirmation — just finalize when ready.`;
+  }
+
+  /** Detect JSON-only completion for feature interviews */
+  private detectFeatureJsonCompletion(content: string): boolean {
+    const jsonMatch = content.match(/```(?:json)?\s*(\{[\s\S]*?\})\s*```/) ||
+                      content.match(/(\{[\s\S]*\})/);
+    if (!jsonMatch) return false;
+
+    try {
+      const obj = JSON.parse(jsonMatch[1]);
+      const hasFeatures = !!(obj.features || obj.feature_list);
+      const hasGoal = !!(obj.sessionGoal || obj.session_goal || obj.goal || obj.description);
+      return hasFeatures && hasGoal;
+    } catch {
+      return false;
+    }
+  }
+
+  /** Handle feature interview completion — parse result and trigger pipeline */
+  private async handleFeatureInterviewComplete(ctx: AgentContext, content: string) {
+    const markerIndex = content.indexOf(FEATURE_COMPLETION_MARKER);
+    const conversationPart = content.substring(0, markerIndex).trim();
+    const jsonPart = content.substring(markerIndex + FEATURE_COMPLETION_MARKER.length);
+
+    if (conversationPart) {
+      await this.sendAgentMessage(ctx, conversationPart);
+    }
+
+    let featureResult: FeatureInterviewResult;
+    try {
+      const cleanedJson = jsonPart.replace(/<think>[\s\S]*?<\/think>/g, '').trim();
+      const jsonMatch = cleanedJson.match(/\{[\s\S]*\}/);
+      if (!jsonMatch) throw new Error('No JSON object found');
+      const jsonStr = jsonMatch[0].replace(/,\s*([}\]])/g, '$1');
+      const raw = JSON.parse(jsonStr);
+
+      // Normalize
+      const features = (raw.features || raw.feature_list || []).map((f: any) => {
+        if (typeof f === 'string') return { title: f, priority: 'should-have' as const };
+        return {
+          title: String(f.title ?? f.name ?? 'Unnamed'),
+          description: f.description ? String(f.description) : undefined,
+          priority: this.normalizePriority(f.priority),
+          acceptanceCriteria: Array.isArray(f.acceptanceCriteria ?? f.acceptance_criteria)
+            ? (f.acceptanceCriteria ?? f.acceptance_criteria).map(String)
+            : undefined,
+        };
+      });
+
+      featureResult = {
+        sessionGoal: raw.sessionGoal ?? raw.session_goal ?? raw.goal ?? raw.description ?? '',
+        features,
+      };
+    } catch (err) {
+      this.logger.error(`Failed to parse feature interview result: ${err.message}`);
+      await this.sendAgentMessage(
+        ctx,
+        'I had trouble formatting the feature list. Could you confirm the features one more time?',
+      );
+      await this.updateStatus(ctx, AgentStatus.WAITING);
+      return;
+    }
+
+    if (!featureResult.features || featureResult.features.length === 0) {
+      await this.sendAgentMessage(ctx, 'No features captured. Please describe at least one feature to build.');
+      await this.updateStatus(ctx, AgentStatus.WAITING);
+      return;
+    }
+
+    // Mark task completed
+    await this.prisma.agentTask.update({
+      where: { id: ctx.agentTaskId },
+      data: {
+        status: AgentTaskStatus.COMPLETED,
+        output: featureResult as any,
+        completedAt: new Date(),
+      },
+    });
+
+    const featureList = featureResult.features
+      .map(f => `${f.title} (${f.priority})`)
+      .join(', ');
+
+    await this.sendAgentMessage(
+      ctx,
+      `Feature interview complete! 🎯\n\n**Session Goal:** ${featureResult.sessionGoal}\n**Features:** ${featureList}\n\nStarting the pipeline — Architect will design the implementation next.`,
+    );
+
+    await this.updateStatus(ctx, AgentStatus.IDLE);
+    await this.log(ctx.agentTaskId, 'INFO', 'Feature interview completed', {
+      sessionGoal: featureResult.sessionGoal,
+      featureCount: featureResult.features.length,
+    });
+
+    // Trigger pipeline: Architect → Issue Compiler → Coder → etc.
+    this.eventEmitter.emit('agent.featureInterviewComplete', {
+      projectId: ctx.projectId,
+      chatSessionId: ctx.chatSessionId,
+      featureResult,
     });
   }
 }

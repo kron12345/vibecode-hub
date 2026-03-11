@@ -11,6 +11,7 @@ import { MonitorGateway } from '../monitor/monitor.gateway';
 import { AgentRole, AgentStatus, MessageRole } from '@prisma/client';
 
 export const KNOWLEDGE_BASE_FILE = 'PROJECT_KNOWLEDGE.md';
+export const ENVIRONMENT_FILE = 'ENVIRONMENT.md';
 
 export interface AgentContext {
   projectId: string;
@@ -243,6 +244,26 @@ export abstract class BaseAgent {
     const kb = await this.readProjectKnowledge(workspace);
     if (!kb) return '';
     return `\n## Project Knowledge Base\n${kb}\n`;
+  }
+
+  /**
+   * Read the ENVIRONMENT.md from workspace.
+   * Returns the content or empty string if not found.
+   */
+  protected async readEnvironmentDoc(
+    workspace: string,
+    maxChars = 8000,
+  ): Promise<string> {
+    try {
+      const filePath = path.resolve(workspace, ENVIRONMENT_FILE);
+      const content = await fs.readFile(filePath, 'utf-8');
+      if (content.length > maxChars) {
+        return content.substring(0, maxChars) + '\n\n... (truncated)';
+      }
+      return content;
+    } catch {
+      return '';
+    }
   }
 
   /** Map Prisma MessageRole to LLM role */

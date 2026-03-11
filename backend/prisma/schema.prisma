@@ -292,6 +292,7 @@ model AgentTask {
 
 enum AgentTaskType {
   INTERVIEW
+  FEATURE_INTERVIEW
   DESIGN_ARCHITECTURE
   ANALYZE_ISSUES
   CREATE_ISSUES
@@ -303,6 +304,7 @@ enum AgentTaskType {
   WRITE_DOCS
   FIX_CODE
   DEPLOY
+  INFRA_COMMAND
 }
 
 enum AgentTaskStatus {
