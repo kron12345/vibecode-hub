@@ -688,9 +688,25 @@ export class AgentOrchestratorService implements OnModuleInit, OnModuleDestroy {
     projectId: string;
     chatSessionId: string;
     issueId: string;
+    isFixAttempt?: boolean;
+    errorMessage?: string;
   }) {
     const { projectId, chatSessionId, issueId } = payload;
 
+    // If this was a fix attempt, retrigger via the fix loop (respects maxFixAttempts)
+    if (payload.isFixAttempt) {
+      this.logger.warn(`Fix attempt failed for issue ${issueId} — retriggering via fix loop`);
+      await this.retriggerCoder(
+        projectId,
+        chatSessionId,
+        issueId,
+        `Previous fix attempt crashed: ${payload.errorMessage ?? 'unknown error'}. Please try a different approach to fix the issues.`,
+        'review',
+      );
+      return;
+    }
+
+    // Initial coding failed — skip to next open issue
     const nextOpen = await this.prisma.issue.findFirst({
       where: { projectId, status: IssueStatus.OPEN, parentId: null },
     });

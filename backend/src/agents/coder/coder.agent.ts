@@ -620,13 +620,20 @@ export class CoderAgent extends BaseAgent {
         });
       } catch { /* best effort */ }
 
-      // Reset issue status so it can be retried
-      try {
-        await this.issuesService.update(issueId, { status: IssueStatus.OPEN });
-      } catch { /* best effort */ }
+      // Do NOT reset issue to OPEN — that causes it to fall out of the pipeline.
+      // Instead, emit codingFailed so the orchestrator can retrigger or move to NEEDS_REVIEW.
 
       await this.sendAgentMessage(ctx, `❌ Fix failed: ${err.message}`);
       await this.updateStatus(ctx, AgentStatus.ERROR);
+
+      // Emit failure event so the orchestrator continues the pipeline
+      this.eventEmitter.emit('agent.codingFailed', {
+        projectId: ctx.projectId,
+        chatSessionId: ctx.chatSessionId,
+        issueId,
+        isFixAttempt: true,
+        errorMessage: err.message,
+      });
     }
   }
 
