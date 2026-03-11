@@ -494,11 +494,11 @@ Der Interviewer-Agent enthält einen `normalizeInterviewResult()` Normalizer, de
 
 ### Issue Compiler Agent (automatisch)
 
-Der Issue Compiler Agent startet automatisch nach DevOps-Abschluss über das Event `agent.devopsComplete`.
+Der Issue Compiler Agent startet automatisch after the Architect design phase in a Dev Session, triggered by `agent.architectDesignComplete`.
 
 **Flow:**
-1. DevOps-Agent beendet Setup → `agent.devopsComplete` Event
-2. AgentOrchestratorService empfängt Event → `startIssueCompilation()`
+1. Feature Interview completes in Dev Session → `agent.featureInterviewComplete` → Architect Phase A
+2. Architect design completes → `agent.architectDesignComplete` → `startIssueCompilation()`
 3. Issue Compiler erstellt AgentInstance (ISSUE_COMPILER) + AgentTask (CREATE_ISSUES) in gleicher ChatSession
 4. Lädt Projekt-Features aus Interview-Result (`project.techStack.features`)
 5. Sendet Features an LLM → erhält strukturierte Issues + Tasks als JSON
@@ -544,12 +544,20 @@ Der Issue Compiler Agent startet automatisch nach DevOps-Abschluss über das Eve
 
 Der DevOps-Agent startet automatisch nach Interview-Abschluss über das Event `agent.interviewComplete`.
 
-**Flow:**
+**Flow (Initial Setup):**
 1. Interviewer-Agent beendet Interview → `agent.interviewComplete` Event
 2. AgentOrchestratorService empfängt Event → `startDevopsSetup()`
 3. DevOps-Agent erstellt AgentInstance (DEVOPS) + AgentTask (DEPLOY) in gleicher ChatSession
 4. 8-Schritte-Setup: loadProject → prepareWorkspace → cloneRepo → initCommand → additionalCommands → generateMcpConfig → gitCommitPush → finalize
-5. Projekt-Status wechselt zu `READY`
+5. Generates `ENVIRONMENT.md` in workspace root (environment details, dependencies, tech stack)
+6. Projekt-Status wechselt zu `READY`
+7. `agent.devopsComplete` → pipeline STOPS (no longer triggers Architect)
+
+**Flow (YOLO Mode — Infra Commands):**
+After setup, user messages in the Infrastructure Chat trigger `handleInfraCommand()`:
+1. Creates AgentTask with type `INFRA_COMMAND`
+2. Executes command via MCP agent loop (filesystem, shell, git tools)
+3. Reports result back in chat
 
 **Schritte (deterministisch, kein LLM):**
 
@@ -880,6 +888,7 @@ map $hub_project $hub_upstream {
 
 | Datum | Änderung |
 |---|---|
+| 2026-03-11 | Pipeline Split: Infrastructure Chat (Interview → DevOps → STOP + YOLO mode for infra commands) vs Dev Session Chat (Feature Interview → Architect → Issue Compiler → full pipeline). New task types: FEATURE_INTERVIEW, INFRA_COMMAND. DevOps generates ENVIRONMENT.md. New events: session.devSessionCreated, agent.featureInterviewComplete. agent.devopsComplete no longer triggers Architect. Interviewer has startFeatureInterview/continueFeatureInterview. DevOps has handleInfraCommand() YOLO mode. No new REST endpoints (uses existing + events). |
 | 2026-03-11 | Session-Based Branching: ChatSession erweitert um type/status/branch/archivedAt/parentId. 6 neue Endpoints (POST dev, archive, resolve, continue; PATCH :id; GET archived). SessionBranchService: create/archive/continue/resolve Lifecycle. Coder Option A: direkte Commits auf Session-Branch. 3-Tier Frontend UI (Infrastructure/Dev Sessions/Archive). |
 | 2026-03-09 | Pipeline Bugfixes (8 total): Atomic start-lock für Agent-Duplikat-Verhinderung, Architect modelSupportsTools() für deepseek-r1, fetch MCP-Server deaktiviert (npm removed), maxTokens hochgesetzt (8K-16K je Rolle), Issue-Deduplizierung im Issue Compiler (title-check), Cache-Refresh Endpoint POST /settings/system/refresh. |
 | 2026-03-09 | LLM Timeouts entfernt: Alle Provider (Ollama, Anthropic, OpenAI, Google, CLI) ohne Timeout — Agenten dürfen unbegrenzt arbeiten. Ollama keep_alive von '0' auf '2m' geändert. MCP Agent Loop nur durch maxIterations (30) begrenzt. Neuer Endpoint: POST /agents/architect/start für manuelles Triggern. |

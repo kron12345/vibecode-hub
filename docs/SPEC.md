@@ -50,6 +50,10 @@ VibCode Hub ist ein AI-Entwicklerteam-Portal. Der Nutzer agiert als "Chef" und s
 - [x] DevOps-Agent (Projekt einrichten, CI/CD generieren, .mcp.json, Git-Push)
 - [x] Coder Agent (Issue → Feature-Branch → MCP Agent Loop → Commit → MR)
 - [x] Sequential Issue Processing mit workBranch-Strategie (Feature-Branches von workBranch abzweigen, MRs gegen workBranch, Fallback auf GitLab-Default)
+- [x] Pipeline Split: Infrastructure Chat (Interview → DevOps → STOP → YOLO mode) vs Dev Session Chat (Feature Interview → full pipeline)
+- [x] DevOps YOLO Mode (handleInfraCommand via MCP agent loop after setup)
+- [x] Feature Interview (startFeatureInterview/continueFeatureInterview in Dev Sessions)
+- [x] ENVIRONMENT.md generation during project setup
 - [x] Code Reviewer Agent (MR-Diffs → Ollama Review → Approve/Request Changes)
 - [x] Issue Comments (IssueComment Model, CRUD API, GitLab-Sync, Frontend Detail-Panel)
 - [x] Pipeline Feedback Loop (CI/CD Failure → Job-Logs → Coder fixIssue)

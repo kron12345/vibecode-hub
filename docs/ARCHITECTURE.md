@@ -103,7 +103,7 @@ Dev-Server auf localhost:{port}
 - **IssueComment** → Kommentare auf Issues, Typ: AGENT/USER/SYSTEM, GitLab-Note-ID (`gitlabNoteId`) für 2-Wege-Sync, gleicher rich Markdown wie GitLab-Note, optional an AgentTask gebunden. Agent-Kommentare bilden einen sichtbaren "Chat" auf jedem Issue (Coder → Reviewer → Functional → UI → Pen → Docs)
 - **ChatSession** → pro Projekt, enthält ChatMessages. `type`: `INFRASTRUCTURE` (permanenter Chat) | `DEV_SESSION` (eigener Git-Branch). `status`: `ACTIVE` | `MERGING` | `ARCHIVED` | `CONFLICT`. Optional: `branch` (Git-Branch-Name), `archivedAt`, `parentId` (Fortsetzung einer archivierten Session). Dev-Sessions werden bei Archivierung in main gemergt. Issues können über `chatSessionId` einer Session zugeordnet sein.
 - **AgentInstance** → konfigurierter Agent pro Projekt (Rolle + Provider + Model)
-- **AgentTask** → einzelner Arbeitsschritt eines Agenten (11 Task-Typen)
+- **AgentTask** → einzelner Arbeitsschritt eines Agenten (13 Task-Typen, including `FEATURE_INTERVIEW` and `INFRA_COMMAND`)
 - **AgentLog** → Echtzeit-Logs für Live-Dashboard
 - **McpServerDefinition** → Registrierte MCP-Server (name unique, command, args, argTemplate, envTemplate, category, builtin-Flag). 9 Built-in Server (filesystem, git, gitlab, prisma, angular-cli, shell, playwright, eslint, security-audit) beim Start geseeded, nicht löschbar.
 - **McpServerOnRole** → Many-to-many Join zwischen McpServerDefinition und AgentRole. Definiert welche MCP-Server einer Agent-Rolle zur Verfügung stehen. @@unique(mcpServerId, agentRole).
@@ -142,9 +142,29 @@ Jede Rolle hat ein vollständiges Behavior Profile (System Prompt) mit: Verantwo
 
 ## Agent Pipeline Flow
 
+The pipeline is split into two chat types with distinct flows:
+
+### Infrastructure Chat (INFRASTRUCTURE)
+
 ```
 Interview → agent.interviewComplete
-  → DevOps → agent.devopsComplete
+  → DevOps (project setup) → agent.devopsComplete → STOP
+    ↓
+  Generates: ENVIRONMENT.md in project workspace
+  Project status → READY
+    ↓
+  Infrastructure Chat enters YOLO mode:
+    User sends infra commands → DevOps handleInfraCommand()
+    (MCP agent loop with filesystem/shell/git tools)
+```
+
+After initial setup completes, the Infrastructure Chat becomes a persistent YOLO mode terminal. The user can send infrastructure commands (e.g., "install tailwind", "update dependencies", "fix build") and the DevOps agent executes them via MCP tools without going through the full pipeline.
+
+### Dev Session Chat (DEV_SESSION)
+
+```
+User creates Dev Session → session.devSessionCreated (own git branch)
+  → Feature Interview (Interviewer) → agent.featureInterviewComplete
     → Architect (Phase A: Design) → agent.architectDesignComplete
       → Issue Compiler → agent.issueCompilerComplete
         → Architect (Phase B: Grounding) → agent.architectGroundingComplete
@@ -166,8 +186,22 @@ GitLab Webhooks:
   gitlab.userComment (auf DONE/IN_REVIEW/TESTING Issue) → Coder fixIssue()
 ```
 
+### Key Differences from Previous Flow
+
+| Aspect | Before | After |
+|---|---|---|
+| DevOps completion | Triggers Architect | STOPS (pipeline ends for infra chat) |
+| Feature interview | Same as project interview | Separate `startFeatureInterview()` / `continueFeatureInterview()` on Interviewer |
+| New events | — | `session.devSessionCreated`, `agent.featureInterviewComplete` |
+| New task types | — | `FEATURE_INTERVIEW`, `INFRA_COMMAND` |
+| Infra after setup | One-shot | YOLO mode (persistent, MCP-based) |
+
+### Interviewer Agent (2 Modes)
+- **Project Interview** (`startInterview()` / `continueInterview()`): Initial project interview in Infrastructure Chat. Gathers tech stack, features, deployment requirements. Triggers `agent.interviewComplete` → DevOps setup.
+- **Feature Interview** (`startFeatureInterview()` / `continueFeatureInterview()`): Per-session interview in Dev Session Chats. Gathers feature requirements within the context of an existing project. Triggers `agent.featureInterviewComplete` → Architect. Task type: `FEATURE_INTERVIEW`.
+
 ### Architect Agent (2 Phasen)
-- **Phase A — Design** (einmalig nach DevOps, Task: `DESIGN_ARCHITECTURE`)
+- **Phase A — Design** (after Feature Interview in Dev Session, Task: `DESIGN_ARCHITECTURE`)
   - Liest Projektstruktur via MCP Filesystem (bestehender Code) oder entwirft Architektur (leeres Repo)
   - Postet Architektur-Überblick als Chat-Message
   - Adaptiv: Analysiert vorhandenen Code ODER designt von Grund auf
@@ -301,11 +335,13 @@ Eigener MCP-Server, der dem Coder Agent sichere Shell-Befehle im Workspace ermö
 - Schreibt Dateien im Workspace, committed auf Feature-Branch
 - Issue → DONE nach Abschluss
 
-### DevOps Agent — CI/CD
+### DevOps Agent — CI/CD + YOLO Mode
 - Generiert deterministische `.gitlab-ci.yml` basierend auf Tech-Stack
 - Templates: Node/Angular/React (4 Stages), Python, Rust, Go, Generic
 - Runner-Tags: `docker`, `vibcode`
 - **Initiale Projekt-Dokumentation**: README.md, CHANGELOG.md, CONTRIBUTING.md, PROJECT_KNOWLEDGE.md
+- **ENVIRONMENT.md**: Generated during project setup in the workspace root — contains environment details, installed dependencies, tech stack summary, and workspace paths. Used as context by other agents.
+- **YOLO Mode** (`handleInfraCommand()`): After initial setup, the DevOps agent stays available in the Infrastructure Chat. User messages are treated as infrastructure commands and executed via MCP agent loop (filesystem, shell, git tools). Task type: `INFRA_COMMAND`. No LLM interview — direct execution with tool access.
 
 ### Project Knowledge Base (`PROJECT_KNOWLEDGE.md`)
 - **Automatisch gepflegt** — wird vom DevOps Agent initial erstellt, vom Documenter nach jedem Merge aktualisiert
