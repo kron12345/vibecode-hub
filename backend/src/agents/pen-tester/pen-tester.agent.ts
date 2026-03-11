@@ -264,11 +264,28 @@ Do NOT omit the JSON block.`;
       // Parse primary result
       let testResult = this.parseTestResult(dualResult.primary.content, issueId, auditResult);
 
+      // If parsing returned 0 findings but the response was substantial, retry JSON extraction
+      if (testResult && testResult.findings.length === 0 && dualResult.primary.content.length > 500) {
+        const retryJson = await this.dualTestService.retryJsonExtraction(
+          config,
+          dualResult.primary.content,
+          '{"passed": true/false, "summary": "1-2 sentences", "findings": [{"category": "A01:2021", "severity": "critical|warning|info", "description": "...", "file": "path", "recommendation": "fix"}], "auditResult": {"vulnerabilities": 0, "critical": 0, "high": 0}}',
+        );
+        if (retryJson) {
+          const retried = this.parseTestResult(retryJson, issueId, auditResult);
+          if (retried && retried.findings.length > 0) {
+            this.logger.log(`JSON retry recovered ${retried.findings.length} security findings`);
+            testResult = retried;
+          }
+        }
+      }
+
       // Dual-testing: parse secondary and merge/consensus findings
       if (testResult && dualResult.secondary && dualResult.secondary.finishReason !== 'error') {
         const secondaryResult = this.parseTestResult(dualResult.secondary.content, issueId, auditResult);
         if (secondaryResult) {
-          const strategy = config.dualStrategy ?? 'consensus';
+          // Security testing uses merge (union) by default — we want ALL findings, not just consensus
+          const strategy = config.dualStrategy ?? 'merge';
           const { merged, stats } = this.dualTestService.mergeFindings(
             testResult.findings,
             secondaryResult.findings,
@@ -599,16 +616,19 @@ Do NOT omit the JSON block.`;
       if (json) return json;
     }
 
+    // Validate candidates actually parse as JSON to avoid matching code blocks
     const allJson = [...content.matchAll(/\{[^{}]*(?:\{[^{}]*\}[^{}]*)*\}/g)];
     for (let i = allJson.length - 1; i >= 0; i--) {
       const candidate = allJson[i][0];
       if (candidate.includes('"passed"') || candidate.includes('"findings"')) {
-        return candidate;
+        try { JSON.parse(candidate); return candidate; } catch { continue; }
       }
     }
 
     const greedy = content.match(/\{[\s\S]*"passed"[\s\S]*\}/);
-    if (greedy) return greedy[0];
+    if (greedy) {
+      try { JSON.parse(greedy[0]); return greedy[0]; } catch { /* skip */ }
+    }
 
     return null;
   }

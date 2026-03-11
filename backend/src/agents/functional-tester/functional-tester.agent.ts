@@ -367,18 +367,20 @@ Do NOT omit the JSON block.`;
       if (json) return json;
     }
 
-    // Strategy 3: Last JSON with "passed" key
+    // Strategy 3: Last JSON with "passed" key — validate it actually parses
     const allJson = [...content.matchAll(/\{[^{}]*(?:\{[^{}]*\}[^{}]*)*\}/g)];
     for (let i = allJson.length - 1; i >= 0; i--) {
       const candidate = allJson[i][0];
       if (candidate.includes('"passed"') || candidate.includes('"findings"')) {
-        return candidate;
+        try { JSON.parse(candidate); return candidate; } catch { continue; }
       }
     }
 
-    // Strategy 4: Greedy
+    // Strategy 4: Greedy — must also validate as parseable JSON
     const greedy = content.match(/\{[\s\S]*"passed"[\s\S]*\}/);
-    if (greedy) return greedy[0];
+    if (greedy) {
+      try { JSON.parse(greedy[0]); return greedy[0]; } catch { /* skip */ }
+    }
 
     return null;
   }

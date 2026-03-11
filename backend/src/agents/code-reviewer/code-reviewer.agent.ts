@@ -182,6 +182,22 @@ Provide your review analysis and end with the completion marker and JSON result.
       // Parse primary review result
       let reviewResult = this.parseReviewResult(dualResult.primary.content, issueId, mrIid);
 
+      // If parsing returned 0 findings but the response was substantial, retry JSON extraction
+      if (reviewResult && reviewResult.findings.length === 0 && dualResult.primary.content.length > 500) {
+        const retryJson = await this.dualTestService.retryJsonExtraction(
+          config,
+          dualResult.primary.content,
+          '{"approved": true/false, "summary": "1-2 sentences", "findings": [{"severity": "critical|warning|info", "file": "path", "line": 0, "message": "description", "suggestion": "fix"}]}',
+        );
+        if (retryJson) {
+          const retried = this.parseReviewResult(retryJson, issueId, mrIid);
+          if (retried && retried.findings.length > 0) {
+            this.logger.log(`JSON retry recovered ${retried.findings.length} findings`);
+            reviewResult = retried;
+          }
+        }
+      }
+
       // Dual-testing: parse secondary and merge findings
       if (reviewResult && dualResult.secondary && dualResult.secondary.finishReason !== 'error') {
         const secondaryReview = this.parseReviewResult(dualResult.secondary.content, issueId, mrIid);
@@ -441,22 +457,23 @@ Provide your review analysis and end with the completion marker and JSON result.
     }
 
     // Strategy 3: Last JSON object in the content (review JSON is usually at the end)
+    // Validate each candidate actually parses as JSON to avoid matching code blocks
     const allJsonMatches = [...content.matchAll(/\{[^{}]*(?:\{[^{}]*\}[^{}]*)*\}/g)];
     if (allJsonMatches.length > 0) {
-      // Try from last to first — the review JSON is most likely the last one
       for (let i = allJsonMatches.length - 1; i >= 0; i--) {
         const candidate = allJsonMatches[i][0];
-        // Match both expected format and deepseek-r1 format
         if (candidate.includes('"approved"') || candidate.includes('"findings"')
           || candidate.includes('"status"') || candidate.includes('"issues"')) {
-          return candidate;
+          try { JSON.parse(candidate); return candidate; } catch { continue; }
         }
       }
     }
 
-    // Strategy 4: Greedy match for a large JSON object containing review keywords
+    // Strategy 4: Greedy match — must also validate as parseable JSON
     const greedyMatch = content.match(/\{[\s\S]*(?:"approved"|"status")[\s\S]*\}/);
-    if (greedyMatch) return greedyMatch[0];
+    if (greedyMatch) {
+      try { JSON.parse(greedyMatch[0]); return greedyMatch[0]; } catch { /* skip */ }
+    }
 
     return null;
   }

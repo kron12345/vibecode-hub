@@ -177,6 +177,69 @@ export class DualTestService {
   isDualConfigured(config: AgentRoleConfig): boolean {
     return !!(config.dualProvider && config.dualModel);
   }
+
+  /**
+   * Retry JSON extraction from an LLM response that failed to parse.
+   * Sends a short follow-up call asking the LLM to output ONLY the JSON.
+   *
+   * @param config Agent role config (provider/model)
+   * @param originalResponse The original LLM text that failed JSON parsing
+   * @param jsonSchema Description of the expected JSON structure
+   * @returns Raw JSON string or null if retry also fails
+   */
+  async retryJsonExtraction(
+    config: AgentRoleConfig,
+    originalResponse: string,
+    jsonSchema: string,
+  ): Promise<string | null> {
+    try {
+      // Truncate to avoid hitting token limits on the retry
+      const truncated = originalResponse.substring(0, 4000);
+
+      const messages: LlmMessage[] = [
+        {
+          role: 'system',
+          content: 'You are a JSON formatter. Extract structured data from analysis text. Output ONLY valid JSON — no markdown, no explanation, no code fences.',
+        },
+        {
+          role: 'user',
+          content: `Extract the analysis result from the following text as a JSON object.\n\nExpected format:\n${jsonSchema}\n\n---\nText to extract from:\n${truncated}\n\n---\nOutput ONLY the JSON object. No other text.`,
+        },
+      ];
+
+      const result = await this.llmService.complete({
+        provider: config.provider,
+        model: config.model,
+        messages,
+        temperature: 0.1,
+        maxTokens: 2000,
+      });
+
+      if (result.finishReason === 'error' || !result.content.trim()) return null;
+
+      // Try to find and parse JSON from the retry response
+      const content = result.content.trim();
+
+      // Strip code fences if present
+      const stripped = content
+        .replace(/^```(?:json)?\s*\n?/, '')
+        .replace(/\n?```\s*$/, '')
+        .trim();
+
+      // Find JSON object
+      const match = stripped.match(/\{[\s\S]*\}/);
+      if (!match) return null;
+
+      // Validate it actually parses
+      JSON.parse(match[0]);
+      this.logger.log(`JSON retry succeeded: ${match[0].length} chars`);
+      return match[0];
+
+    } catch (err) {
+      this.logger.warn(`JSON retry failed: ${err.message}`);
+      return null;
+    }
+  }
 }
 
 export interface MergeStats {

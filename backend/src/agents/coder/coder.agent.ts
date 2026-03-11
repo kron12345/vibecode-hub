@@ -489,16 +489,53 @@ export class CoderAgent extends BaseAgent {
       // Check changes (includes both uncommitted AND committed changes vs default branch)
       const changedFiles = await this.getChangedFiles(workspace, fixDefaultBranch);
 
+      // If no files were changed, the fix attempt was a no-op — signal failure
+      if (changedFiles.length === 0) {
+        this.logger.warn(`Fix attempt produced 0 code changes for issue ${issueId}`);
+        await this.sendAgentMessage(
+          ctx,
+          `⚠️ Fix attempt produced no code changes for #${issue.gitlabIid ?? '?'} — skipping review`,
+        );
+
+        await this.prisma.agentTask.update({
+          where: { id: agentTask.id },
+          data: {
+            status: AgentTaskStatus.COMPLETED,
+            output: { changedFiles: [], feedbackSource, noChanges: true } as any,
+            completedAt: new Date(),
+          },
+        });
+        await this.updateStatus(ctx, AgentStatus.IDLE);
+
+        // Emit codingComplete with noChanges flag so orchestrator skips review
+        const existingTask = await this.prisma.agentTask.findFirst({
+          where: { issueId, gitlabMrIid: { not: null } },
+          orderBy: { startedAt: 'desc' },
+          select: { gitlabMrIid: true },
+        });
+        this.eventEmitter.emit('agent.codingComplete', {
+          projectId: ctx.projectId,
+          chatSessionId: ctx.chatSessionId,
+          issueId,
+          gitlabIid: issue.gitlabIid,
+          mrIid: existingTask?.gitlabMrIid ?? undefined,
+          gitlabProjectId: issue.project.gitlabProjectId,
+          branch: branchName,
+          noChanges: true,
+        });
+
+        await this.gitCheckout(workspace, glProject.default_branch);
+        return;
+      }
+
       let commitSha: string | undefined;
       let commitUrl: string | undefined;
-      if (changedFiles.length > 0) {
-        commitSha = await this.gitCommitAndPush(
-          workspace,
-          branchName,
-          `fix: address ${sourceLabel.toLowerCase()} for ${issue.title}`,
-        );
-        commitUrl = `${gitlabBaseUrl}/${glProject.path_with_namespace}/-/commit/${commitSha}`;
-      }
+      commitSha = await this.gitCommitAndPush(
+        workspace,
+        branchName,
+        `fix: address ${sourceLabel.toLowerCase()} for ${issue.title}`,
+      );
+      commitUrl = `${gitlabBaseUrl}/${glProject.path_with_namespace}/-/commit/${commitSha}`;
 
       const commitShort = commitSha?.substring(0, 8);
 

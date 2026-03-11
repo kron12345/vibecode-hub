@@ -619,8 +619,22 @@ export class AgentOrchestratorService implements OnModuleInit, OnModuleDestroy {
     mrIid?: number;
     gitlabProjectId: number;
     branch: string;
+    noChanges?: boolean;
   }) {
     const { projectId, chatSessionId, issueId, mrIid, gitlabProjectId } = payload;
+
+    // If fix attempt made no changes, skip review and re-trigger coder directly
+    if (payload.noChanges) {
+      this.logger.warn(`Fix for issue ${issueId} produced 0 code changes — skipping review, re-triggering Coder`);
+      await this.retriggerCoder(
+        projectId,
+        chatSessionId,
+        issueId,
+        'Previous fix attempt made ZERO code changes. You MUST actually edit the source files to fix the issues. Read the files, understand the problem, and make concrete changes.',
+        'review',
+      );
+      return;
+    }
 
     if (!mrIid) {
       this.logger.warn(`No MR for issue ${issueId} — skipping pipeline, marking NEEDS_REVIEW`);
