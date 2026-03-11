@@ -65,15 +65,15 @@ type Tab = 'overview' | 'settings';
   template: `
     @if (project(); as p) {
       <!-- Header -->
-      <div class="flex items-start justify-between mb-6">
-        <div>
+      <div class="flex items-start justify-between gap-6 mb-6">
+        <div class="min-w-0 flex-1">
           <a routerLink="/" class="text-slate-500 text-sm hover:text-indigo-400 transition-colors flex items-center gap-1 mb-2 animate-in stagger-1">
             <app-icon name="arrow-left" [size]="14" /> {{ 'project.backToDashboard' | translate }}
           </a>
           <h1 class="text-3xl font-extrabold tracking-tight bg-gradient-to-r from-white via-indigo-200 to-slate-500 bg-clip-text text-transparent animate-in stagger-2">
             {{ p.name }}
           </h1>
-          <p class="text-slate-500 mt-1 line-clamp-2">
+          <p class="text-slate-500 mt-1 line-clamp-2 text-sm">
             {{ p.description }}
             @if (p.gitlabUrl) {
               <span class="mx-2 text-slate-700">&middot;</span>
@@ -91,7 +91,7 @@ type Tab = 'overview' | 'settings';
         </div>
         @if (p.previewPort) {
           <a [href]="'https://' + p.slug + '.hub.example.com'" target="_blank"
-            class="flex items-center gap-2 px-5 py-2.5 rounded-xl bg-emerald-500/15 text-emerald-400 border border-emerald-500/20 hover:bg-emerald-500/25 hover:border-emerald-500/40 transition-all text-sm font-medium shadow-lg shadow-emerald-500/5 animate-in stagger-2">
+            class="shrink-0 flex items-center gap-2 px-5 py-2.5 rounded-xl bg-emerald-500/15 text-emerald-400 border border-emerald-500/20 hover:bg-emerald-500/25 hover:border-emerald-500/40 transition-all text-sm font-medium shadow-lg shadow-emerald-500/5 animate-in stagger-2 whitespace-nowrap">
             <app-icon name="globe" [size]="16" />
             {{ 'project.openPreview' | translate }}
             <app-icon name="external-link" [size]="14" class="opacity-50" />
@@ -126,7 +126,7 @@ type Tab = 'overview' | 'settings';
           <div class="flex items-center justify-between mb-4">
             <h2 class="text-sm font-bold text-slate-500 uppercase tracking-widest">{{ 'project.agentPipeline' | translate }}</h2>
             @if (hasWorkingAgent()) {
-              <span class="text-[10px] text-indigo-400 font-mono animate-pulse uppercase tracking-widest">{{ 'project.processing' | translate }}</span>
+              <span class="text-[10px] text-indigo-400 font-mono animate-pulse uppercase tracking-widest shrink-0">{{ 'project.processing' | translate }}</span>
             }
           </div>
 
@@ -195,18 +195,18 @@ type Tab = 'overview' | 'settings';
               @for (group of issuesByMilestone(); track group.id) {
                 <!-- Milestone Header -->
                 <button
-                  class="w-full flex items-center justify-between px-3 py-2 mb-1 rounded-xl bg-amber-500/10 border border-amber-500/20 hover:bg-amber-500/15 transition-all cursor-pointer"
+                  class="w-full flex items-center justify-between gap-2 px-3 py-2 mb-1 rounded-xl bg-amber-500/10 border border-amber-500/20 hover:bg-amber-500/15 transition-all cursor-pointer"
                   (click)="toggleMilestone(group.id)"
                 >
-                  <div class="flex items-center gap-2">
+                  <div class="flex items-center gap-2 min-w-0">
                     <app-icon
                       [name]="isMilestoneExpanded(group.id) ? 'chevron-down' : 'chevron-right'"
                       [size]="14"
-                      class="text-amber-400"
+                      class="text-amber-400 shrink-0"
                     />
-                    <span class="text-xs font-bold text-amber-400 uppercase tracking-widest">{{ group.title }}</span>
+                    <span class="text-xs font-bold text-amber-400 uppercase tracking-widest truncate">{{ group.title }}</span>
                   </div>
-                  <span class="text-[10px] font-mono text-amber-500/60">
+                  <span class="text-[10px] font-mono text-amber-500/60 shrink-0">
                     {{ i18n.t('project.milestoneIssues', { count: group.issues.length }) }}
                   </span>
                 </button>
