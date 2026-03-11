@@ -8,10 +8,23 @@ import { ChatGateway } from '../chat/chat.gateway';
 import { LlmService } from '../llm/llm.service';
 import { LlmMessage, LlmCompletionResult } from '../llm/llm.interfaces';
 import { MonitorGateway } from '../monitor/monitor.gateway';
-import { AgentRole, AgentStatus, MessageRole } from '@prisma/client';
+import { AgentRole, AgentStatus, ChatSessionType, MessageRole } from '@prisma/client';
 
 export const KNOWLEDGE_BASE_FILE = 'PROJECT_KNOWLEDGE.md';
 export const ENVIRONMENT_FILE = 'ENVIRONMENT.md';
+
+/**
+ * Compute the worktree path for a dev session.
+ * Convention: {devopsWorkspacePath}/.session-worktrees/{projectSlug}--{sanitizedBranch}/
+ */
+export function getSessionWorktreePath(
+  devopsWorkspacePath: string,
+  projectSlug: string,
+  branch: string,
+): string {
+  const sanitized = branch.replace(/[^a-zA-Z0-9_-]/g, '-');
+  return path.resolve(devopsWorkspacePath, '.session-worktrees', `${projectSlug}--${sanitized}`);
+}
 
 export interface AgentContext {
   projectId: string;
@@ -264,6 +277,31 @@ export abstract class BaseAgent {
     } catch {
       return '';
     }
+  }
+
+  /**
+   * Resolve the correct workspace path for an agent context.
+   * Dev sessions use git worktrees, infrastructure uses the main workspace.
+   */
+  protected async resolveWorkspace(
+    projectSlug: string,
+    chatSessionId?: string,
+  ): Promise<string> {
+    if (chatSessionId) {
+      const session = await this.prisma.chatSession.findUnique({
+        where: { id: chatSessionId },
+        select: { type: true, branch: true },
+      });
+
+      if (session?.type === ChatSessionType.DEV_SESSION && session.branch) {
+        return getSessionWorktreePath(
+          this.settings.devopsWorkspacePath,
+          projectSlug,
+          session.branch,
+        );
+      }
+    }
+    return path.resolve(this.settings.devopsWorkspacePath, projectSlug);
   }
 
   /** Map Prisma MessageRole to LLM role */

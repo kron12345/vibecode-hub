@@ -21,6 +21,7 @@ import {
   AgentStatus,
   AgentTaskStatus,
   AgentTaskType,
+  ChatSessionType,
   IssueStatus,
 } from '@prisma/client';
 
@@ -72,13 +73,27 @@ export class CoderAgent extends BaseAgent {
         return;
       }
 
-      // Resolve workspace path
-      const workspace = path.resolve(this.settings.devopsWorkspacePath, project.slug);
+      // Determine if running in a dev session
+      let isDevSession = false;
+      let chatSessionFilter: { chatSessionId?: string } = {};
+      if (ctx.chatSessionId) {
+        const session = await this.prisma.chatSession.findUnique({
+          where: { id: ctx.chatSessionId },
+          select: { type: true },
+        });
+        isDevSession = session?.type === ChatSessionType.DEV_SESSION;
+        if (isDevSession) {
+          chatSessionFilter = { chatSessionId: ctx.chatSessionId };
+        }
+      }
 
-      // Pull latest on base branch
+      // Resolve workspace — dev sessions use git worktrees
+      const workspace = await this.resolveWorkspace(project.slug, ctx.chatSessionId);
+
+      // Pull latest on workspace
       await this.gitPull(workspace);
 
-      // Find the NEXT open issue (first by milestone sortOrder, then by issue sortOrder)
+      // Find the NEXT open issue — scoped to session if dev session
       // Sequential strategy: we only process ONE issue at a time.
       // After the full pipeline (Review → Test → Docs → Merge), the orchestrator triggers us again.
       const milestones = await this.prisma.milestone.findMany({
@@ -88,12 +103,13 @@ export class CoderAgent extends BaseAgent {
             some: {
               status: IssueStatus.OPEN,
               parentId: null,
+              ...chatSessionFilter,
             },
           },
         },
         include: {
           issues: {
-            where: { parentId: null, status: IssueStatus.OPEN },
+            where: { parentId: null, status: IssueStatus.OPEN, ...chatSessionFilter },
             include: {
               subIssues: { orderBy: { sortOrder: 'asc' } },
             },
@@ -116,7 +132,7 @@ export class CoderAgent extends BaseAgent {
 
       // Count remaining open issues for context
       const remainingCount = await this.prisma.issue.count({
-        where: { projectId: ctx.projectId, status: IssueStatus.OPEN, parentId: null },
+        where: { projectId: ctx.projectId, status: IssueStatus.OPEN, parentId: null, ...chatSessionFilter },
       });
 
       await this.sendAgentMessage(
@@ -129,6 +145,7 @@ export class CoderAgent extends BaseAgent {
       const defaultBranch = project.workBranch || glProject.default_branch;
 
       // Check if this session has its own branch (session-based branching)
+      // With worktrees, the session workspace is already on the correct branch
       const chatSession = ctx.chatSessionId
         ? await this.prisma.chatSession.findUnique({
             where: { id: ctx.chatSessionId },
@@ -220,9 +237,9 @@ export class CoderAgent extends BaseAgent {
         });
       }
 
-      // Checkout branch: either session branch (already exists) or create feature branch
+      // Checkout branch: worktree already on session branch, or create feature branch
       if (sessionBranch) {
-        await this.gitCheckout(workspace, sessionBranch);
+        // Worktree is already on the session branch — just pull latest
         await this.gitPull(workspace);
       } else {
         await this.gitCheckout(workspace, defaultBranch);
@@ -244,7 +261,9 @@ export class CoderAgent extends BaseAgent {
       if (changedFiles.length === 0) {
         await this.sendAgentMessage(ctx, `⚠️ Agent produced no file changes for #${issue.gitlabIid ?? '?'} — marking for manual review`);
         result.status = 'skipped';
-        await this.gitCheckout(workspace, defaultBranch);
+        if (!sessionBranch) {
+          await this.gitCheckout(workspace, defaultBranch);
+        }
 
         // Reset issue status so it doesn't stay orphaned in IN_PROGRESS
         await this.issuesService.update(issue.id, { status: IssueStatus.NEEDS_REVIEW });
@@ -381,8 +400,10 @@ export class CoderAgent extends BaseAgent {
         this.logger.warn(`No MR created for issue ${issue.gitlabIid} — codingComplete emitted without MR`);
       }
 
-      // Switch back to base branch for next issue (session branch stays, feature branch goes back to default)
-      await this.gitCheckout(workspace, sessionBranch || defaultBranch);
+      // Switch back to default branch for non-session issues (worktree stays on session branch)
+      if (!sessionBranch) {
+        await this.gitCheckout(workspace, defaultBranch);
+      }
 
       return result;
 
@@ -410,11 +431,13 @@ export class CoderAgent extends BaseAgent {
         await this.issuesService.update(issue.id, { status: IssueStatus.OPEN });
       } catch { /* best effort */ }
 
-      // Try to switch back to default branch
-      try {
-        await this.gitCheckout(workspace, defaultBranch);
-      } catch {
-        // Best effort
+      // Try to switch back to default branch (only for non-session workspaces)
+      if (!sessionBranch) {
+        try {
+          await this.gitCheckout(workspace, defaultBranch);
+        } catch {
+          // Best effort
+        }
       }
 
       return result;
@@ -453,8 +476,21 @@ export class CoderAgent extends BaseAgent {
         return;
       }
 
-      const workspace = path.resolve(this.settings.devopsWorkspacePath, issue.project.slug);
-      const branchName = `feature/${issue.gitlabIid ?? issue.id}-${this.slugify(issue.title)}`;
+      // Check if issue belongs to a dev session — use worktree if so
+      const issueSession = issue.chatSessionId
+        ? await this.prisma.chatSession.findUnique({
+            where: { id: issue.chatSessionId },
+            select: { type: true, branch: true },
+          })
+        : null;
+      const isSessionIssue = issueSession?.type === ChatSessionType.DEV_SESSION;
+
+      const workspace = isSessionIssue && issueSession?.branch
+        ? await this.resolveWorkspace(issue.project.slug, issue.chatSessionId!)
+        : path.resolve(this.settings.devopsWorkspacePath, issue.project.slug);
+      const branchName = isSessionIssue && issueSession?.branch
+        ? issueSession.branch
+        : `feature/${issue.gitlabIid ?? issue.id}-${this.slugify(issue.title)}`;
 
       // Update issue status
       await this.issuesService.update(issueId, { status: IssueStatus.IN_PROGRESS });
@@ -488,8 +524,10 @@ export class CoderAgent extends BaseAgent {
         });
       }
 
-      // Checkout existing feature branch
-      await this.gitCheckout(workspace, branchName);
+      // Checkout existing feature branch (worktree already on session branch)
+      if (!isSessionIssue) {
+        await this.gitCheckout(workspace, branchName);
+      }
       await this.gitPull(workspace);
 
       // Build fix prompt with feedback context
@@ -541,7 +579,9 @@ export class CoderAgent extends BaseAgent {
           noChanges: true,
         });
 
-        await this.gitCheckout(workspace, glProject.default_branch);
+        if (!isSessionIssue) {
+          await this.gitCheckout(workspace, glProject.default_branch);
+        }
         return;
       }
 
@@ -621,8 +661,10 @@ export class CoderAgent extends BaseAgent {
         this.logger.warn(`No MR found for fixIssue ${issueId} — codingComplete emitted without MR`);
       }
 
-      // Switch back to default
-      await this.gitCheckout(workspace, glProject.default_branch);
+      // Switch back to default branch (only for non-session issues)
+      if (!isSessionIssue) {
+        await this.gitCheckout(workspace, glProject.default_branch);
+      }
 
       await this.updateStatus(ctx, AgentStatus.IDLE);
 

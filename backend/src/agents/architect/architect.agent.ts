@@ -14,11 +14,13 @@ import { LlmMessage } from '../../llm/llm.interfaces';
 import { BaseAgent, AgentContext } from '../agent-base';
 import { MonitorGateway } from '../../monitor/monitor.gateway';
 import { postAgentComment } from '../agent-comment.utils';
+import { FeatureInterviewResult, InterviewResult } from '../interviewer/interview-result.interface';
 import {
   AgentRole,
   AgentStatus,
   AgentTaskStatus,
   AgentTaskType,
+  ChatSessionType,
   IssueStatus,
 } from '@prisma/client';
 
@@ -121,21 +123,64 @@ export class ArchitectAgent extends BaseAgent {
         return;
       }
 
-      const workspace = path.resolve(this.settings.devopsWorkspacePath, project.slug);
+      const workspace = await this.resolveWorkspace(project.slug, ctx.chatSessionId);
       const hasCode = this.workspaceHasCode(workspace);
+
+      // Check for dev session features
+      let sessionFeaturesSection = '';
+      if (ctx.chatSessionId) {
+        const session = await this.prisma.chatSession.findUnique({
+          where: { id: ctx.chatSessionId },
+          select: { type: true },
+        });
+
+        if (session?.type === ChatSessionType.DEV_SESSION) {
+          // Get features from the latest FEATURE_INTERVIEW task
+          const featureTask = await this.prisma.agentTask.findFirst({
+            where: {
+              type: AgentTaskType.FEATURE_INTERVIEW,
+              status: AgentTaskStatus.COMPLETED,
+              agent: { projectId: ctx.projectId },
+            },
+            orderBy: { completedAt: 'desc' },
+            select: { output: true },
+          });
+
+          const featureResult = featureTask?.output as unknown as FeatureInterviewResult;
+          if (featureResult?.features?.length) {
+            const featureList = featureResult.features
+              .map((f, i) => `${i + 1}. **${f.title}** [${f.priority}]: ${f.description || ''}`)
+              .join('\n');
+            sessionFeaturesSection = [
+              '',
+              `## Session Goal: ${featureResult.sessionGoal}`,
+              '',
+              '## Features to build in this session:',
+              featureList,
+            ].join('\n');
+          }
+
+          // Also read ENVIRONMENT.md for tech context
+          const envDoc = await this.readEnvironmentDoc(workspace);
+          if (envDoc) {
+            sessionFeaturesSection += `\n\n## Environment\n${envDoc.substring(0, 4000)}`;
+          }
+        }
+      }
 
       // Build the user prompt with project context
       const techStack = project.techStack ? JSON.stringify(project.techStack, null, 2) : 'Not specified';
       const userPrompt = [
         `## Project: ${project.name}`,
         `## Tech Stack:\n\`\`\`json\n${techStack}\n\`\`\``,
+        sessionFeaturesSection,
         '',
         hasCode
           ? 'The workspace already contains code. Analyze the existing codebase and document the architecture.'
           : 'The workspace is empty or minimal. Design the architecture based on the tech stack.',
         '',
         `Workspace path: ${workspace}`,
-      ].join('\n');
+      ].filter(Boolean).join('\n');
 
       let architectureOverview: string;
 
@@ -206,13 +251,26 @@ export class ArchitectAgent extends BaseAgent {
         return;
       }
 
-      // Find all OPEN issues for this project
+      // Check if running in a dev session — scope issues accordingly
+      let chatSessionFilter: { chatSessionId?: string } = {};
+      if (ctx.chatSessionId) {
+        const session = await this.prisma.chatSession.findUnique({
+          where: { id: ctx.chatSessionId },
+          select: { type: true },
+        });
+        if (session?.type === ChatSessionType.DEV_SESSION) {
+          chatSessionFilter = { chatSessionId: ctx.chatSessionId };
+        }
+      }
+
+      // Find OPEN issues — scoped to session if dev session, otherwise all project issues
       // Only ground top-level issues (not sub-tasks)
       const issues = await this.prisma.issue.findMany({
         where: {
           projectId: ctx.projectId,
           status: IssueStatus.OPEN,
           parentId: null,
+          ...chatSessionFilter,
         },
         orderBy: { createdAt: 'asc' },
         include: {
@@ -232,7 +290,7 @@ export class ArchitectAgent extends BaseAgent {
         `🏗️ **Architect** — Analysiere ${issues.length} Issue(s) und erstelle Grounding-Kommentare...`,
       );
 
-      const workspace = path.resolve(this.settings.devopsWorkspacePath, project.slug);
+      const workspace = await this.resolveWorkspace(project.slug, ctx.chatSessionId);
       let groundedCount = 0;
 
       for (const issue of issues) {

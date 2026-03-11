@@ -54,6 +54,11 @@ export class CreateIssueDto {
   @IsInt()
   sortOrder?: number;
 
+  @ApiProperty({ required: false, description: 'Chat session ID to link this issue to a dev session' })
+  @IsOptional()
+  @IsString()
+  chatSessionId?: string;
+
   @ApiProperty({ required: false, description: 'Sync to GitLab on creation' })
   @IsOptional()
   syncToGitlab?: boolean;

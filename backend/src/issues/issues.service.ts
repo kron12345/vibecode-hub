@@ -69,6 +69,7 @@ export class IssuesService {
         labels: data.labels ?? [],
         parentId: data.parentId,
         milestoneId: data.milestoneId,
+        chatSessionId: data.chatSessionId,
         sortOrder: data.sortOrder ?? 0,
       },
       include: { project: { select: { gitlabProjectId: true } } },

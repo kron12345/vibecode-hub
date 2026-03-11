@@ -10,7 +10,7 @@ import { IssuesService } from '../../issues/issues.service';
 import { LlmMessage } from '../../llm/llm.interfaces';
 import { BaseAgent, AgentContext } from '../agent-base';
 import { MonitorGateway } from '../../monitor/monitor.gateway';
-import { InterviewResult } from '../interviewer/interview-result.interface';
+import { InterviewResult, FeatureInterviewResult, InterviewFeature } from '../interviewer/interview-result.interface';
 import {
   CompiledIssue,
   CompiledMilestone,
@@ -21,6 +21,8 @@ import {
   AgentRole,
   AgentStatus,
   AgentTaskStatus,
+  AgentTaskType,
+  ChatSessionType,
   IssuePriority,
 } from '@prisma/client';
 
@@ -264,9 +266,58 @@ export class IssueCompilerAgent extends BaseAgent {
       });
       if (!project) throw new Error('Project not found');
 
-      const interviewResult = project.techStack as unknown as InterviewResult;
-      if (!interviewResult?.features?.length) {
-        throw new Error('No features found in interview result');
+      // Determine if we're running in a dev session
+      let isDevSession = false;
+      let chatSessionId: string | undefined;
+      if (ctx.chatSessionId) {
+        const session = await this.prisma.chatSession.findUnique({
+          where: { id: ctx.chatSessionId },
+          select: { type: true, id: true },
+        });
+        isDevSession = session?.type === ChatSessionType.DEV_SESSION;
+        if (isDevSession) chatSessionId = session!.id;
+      }
+
+      let interviewResult: InterviewResult;
+
+      if (isDevSession) {
+        // Dev session: get features from the FEATURE_INTERVIEW task output
+        const featureTask = await this.prisma.agentTask.findFirst({
+          where: {
+            type: AgentTaskType.FEATURE_INTERVIEW,
+            status: AgentTaskStatus.COMPLETED,
+            agent: { projectId: ctx.projectId },
+          },
+          orderBy: { completedAt: 'desc' },
+          select: { output: true },
+        });
+
+        const featureResult = featureTask?.output as unknown as FeatureInterviewResult;
+        if (!featureResult?.features?.length) {
+          throw new Error('No features found in feature interview result');
+        }
+
+        // Build InterviewResult-compatible object from FeatureInterviewResult + project.techStack
+        const projectTechStack = (project.techStack as unknown as InterviewResult) || {};
+        interviewResult = {
+          description: featureResult.sessionGoal || projectTechStack.description || '',
+          techStack: projectTechStack.techStack || {},
+          features: featureResult.features,
+        };
+
+        // Also read ENVIRONMENT.md for tech context
+        const workspace = await this.resolveWorkspace(project.slug, ctx.chatSessionId);
+        const envDoc = await this.readEnvironmentDoc(workspace);
+        if (envDoc) {
+          interviewResult.description =
+            `${featureResult.sessionGoal}\n\n## Environment Context\n${envDoc.substring(0, 3000)}`;
+        }
+      } else {
+        // Infrastructure: use project.techStack from initial interview
+        interviewResult = project.techStack as unknown as InterviewResult;
+        if (!interviewResult?.features?.length) {
+          throw new Error('No features found in interview result');
+        }
       }
 
       let gitlabProjectPath: string | null = null;
@@ -282,6 +333,7 @@ export class IssueCompilerAgent extends BaseAgent {
       await this.log(ctx.agentTaskId, 'INFO', 'Project data loaded', {
         features: interviewResult.features.length,
         hasGitlab: !!gitlabProjectPath,
+        isDevSession,
       });
 
       return {
@@ -289,6 +341,7 @@ export class IssueCompilerAgent extends BaseAgent {
         interviewResult,
         gitlabProjectId: project.gitlabProjectId,
         gitlabProjectPath,
+        chatSessionId,
       };
     } catch (err) {
       await this.sendAgentMessage(ctx, `❌ Failed to load project data: ${err.message}`);
@@ -561,10 +614,11 @@ Create well-structured milestones with issues and actionable tasks. Group logica
       project: { id: string };
       gitlabProjectId: number | null;
       gitlabProjectPath: string | null;
+      chatSessionId?: string;
     },
     compiledResult: IssueCompilerResult,
   ): Promise<void> {
-    const { project, gitlabProjectId, gitlabProjectPath } = projectData;
+    const { project, gitlabProjectId, gitlabProjectPath, chatSessionId } = projectData;
     let createdIssues = 0;
     let createdTasks = 0;
     let failedTasks = 0;
@@ -635,6 +689,7 @@ Create well-structured milestones with issues and actionable tasks. Group logica
             milestoneId: dbMilestoneId,
             gitlabMilestoneId: gitlabMilestoneId,
             sortOrder: issueIdx,
+            chatSessionId,
             syncToGitlab: true,
           });
 

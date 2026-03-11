@@ -123,7 +123,19 @@ export class DocumenterAgent extends BaseAgent {
       }
 
       const project = issue.project;
-      const workspace = path.resolve(this.settings.devopsWorkspacePath, project.slug);
+
+      // Check if this issue belongs to a dev session
+      const issueSession = issue.chatSessionId
+        ? await this.prisma.chatSession.findUnique({
+            where: { id: issue.chatSessionId },
+            select: { type: true, branch: true },
+          })
+        : null;
+      const isSessionIssue = issueSession?.type === 'DEV_SESSION';
+
+      const workspace = isSessionIssue
+        ? await this.resolveWorkspace(project.slug, issue.chatSessionId!)
+        : path.resolve(this.settings.devopsWorkspacePath, project.slug);
 
       await this.sendAgentMessage(
         ctx,
@@ -136,14 +148,18 @@ export class DocumenterAgent extends BaseAgent {
       // Read existing docs from workspace
       const existingDocs = await this.readExistingDocs(workspace);
 
-      // Determine the feature branch
-      const branchName = `feature/${issue.gitlabIid ?? issue.id}-${this.slugify(issue.title)}`;
+      // Determine the branch to work on
+      const branchName = isSessionIssue && issueSession?.branch
+        ? issueSession.branch
+        : `feature/${issue.gitlabIid ?? issue.id}-${this.slugify(issue.title)}`;
 
-      // Ensure we're on the feature branch
-      try {
-        await execFileAsync('git', ['checkout', branchName], { cwd: workspace, timeout: GIT_TIMEOUT_MS });
-      } catch {
-        this.logger.warn(`Could not checkout ${branchName} — working on current branch`);
+      // Ensure we're on the correct branch (session worktrees are already checked out)
+      if (!isSessionIssue) {
+        try {
+          await execFileAsync('git', ['checkout', branchName], { cwd: workspace, timeout: GIT_TIMEOUT_MS });
+        } catch {
+          this.logger.warn(`Could not checkout ${branchName} — working on current branch`);
+        }
       }
 
       // Build LLM prompt

@@ -160,7 +160,7 @@ export class CodeReviewerAgent extends BaseAgent {
         select: { slug: true },
       });
       const workspace = project
-        ? require('path').resolve(this.settings.devopsWorkspacePath, project.slug)
+        ? await this.resolveWorkspace(project.slug, ctx.chatSessionId)
         : '';
       const knowledgeSection = workspace ? await this.buildKnowledgeSection(workspace) : '';
 

@@ -34,5 +34,9 @@ npm-debug.log*
 # Coverage
 coverage/
 
+# Workspaces & Worktrees
+backend/workspaces/
+.session-worktrees/
+
 # Temp
 /tmp/

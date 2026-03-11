@@ -3,11 +3,13 @@ import { EventEmitter2 } from '@nestjs/event-emitter';
 import { execFile } from 'child_process';
 import { promisify } from 'util';
 import * as path from 'path';
+import * as fs from 'fs/promises';
 import { PrismaService } from '../prisma/prisma.service';
 import { SystemSettingsService } from '../settings/system-settings.service';
 import { GitlabService } from '../gitlab/gitlab.service';
 import { ChatService } from './chat.service';
 import { ChatGateway } from './chat.gateway';
+import { getSessionWorktreePath } from '../agents/agent-base';
 import {
   ChatSessionType,
   SessionStatus,
@@ -56,36 +58,69 @@ export class SessionBranchService {
     const shortId = Math.random().toString(36).substring(2, 8);
     const branch = branchName || `session/${slug}-${shortId}`;
 
-    // Create git branch in workspace
+    // Create git worktree for the session branch
     if (project.gitlabProjectId) {
-      const workspace = path.resolve(
+      const mainWorkspace = path.resolve(
         this.settings.devopsWorkspacePath,
         project.slug,
       );
       const baseBranch = project.workBranch || 'main';
+      const worktreePath = getSessionWorktreePath(
+        this.settings.devopsWorkspacePath,
+        project.slug,
+        branch,
+      );
 
       try {
+        // Ensure worktree parent directory exists
+        await fs.mkdir(path.dirname(worktreePath), { recursive: true });
+
+        // Ensure main workspace is up to date
         await execFileAsync('git', ['checkout', baseBranch], {
-          cwd: workspace,
+          cwd: mainWorkspace,
           timeout: GIT_TIMEOUT_MS,
         });
         await execFileAsync('git', ['pull', '--ff-only'], {
-          cwd: workspace,
+          cwd: mainWorkspace,
           timeout: GIT_TIMEOUT_MS,
         });
-        await execFileAsync('git', ['checkout', '-b', branch], {
-          cwd: workspace,
+
+        // Create session branch from base
+        await execFileAsync('git', ['branch', branch, baseBranch], {
+          cwd: mainWorkspace,
           timeout: GIT_TIMEOUT_MS,
         });
+
+        // Create worktree for the session branch
+        await execFileAsync('git', ['worktree', 'add', worktreePath, branch], {
+          cwd: mainWorkspace,
+          timeout: GIT_TIMEOUT_MS,
+        });
+
+        // Push session branch to origin from the worktree
         await execFileAsync('git', ['push', '-u', 'origin', branch], {
-          cwd: workspace,
+          cwd: worktreePath,
           timeout: GIT_TIMEOUT_MS,
         });
-        this.logger.log(`Created branch ${branch} from ${baseBranch}`);
+
+        this.logger.log(`Created worktree at ${worktreePath} on branch ${branch} from ${baseBranch}`);
       } catch (err) {
-        this.logger.error(`Failed to create branch ${branch}: ${err.message}`);
+        this.logger.error(`Failed to create worktree for branch ${branch}: ${err.message}`);
+        // Cleanup: try to remove worktree if it was partially created
+        try {
+          await execFileAsync('git', ['worktree', 'remove', '--force', worktreePath], {
+            cwd: mainWorkspace,
+            timeout: GIT_TIMEOUT_MS,
+          });
+        } catch { /* best effort */ }
+        try {
+          await execFileAsync('git', ['branch', '-D', branch], {
+            cwd: mainWorkspace,
+            timeout: GIT_TIMEOUT_MS,
+          });
+        } catch { /* best effort */ }
         throw new BadRequestException(
-          `Git branch creation failed: ${err.message}`,
+          `Git worktree creation failed: ${err.message}`,
         );
       }
     }
@@ -153,29 +188,44 @@ export class SessionBranchService {
 
     // Merge branch if project has GitLab
     if (session.project.gitlabProjectId && session.branch) {
-      const workspace = path.resolve(
+      const mainWorkspace = path.resolve(
         this.settings.devopsWorkspacePath,
         session.project.slug,
       );
       const baseBranch = session.project.workBranch || 'main';
+      const worktreePath = getSessionWorktreePath(
+        this.settings.devopsWorkspacePath,
+        session.project.slug,
+        session.branch,
+      );
 
       try {
-        // Checkout base, pull, merge session branch
+        // Remove worktree first (frees the branch for merging)
+        try {
+          await execFileAsync('git', ['worktree', 'remove', '--force', worktreePath], {
+            cwd: mainWorkspace,
+            timeout: GIT_TIMEOUT_MS,
+          });
+        } catch {
+          // Worktree may not exist (e.g. project without GitLab at creation time)
+        }
+
+        // Checkout base, pull, merge session branch in main workspace
         await execFileAsync('git', ['checkout', baseBranch], {
-          cwd: workspace,
+          cwd: mainWorkspace,
           timeout: GIT_TIMEOUT_MS,
         });
         await execFileAsync('git', ['pull', '--ff-only'], {
-          cwd: workspace,
+          cwd: mainWorkspace,
           timeout: GIT_TIMEOUT_MS,
         });
         await execFileAsync(
           'git',
           ['merge', '--no-ff', session.branch, '-m', `Merge session: ${session.title}`],
-          { cwd: workspace, timeout: GIT_TIMEOUT_MS },
+          { cwd: mainWorkspace, timeout: GIT_TIMEOUT_MS },
         );
         await execFileAsync('git', ['push'], {
-          cwd: workspace,
+          cwd: mainWorkspace,
           timeout: GIT_TIMEOUT_MS,
         });
 
@@ -184,7 +234,7 @@ export class SessionBranchService {
           await execFileAsync(
             'git',
             ['push', 'origin', '--delete', session.branch],
-            { cwd: workspace, timeout: GIT_TIMEOUT_MS },
+            { cwd: mainWorkspace, timeout: GIT_TIMEOUT_MS },
           );
         } catch {
           // Non-critical
@@ -193,7 +243,7 @@ export class SessionBranchService {
         // Delete local branch
         try {
           await execFileAsync('git', ['branch', '-d', session.branch], {
-            cwd: workspace,
+            cwd: mainWorkspace,
             timeout: GIT_TIMEOUT_MS,
           });
         } catch {
@@ -217,7 +267,7 @@ export class SessionBranchService {
           // Abort the failed merge
           try {
             await execFileAsync('git', ['merge', '--abort'], {
-              cwd: workspace,
+              cwd: mainWorkspace,
               timeout: GIT_TIMEOUT_MS,
             });
           } catch {

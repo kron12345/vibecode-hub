@@ -171,7 +171,7 @@ export class PenTesterAgent extends BaseAgent {
       let auditResult: PenTestResult['auditResult'] | undefined;
 
       if (project?.slug) {
-        const workspace = path.resolve(this.settings.devopsWorkspacePath, project.slug);
+        const workspace = await this.resolveWorkspace(project.slug, ctx.chatSessionId);
         const audit = await this.runNpmAudit(workspace);
         auditReport = audit.report;
         auditResult = audit.summary;

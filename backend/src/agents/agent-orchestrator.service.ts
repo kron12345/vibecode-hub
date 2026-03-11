@@ -865,22 +865,48 @@ export class AgentOrchestratorService implements OnModuleInit, OnModuleDestroy {
     }
 
     if (!mrIid) {
-      this.logger.warn(`No MR for issue ${issueId} — skipping pipeline, marking NEEDS_REVIEW`);
-      await this.prisma.issue.update({
-        where: { id: issueId },
-        data: { status: IssueStatus.NEEDS_REVIEW },
+      // Check if this is a dev session — session issues don't need MRs
+      const session = await this.prisma.chatSession.findUnique({
+        where: { id: chatSessionId },
+        select: { type: true },
       });
 
-      // Sequential pipeline: skip this issue, trigger Coder for the next open one
-      const nextOpen = await this.prisma.issue.findFirst({
-        where: { projectId, status: IssueStatus.OPEN, parentId: null },
-      });
-      if (nextOpen) {
-        this.logger.log(`No MR for ${issueId} — moving to next issue ${nextOpen.id}`);
+      if (session?.type === ChatSessionType.DEV_SESSION) {
+        // Dev session: mark issue as DONE and move to next session issue
+        this.logger.log(`Dev session issue ${issueId} coded — no MR needed, marking DONE`);
+        await this.prisma.issue.update({
+          where: { id: issueId },
+          data: { status: IssueStatus.DONE },
+        });
+
+        // Trigger Coder for next session issue
+        if (!this.acquireStartLock(projectId, AgentRole.CODER)) return;
         try {
+          if (await this.hasActiveAgent(projectId, AgentRole.CODER)) return;
           await this.startCoding(projectId, chatSessionId);
         } catch (err) {
-          this.logger.error(`Failed to start Coder for next issue: ${err.message}`);
+          this.logger.error(`Failed to start Coder for next session issue: ${err.message}`);
+        } finally {
+          this.releaseStartLock(projectId, AgentRole.CODER);
+        }
+      } else {
+        // Infrastructure: mark NEEDS_REVIEW and skip to next
+        this.logger.warn(`No MR for issue ${issueId} — skipping pipeline, marking NEEDS_REVIEW`);
+        await this.prisma.issue.update({
+          where: { id: issueId },
+          data: { status: IssueStatus.NEEDS_REVIEW },
+        });
+
+        const nextOpen = await this.prisma.issue.findFirst({
+          where: { projectId, status: IssueStatus.OPEN, parentId: null },
+        });
+        if (nextOpen) {
+          this.logger.log(`No MR for ${issueId} — moving to next issue ${nextOpen.id}`);
+          try {
+            await this.startCoding(projectId, chatSessionId);
+          } catch (err) {
+            this.logger.error(`Failed to start Coder for next issue: ${err.message}`);
+          }
         }
       }
       return;

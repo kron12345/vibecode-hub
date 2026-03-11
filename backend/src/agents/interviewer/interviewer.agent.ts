@@ -641,7 +641,7 @@ export class InterviewerAgent extends BaseAgent {
     let envContext = '';
     let knowledgeContext = '';
     if (project?.slug) {
-      const workspace = require('path').resolve(this.settings.devopsWorkspacePath, project.slug);
+      const workspace = await this.resolveWorkspace(project.slug, ctx.chatSessionId);
       const envDoc = await this.readEnvironmentDoc(workspace);
       const kb = await this.readProjectKnowledge(workspace);
       if (envDoc) envContext = `\n## Current Project Environment\n\`\`\`\n${envDoc}\n\`\`\`\n`;
@@ -712,7 +712,7 @@ export class InterviewerAgent extends BaseAgent {
     let envContext = '';
     let knowledgeContext = '';
     if (project?.slug) {
-      const workspace = require('path').resolve(this.settings.devopsWorkspacePath, project.slug);
+      const workspace = await this.resolveWorkspace(project.slug, ctx.chatSessionId);
       const envDoc = await this.readEnvironmentDoc(workspace);
       const kb = await this.readProjectKnowledge(workspace);
       if (envDoc) envContext = `\n## Current Project Environment\n\`\`\`\n${envDoc}\n\`\`\`\n`;
