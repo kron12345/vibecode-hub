@@ -186,10 +186,11 @@ const PERMISSION_KEYS: { key: keyof AgentRoleConfig['permissions']; labelKey: st
                 </label>
                 <select
                   [(ngModel)]="userTheme"
+                  (ngModelChange)="applyTheme($event)"
                   class="w-full bg-slate-900/50 border border-white/10 rounded-xl px-4 py-2.5 text-sm text-white focus:outline-none focus:border-indigo-500/50 transition-colors"
                 >
                   <option value="dark">{{ 'settings.themeDark' | translate }}</option>
-                  <option value="light" disabled>{{ 'settings.themeLight' | translate }}</option>
+                  <option value="light">{{ 'settings.themeLight' | translate }}</option>
                 </select>
               </div>
             </div>
@@ -1231,9 +1232,14 @@ export class SettingsPage implements OnInit {
     });
   }
 
+  applyTheme(theme: string) {
+    document.documentElement.setAttribute('data-theme', theme);
+  }
+
   saveUserSettings() {
     this.saving.set(true);
     this.i18n.use(this.userLocale);
+    this.applyTheme(this.userTheme);
 
     this.api
       .updateUserSettings([

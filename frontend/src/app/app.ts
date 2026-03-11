@@ -111,11 +111,16 @@ export class App implements OnInit {
   sidebarOpen = signal(true);
 
   ngOnInit() {
-    // Load user's preferred locale from settings
+    // Load user's preferred locale and theme from settings
     this.api.getUserSettings().subscribe((settings) => {
       const locale = settings['locale'] as Locale | undefined;
       if (locale) {
         this.i18n.use(locale);
+      }
+
+      const theme = settings['theme'] as string | undefined;
+      if (theme) {
+        document.documentElement.setAttribute('data-theme', theme);
       }
     });
   }
