@@ -26,16 +26,18 @@ body {
 
 a { color: inherit; text-decoration: none; }
 
-/* ─── Animated Dot Grid Background ─────────────────────────── */
+/* ─── Animated Dot Grid + Line Grid Background ────────────── */
 body::before {
   content: '';
   position: fixed;
   inset: 0;
   z-index: -2;
   background-image:
-    radial-gradient(circle at 1px 1px, rgba(99, 102, 241, 0.15) 1px, transparent 0);
-  background-size: 40px 40px;
-  animation: grid-drift 20s linear infinite;
+    radial-gradient(circle at 1px 1px, rgba(99, 102, 241, 0.08) 1px, transparent 0),
+    linear-gradient(rgba(99, 102, 241, 0.025) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(99, 102, 241, 0.025) 1px, transparent 1px);
+  background-size: 40px 40px, 80px 80px, 80px 80px;
+  animation: grid-drift 25s linear infinite;
 }
 
 @keyframes grid-drift {
@@ -72,16 +74,18 @@ body::after {
 /* ─── Glass Morphism ────────────────────────────────────────── */
 .glass {
   background: rgba(15, 23, 42, 0.6);
-  backdrop-filter: blur(12px);
-  -webkit-backdrop-filter: blur(12px);
-  border: 1px solid rgba(255, 255, 255, 0.05);
+  backdrop-filter: blur(16px) saturate(180%);
+  -webkit-backdrop-filter: blur(16px) saturate(180%);
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.06);
 }
 
 .glass-heavy {
-  background: rgba(15, 23, 42, 0.85);
-  backdrop-filter: blur(20px);
-  -webkit-backdrop-filter: blur(20px);
+  background: rgba(15, 23, 42, 0.88);
+  backdrop-filter: blur(24px) saturate(180%);
+  -webkit-backdrop-filter: blur(24px) saturate(180%);
   border: 1px solid rgba(255, 255, 255, 0.08);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.08);
 }
 
 /* ─── Gradient Border Card ─────────────────────────────────── */
@@ -329,14 +333,14 @@ body::after {
   box-shadow: 0 0 4px rgba(16, 185, 129, 0.3);
 }
 
-/* ─── Card Hover Lift ──────────────────────────────────────── */
+/* ─── Card Hover Lift (Holographic) ────────────────────────── */
 .card-lift {
-  transition: transform 0.3s ease, box-shadow 0.3s ease;
+  transition: transform 0.3s ease-out, box-shadow 0.3s ease-out;
 }
 
 .card-lift:hover {
-  transform: translateY(-2px);
-  box-shadow: 0 8px 30px rgba(0, 0, 0, 0.3), 0 0 40px rgba(99, 102, 241, 0.06);
+  transform: perspective(1000px) rotateX(2deg) translateY(-2px);
+  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.4), 0 0 50px rgba(99, 102, 241, 0.08);
 }
 
 /* ─── Accent Left Border Cards ─────────────────────────────── */
@@ -380,7 +384,7 @@ body::after {
   background: linear-gradient(90deg, #6366f1, #8b5cf6);
 }
 
-/* ─── Pipeline Flow Connector ──────────────────────────────── */
+/* ─── Pipeline Flow Connector (animated) ──────────────────── */
 .pipeline-connector {
   position: relative;
 }
@@ -392,18 +396,52 @@ body::after {
   right: -12px;
   width: 12px;
   height: 2px;
-  background: rgba(99, 102, 241, 0.2);
+  background: linear-gradient(90deg, rgba(99, 102, 241, 0.4), rgba(139, 92, 246, 0.4), rgba(99, 102, 241, 0.4));
+  background-size: 200% auto;
+  animation: pipeline-flow 2s linear infinite;
 }
 
 .pipeline-connector:last-child::after {
   display: none;
 }
 
-/* ─── Focus Ring ───────────────────────────────────────────── */
+@keyframes pipeline-flow {
+  to { background-position: -200% center; }
+}
+
+/* Pipeline Flow Line (inline in agent page) */
+.pipeline-flow-line {
+  background: rgba(100, 116, 139, 0.3);
+  transition: all 0.3s ease;
+}
+
+.pipeline-flow-line.active {
+  background: linear-gradient(90deg, rgba(99, 102, 241, 0.5), rgba(139, 92, 246, 0.5), rgba(99, 102, 241, 0.5));
+  background-size: 200% auto;
+  animation: pipeline-flow 1.5s linear infinite;
+  height: 2px;
+  box-shadow: 0 0 8px rgba(99, 102, 241, 0.3);
+}
+
+/* ─── Sci-Fi Focus Ring ────────────────────────────────────── */
 input:focus, select:focus, textarea:focus {
   outline: none;
-  border-color: rgba(99, 102, 241, 0.5) !important;
-  box-shadow: 0 0 0 3px rgba(99, 102, 241, 0.1);
+  border-color: rgba(56, 189, 248, 0.5) !important;
+  box-shadow: 0 0 0 3px rgba(56, 189, 248, 0.08), 0 0 20px rgba(56, 189, 248, 0.05);
+}
+
+/* Sci-fi input variant: glowing bottom border */
+.input-sci-fi {
+  background: rgba(15, 23, 42, 0.7) !important;
+  border: 0 !important;
+  border-bottom: 2px solid rgba(100, 116, 139, 0.3) !important;
+  border-radius: 0.5rem !important;
+  transition: border-color 0.3s ease, box-shadow 0.3s ease !important;
+}
+
+.input-sci-fi:focus {
+  border-bottom-color: #38bdf8 !important;
+  box-shadow: 0 2px 15px rgba(56, 189, 248, 0.15) !important;
 }
 
 /* ─── Status Indicators ────────────────────────────────────── */
@@ -434,19 +472,20 @@ input:focus, select:focus, textarea:focus {
   top: 50%;
   transform: translateY(-50%);
   width: 3px;
-  height: 60%;
+  height: 70%;
   border-radius: 0 3px 3px 0;
-  background: #6366f1;
-  box-shadow: 0 0 12px rgba(99, 102, 241, 0.6);
+  background: linear-gradient(180deg, #38bdf8, #6366f1);
+  box-shadow: 0 0 16px rgba(56, 189, 248, 0.5), 0 0 30px rgba(99, 102, 241, 0.3);
 }
 
 /* ─── Improved Table Styles ────────────────────────────────── */
 .table-row-hover {
-  transition: background-color 0.15s ease;
+  transition: background-color 0.2s ease, box-shadow 0.2s ease;
 }
 
 .table-row-hover:hover {
   background: rgba(255, 255, 255, 0.03);
+  box-shadow: inset 0 0 30px rgba(56, 189, 248, 0.03);
 }
 
 /* ─── Tooltip Styling ──────────────────────────────────────── */

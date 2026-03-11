@@ -91,7 +91,8 @@ const PERMISSION_KEYS: { key: keyof AgentRoleConfig['permissions']; labelKey: st
       >
         {{ 'settings.title' | translate }}
       </h1>
-      <p class="text-slate-500 mt-1">
+      <div class="mt-2 h-1 w-16 bg-gradient-to-r from-indigo-500 via-violet-500 to-purple-500 rounded-full"></div>
+      <p class="text-slate-500 mt-2">
         {{ 'settings.subtitle' | translate }}
       </p>
     </div>

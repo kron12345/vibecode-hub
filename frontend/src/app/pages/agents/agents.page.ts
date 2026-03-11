@@ -33,7 +33,8 @@ const ALL_ROLES = [
           <h1 class="text-3xl font-extrabold tracking-tight bg-gradient-to-r from-white via-violet-200 to-slate-500 bg-clip-text text-transparent">
             {{ 'agentsPage.title' | translate }}
           </h1>
-          <p class="text-slate-500 mt-1">{{ 'agentsPage.subtitle' | translate }}</p>
+          <div class="mt-2 h-1 w-16 bg-gradient-to-r from-violet-500 via-indigo-500 to-sky-500 rounded-full"></div>
+          <p class="text-slate-500 mt-2">{{ 'agentsPage.subtitle' | translate }}</p>
         </div>
       </div>
 
@@ -103,7 +104,7 @@ const ALL_ROLES = [
                   </span>
                 </div>
                 @if (!last) {
-                  <div class="w-4 h-px mx-0.5" [class]="data?.status === 'WORKING' ? 'bg-indigo-500/40' : 'bg-slate-700/50'"></div>
+                  <div class="w-5 h-px mx-0.5 pipeline-flow-line" [class]="data?.status === 'WORKING' ? 'active' : ''"></div>
                 }
               </div>
             }
@@ -120,8 +121,12 @@ const ALL_ROLES = [
             class="glass rounded-2xl overflow-hidden group card-lift transition-all duration-300 animate-in"
             [style.animation-delay]="(0.3 + i * 0.06) + 's'"
           >
-            <!-- Colored top accent -->
-            <div class="h-0.5" [class]="data?.status === 'WORKING' ? meta.bgColor.replace('/20', '') : 'bg-slate-800'"></div>
+            <!-- Colored top accent with gradient glow -->
+            <div class="h-1 relative" [class]="data?.status === 'WORKING' ? meta.bgColor.replace('/20', '') : 'bg-slate-800'">
+              @if (data?.status === 'WORKING') {
+                <div class="absolute inset-x-0 top-full h-8 opacity-30" [class]="'bg-gradient-to-b ' + meta.bgColor.replace('bg-', 'from-').replace('/20', '/30') + ' to-transparent'"></div>
+              }
+            </div>
 
             <div class="p-5">
               <!-- Header -->

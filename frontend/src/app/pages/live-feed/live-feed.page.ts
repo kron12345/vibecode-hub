@@ -59,7 +59,8 @@ const LEVEL_COLORS: Record<string, string> = {
           <h1 class="text-3xl font-extrabold tracking-tight bg-gradient-to-r from-white via-emerald-200 to-slate-500 bg-clip-text text-transparent">
             {{ 'liveFeed.title' | translate }}
           </h1>
-          <p class="text-slate-500 mt-1">{{ 'liveFeed.subtitle' | translate }}</p>
+          <div class="mt-2 h-1 w-16 bg-gradient-to-r from-emerald-500 via-sky-500 to-indigo-500 rounded-full"></div>
+          <p class="text-slate-500 mt-2">{{ 'liveFeed.subtitle' | translate }}</p>
         </div>
         <div class="flex items-center gap-2">
           <span class="relative flex h-3 w-3">
@@ -113,7 +114,7 @@ const LEVEL_COLORS: Record<string, string> = {
       <div class="glass rounded-2xl overflow-hidden animate-in stagger-4">
         <div class="divide-y divide-white/[0.03]">
           @for (item of filteredItems(); track item.id; let i = $index) {
-            <div class="px-4 py-3 flex items-start gap-3 hover:bg-white/[0.02] transition-colors border-l-2"
+            <div class="px-4 py-2 flex items-start gap-3 hover:bg-white/[0.02] transition-colors border-l-2"
                  [class]="item.agentRole ? accentBorder(item.agentRole) : 'border-l-slate-700'">
               <!-- Agent Icon -->
               <div class="mt-0.5 shrink-0">

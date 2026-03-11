@@ -105,7 +105,8 @@ const SHORT_ROLES: Record<string, string> = {
         >
           {{ 'dashboard.title' | translate }}
         </h1>
-        <p class="text-slate-500 mt-1">
+        <div class="mt-2 h-1 w-16 bg-gradient-to-r from-sky-500 via-indigo-500 to-violet-500 rounded-full"></div>
+        <p class="text-slate-500 mt-2">
           {{ 'dashboard.subtitle' | translate }}
         </p>
       </div>

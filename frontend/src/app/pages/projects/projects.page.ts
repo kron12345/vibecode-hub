@@ -32,7 +32,8 @@ const STATUS_ICONS: Record<string, string> = {
           <h1 class="text-3xl font-extrabold tracking-tight bg-gradient-to-r from-white via-indigo-200 to-slate-500 bg-clip-text text-transparent">
             {{ 'projectsList.title' | translate }}
           </h1>
-          <p class="text-slate-500 mt-1">{{ i18n.t('projectsList.count', { count: projects().length }) }}</p>
+          <div class="mt-2 h-1 w-16 bg-gradient-to-r from-indigo-500 via-sky-500 to-emerald-500 rounded-full"></div>
+          <p class="text-slate-500 mt-2">{{ i18n.t('projectsList.count', { count: projects().length }) }}</p>
         </div>
       </div>
 
