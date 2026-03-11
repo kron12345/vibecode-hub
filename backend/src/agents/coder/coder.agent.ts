@@ -304,7 +304,7 @@ export class CoderAgent extends BaseAgent {
       await this.issuesService.update(issue.id, { status: IssueStatus.IN_REVIEW });
 
       // Build commit URL for GitLab
-      const gitlabBaseUrl = await this.settings.get('GITLAB_URL', 'https://git.example.com');
+      const gitlabBaseUrl = this.settings.gitlabUrl;
       const commitUrl = `${gitlabBaseUrl}/${projectPath}/-/commit/${commitSha}`;
       const commitShort = commitSha.substring(0, 8);
       result.commitSha = commitSha;
@@ -480,7 +480,7 @@ export class CoderAgent extends BaseAgent {
 
       // Fetch GitLab project info (needed for default branch detection + commit URL)
       const glProject = await this.gitlabService.getProject(issue.project.gitlabProjectId);
-      const gitlabBaseUrl = await this.settings.get('GITLAB_URL', 'https://git.example.com');
+      const gitlabBaseUrl = this.settings.gitlabUrl;
       const fixDefaultBranch = issue.project.workBranch || glProject?.default_branch || 'main';
 
       // Run MCP agent loop (LLM + filesystem tools)
