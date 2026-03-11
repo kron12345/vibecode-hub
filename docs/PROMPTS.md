@@ -464,3 +464,66 @@ Dokumentation aller Prompts/Anforderungen die zur Entwicklung genutzt wurden.
 **Commits:** `a284dcd` — fix: idempotency guards for pipeline agents, prevent duplicate processing
 **Commands:** `npx nest build` (grün), 3× E2E Testläufe
 **Status:** Pipeline E2E-Test ✅, 3 Bugs gefixt ✅, 2 Infrastruktur-Issues identifiziert ⚠️
+
+---
+
+## Session 9 — 2026-03-11 — UI/UX Overhaul + Light Theme
+
+### Prompt 1: Design Skill + Gemini Review Loop
+> Nutze gemini 3 du hast 2.5 genutzt. Lasse vom Gemini deine Verbesserungen danach überprüfen und setzte ggf auch die Verbesserungen um. Lasse danach mit Hilfe von Gemini eine Light Variante entwickeln und mache einen Loop mit screenshots bis Gemini und du zufrieden ist. Ziel ist immer noch ein Modernes futuristisches sexy Design das auch ein paar extras haben darf. Es soll natürlich zum Projekt passen. Für das light Theme gibt es schon was in den einstellungen was aber deaktiviert ist weil noch nicht vorhanden.
+
+### Prompt 2: Gemini Model Korrektur
+> nimm gemini-3.1-pro-preview das sollte gehen
+
+### Prompt 3: Loop fortsetzen
+> wenn gemini-3.1-pro-preview funktioniert mache mit dem den loop weiter beachte immer modern/sexy/futuristisch beachte es auch bei den light theme
+
+### Prompt 4: Text Truncation Fixes
+> /frontend-design wenn ihr damit fertig seit macht danach screenshots und achtet darauf texte Symbole etc. abgeschnitten sind und verbessert das Das gibt'es hier und da vorallem in der App Übersicht wo der Projekt Chat ist. Fange damit aber erst an wenn du den aktuellen loop fertig hast
+
+**Ergebnis:**
+
+1. **Dark Theme Polish:**
+   - Enhanced glassmorphism: blur 20px → translucent (55% opacity) + shadow depth + top-edge highlight
+   - Sidebar active state: gradient glow (linear-gradient 90deg + extended box-shadow)
+   - Neon text-shadow auf emerald/indigo/sky Metriken
+   - Pipeline flow lines: animated active state
+
+2. **Light Theme (Komplett Neu):**
+   - Vision Pro-style frosted glass: blur 30px, 48% white opacity, inset double-border
+   - Gradient text fix: `filter: brightness(0.35) saturate(2.5)` für dark headers auf light bg
+   - Deep agent colors: 700-level statt 400-level (emerald-700, indigo-700 etc.)
+   - Mesh background: 3× radial-gradient overlays (indigo, violet, sky)
+   - Subtile grid: 50% reduzierte Opazität
+   - Custom select dropdowns: SVG chevron, frosted bg
+   - Black/alpha → slate-50/alpha Override für Issue-Cards
+   - Amber milestone headers: deeper amber-700 für Lesbarkeit
+
+3. **Theme Toggle Wiring:**
+   - `app.ts`: Theme aus UserSettings laden → `data-theme` auf `<html>` setzen
+   - `settings.page.ts`: `disabled` von Light-Option entfernt, `applyTheme()` für sofortige Preview
+   - `saveUserSettings()`: Theme wird gespeichert + angewendet
+
+4. **Gemini Review Loop (3 Runden):**
+   - Runde 1: Dark 5.5/10, Light 3/10 → Gradient-Text unsichtbar, flat white cards
+   - Runde 2: Dark 7/10, Light 4.5/10 → Mehr Glassmorphism, Header gefixt
+   - Runde 3: Dark 9/10, Light 7.5/10 → Deeper colors, reduced grid, elevated shadows
+   - Final: **Dark 10/10, Light 9/10** → Ship-ready!
+
+5. **Text Truncation Fixes:**
+   - Agent Pipeline: `flex-1` → `w-[130px] shrink-0` + horizontal scroll
+   - Agent names + provider/model: `truncate` + `title` tooltip
+   - Issues column: 280px → 320px für längere Titel
+   - Project description: `line-clamp-2` + `text-sm`
+   - Header: `flex-1 min-w-0` + Preview-Button `shrink-0 whitespace-nowrap`
+   - Milestone headers: `gap-2` + `truncate` für lange Titel
+
+**Geänderte Dateien:**
+- `frontend/src/styles.css` — +468 Zeilen (Light Theme CSS, enhanced Dark Theme)
+- `frontend/src/app/app.ts` — Theme-Loading aus UserSettings
+- `frontend/src/app/pages/settings/settings.page.ts` — Light Theme aktiviert, applyTheme()
+- `frontend/src/app/pages/project/project.page.ts` — Pipeline horizontal scroll, truncation fixes
+
+**Commits:** `2a3281c`, `3cbd22b`, `378cf2f`
+**Commands:** `npx ng build` (grün), Playwright Screenshots (dark + light), Gemini CLI Reviews
+**Status:** Dual Theme ✅, Gemini-approved ✅, Truncation Fixes ✅
