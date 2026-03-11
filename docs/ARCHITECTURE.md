@@ -295,7 +295,8 @@ Eigener MCP-Server, der dem Coder Agent sichere Shell-Befehle im Workspace ermö
 ### Documenter Agent
 - LLM analysiert MR-Diffs + bestehende Docs
 - **Kontext-Injection**: Bekommt alle bisherigen Agent-Kommentare als LLM-Kontext
-- Generiert/aktualisiert: README.md, API-Docs, JSDoc, CHANGELOG
+- **Pflicht-Updates nach jedem Merge**: `PROJECT_KNOWLEDGE.md` + `CHANGELOG.md`
+- Optional: README.md, API-Docs, JSDoc
 - **Wiki-Sync**: Dateien mit `wikiPage: true` werden nach GitLab Wiki gesynct (Upsert)
 - Schreibt Dateien im Workspace, committed auf Feature-Branch
 - Issue → DONE nach Abschluss
@@ -304,6 +305,18 @@ Eigener MCP-Server, der dem Coder Agent sichere Shell-Befehle im Workspace ermö
 - Generiert deterministische `.gitlab-ci.yml` basierend auf Tech-Stack
 - Templates: Node/Angular/React (4 Stages), Python, Rust, Go, Generic
 - Runner-Tags: `docker`, `vibcode`
+- **Initiale Projekt-Dokumentation**: README.md, CHANGELOG.md, CONTRIBUTING.md, PROJECT_KNOWLEDGE.md
+
+### Project Knowledge Base (`PROJECT_KNOWLEDGE.md`)
+- **Automatisch gepflegt** — wird vom DevOps Agent initial erstellt, vom Documenter nach jedem Merge aktualisiert
+- Enthält: Tech Stack, implementierte Features, Architektur-Patterns, Key Files, bekannte Constraints
+- **Injiziert in alle Agenten**:
+  - Interviewer: Weiß was schon existiert → schlägt nur neue Features vor
+  - Architect: Konsistente Architektur-Entscheidungen
+  - Coder: Wiederverwendet bestehende Services/Patterns statt Code-Duplikation
+  - Code Reviewer: Prüft gegen Projekt-Konventionen
+  - Functional Tester: Versteht Feature-Kontext für bessere Tests
+- Shared Utility in `BaseAgent`: `readProjectKnowledge(workspace)` + `buildKnowledgeSection(workspace)`
 
 ## GitLab Status Labels
 
