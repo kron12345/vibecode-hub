@@ -52,6 +52,8 @@
     "issues": "Issues",
     "noIssues": "Aucun issue",
     "subIssues": "{count} sous-issues",
+    "subIssuesTasks": "tâches terminées",
+    "subIssuesPassed": "réussies",
     "milestones": "Jalons",
     "noMilestones": "Aucun jalon",
     "milestoneIssues": "{count} issues",

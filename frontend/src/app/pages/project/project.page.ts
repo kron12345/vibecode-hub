@@ -227,8 +227,9 @@ type Tab = 'overview' | 'settings';
                         }
                       </div>
                       @if (issue.subIssues && issue.subIssues.length > 0) {
-                        <span class="text-[10px] text-slate-600 mt-1 block">
-                          {{ i18n.t('project.subIssues', { count: issue.subIssues.length }) }}
+                        <span class="text-[10px] mt-1 block"
+                          [class]="getSubIssueDoneCount(issue.subIssues) === issue.subIssues.length ? 'text-emerald-500/60' : 'text-slate-600'">
+                          {{ getSubIssueDoneCount(issue.subIssues) }}/{{ issue.subIssues.length }} {{ 'project.subIssuesTasks' | translate }}
                         </span>
                       }
                     </div>
@@ -262,8 +263,9 @@ type Tab = 'overview' | 'settings';
                     }
                   </div>
                   @if (issue.subIssues && issue.subIssues.length > 0) {
-                    <span class="text-[10px] text-slate-600 mt-1 block">
-                      {{ i18n.t('project.subIssues', { count: issue.subIssues.length }) }}
+                    <span class="text-[10px] mt-1 block"
+                      [class]="getSubIssueDoneCount(issue.subIssues) === issue.subIssues.length ? 'text-emerald-500/60' : 'text-slate-600'">
+                      {{ getSubIssueDoneCount(issue.subIssues) }}/{{ issue.subIssues.length }} {{ 'project.subIssuesTasks' | translate }}
                     </span>
                   }
                 </div>
@@ -811,16 +813,29 @@ type Tab = 'overview' | 'settings';
               <!-- Sub-Issues -->
               @if (si.subIssues && si.subIssues.length > 0) {
                 <div>
-                  <h3 class="text-xs font-bold text-slate-500 uppercase tracking-widest mb-2">
-                    {{ i18n.t('project.subIssues', { count: si.subIssues.length }) }}
-                  </h3>
-                  <div class="space-y-1">
+                  <div class="flex items-center justify-between mb-2">
+                    <h3 class="text-xs font-bold text-slate-500 uppercase tracking-widest">
+                      {{ i18n.t('project.subIssues', { count: si.subIssues.length }) }}
+                    </h3>
+                    <span class="text-[10px] font-mono text-slate-600">
+                      {{ getSubIssueDoneCount(si.subIssues) }}/{{ si.subIssues.length }} {{ 'project.subIssuesPassed' | translate }}
+                    </span>
+                  </div>
+                  <div class="space-y-1.5">
                     @for (sub of si.subIssues; track sub.id) {
-                      <div class="flex items-center gap-2 text-sm text-slate-400">
-                        <span class="w-1.5 h-1.5 rounded-full"
-                          [class]="sub.status === 'DONE' || sub.status === 'CLOSED' ? 'bg-emerald-400' : sub.status === 'IN_PROGRESS' ? 'bg-amber-400' : 'bg-slate-600'"
+                      <div class="flex items-center gap-2.5 text-sm"
+                        [class]="sub.status === 'DONE' || sub.status === 'CLOSED' ? 'text-emerald-400' : sub.status === 'NEEDS_REVIEW' ? 'text-red-400' : 'text-slate-400'">
+                        <span class="w-2 h-2 rounded-full flex-shrink-0"
+                          [class]="sub.status === 'DONE' || sub.status === 'CLOSED' ? 'bg-emerald-400' :
+                                   sub.status === 'NEEDS_REVIEW' ? 'bg-red-400' :
+                                   sub.status === 'IN_PROGRESS' || sub.status === 'TESTING' ? 'bg-amber-400' : 'bg-slate-600'"
                         ></span>
-                        {{ sub.title }}
+                        <span class="flex-1">{{ sub.title }}</span>
+                        @if (sub.status === 'DONE' || sub.status === 'CLOSED') {
+                          <span class="text-[10px] text-emerald-500/70">✓</span>
+                        } @else if (sub.status === 'NEEDS_REVIEW') {
+                          <span class="text-[10px] text-red-500/70">✗</span>
+                        }
                       </div>
                     }
                   </div>
@@ -1431,6 +1446,10 @@ export class ProjectPage implements OnInit, OnDestroy {
 
   getStepIndex(status: string): number {
     return ISSUE_STEPS.indexOf(status);
+  }
+
+  getSubIssueDoneCount(subIssues: { status: string }[]): number {
+    return subIssues.filter(s => s.status === 'DONE' || s.status === 'CLOSED').length;
   }
 
   issueBorderClass(priority: string): string {

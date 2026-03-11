@@ -15,6 +15,7 @@ import {
   AgentRole,
   AgentStatus,
   AgentTaskStatus,
+  IssueStatus,
 } from '@prisma/client';
 
 const COMPLETION_MARKER = ':::TEST_COMPLETE:::';
@@ -192,6 +193,11 @@ Do NOT omit the JSON block.`;
         return;
       }
 
+      // Update sub-issue statuses based on findings
+      if (issue.subIssues.length > 0 && testResult.findings.length > 0) {
+        await this.updateSubIssueStatuses(issue.subIssues, testResult.findings);
+      }
+
       // Post unified comment (same rich markdown for local + GitLab)
       const testMarkdown = this.buildTestMarkdown(testResult);
       await postAgentComment({
@@ -296,6 +302,73 @@ Do NOT omit the JSON block.`;
       passed: false,
       feedback: `Functional Test findings:\n\n${feedback}`,
     });
+  }
+
+  // ─── Sub-Issue Status Tracking ──────────────────────────
+
+  /**
+   * Match functional test findings to sub-issues by title similarity
+   * and update each sub-issue's status: passed → DONE, failed → NEEDS_REVIEW.
+   */
+  private async updateSubIssueStatuses(
+    subIssues: { id: string; title: string }[],
+    findings: FunctionalTestFinding[],
+  ): Promise<void> {
+    for (const sub of subIssues) {
+      const match = this.matchFindingToSubIssue(sub.title, findings);
+      if (!match) continue;
+
+      const newStatus = match.passed ? IssueStatus.DONE : IssueStatus.NEEDS_REVIEW;
+
+      try {
+        await this.prisma.issue.update({
+          where: { id: sub.id },
+          data: { status: newStatus },
+        });
+        this.logger.log(`Sub-issue "${sub.title}" → ${newStatus} (finding: ${match.passed ? 'passed' : 'failed'})`);
+      } catch (err) {
+        this.logger.warn(`Failed to update sub-issue ${sub.id}: ${err.message}`);
+      }
+    }
+  }
+
+  /**
+   * Find the best matching finding for a sub-issue title using fuzzy matching.
+   * Returns the finding or null if no reasonable match exists.
+   */
+  private matchFindingToSubIssue(
+    subTitle: string,
+    findings: FunctionalTestFinding[],
+  ): FunctionalTestFinding | null {
+    const subLower = subTitle.toLowerCase().trim();
+    const subWords = subLower.split(/\s+/).filter(w => w.length > 2);
+
+    let bestMatch: FunctionalTestFinding | null = null;
+    let bestScore = 0;
+
+    for (const finding of findings) {
+      const criterionLower = finding.criterion.toLowerCase().trim();
+
+      // Exact match
+      if (criterionLower === subLower) return finding;
+
+      // One contains the other
+      if (criterionLower.includes(subLower) || subLower.includes(criterionLower)) {
+        return finding;
+      }
+
+      // Word overlap scoring
+      const criterionWords = criterionLower.split(/\s+/).filter(w => w.length > 2);
+      const overlap = subWords.filter(w => criterionWords.some(cw => cw.includes(w) || w.includes(cw)));
+      const score = overlap.length / Math.max(subWords.length, 1);
+
+      if (score > bestScore && score >= 0.5) {
+        bestScore = score;
+        bestMatch = finding;
+      }
+    }
+
+    return bestMatch;
   }
 
   // ─── Parsing ──────────────────────────────────────────────

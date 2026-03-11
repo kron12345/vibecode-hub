@@ -1288,6 +1288,15 @@ export class AgentOrchestratorService implements OnModuleInit, OnModuleDestroy {
         data: { status: IssueStatus.DONE },
       });
 
+      // Auto-close remaining sub-issues (catch-all: any not already DONE get set to DONE)
+      await this.prisma.issue.updateMany({
+        where: {
+          parentId: issueId,
+          status: { notIn: [IssueStatus.DONE, IssueStatus.CLOSED] },
+        },
+        data: { status: IssueStatus.DONE },
+      });
+
       // Post-merge: close GitLab issue if configured
       if (mergeConfig.closeIssueOnMerge) {
         const issue = await this.prisma.issue.findUnique({
