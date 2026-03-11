@@ -138,73 +138,78 @@ const SHORT_ROLES: Record<string, string> = {
     <div
       class="grid grid-cols-2 md:grid-cols-4 gap-3 mb-6 animate-in stagger-2"
     >
-      <div class="glass rounded-xl px-4 py-3 flex items-center gap-3">
-        <div class="p-2 bg-indigo-500/15 rounded-lg">
-          <app-icon name="folder-git-2" [size]="15" class="text-indigo-400" />
+      <div class="glass rounded-xl px-4 py-3.5 flex items-center gap-3 card-lift cursor-default">
+        <div class="p-2.5 bg-indigo-500/15 rounded-xl">
+          <app-icon name="folder-git-2" [size]="18" class="text-indigo-400" />
         </div>
-        <div>
+        <div class="flex-1">
           <p
             class="text-[10px] text-slate-500 uppercase tracking-wider font-bold"
           >
             {{ 'dashboard.statProjects' | translate }}
           </p>
-          <p class="text-lg font-mono font-bold text-white leading-tight">
+          <p class="text-xl font-mono font-bold text-white leading-tight">
             {{ projects().length }}
           </p>
         </div>
       </div>
-      <div class="glass rounded-xl px-4 py-3 flex items-center gap-3">
-        <div class="p-2 bg-emerald-500/15 rounded-lg">
-          <app-icon name="bot" [size]="15" class="text-emerald-400" />
+      <div class="glass rounded-xl px-4 py-3.5 flex items-center gap-3 card-lift cursor-default">
+        <div class="p-2.5 rounded-xl" [class]="workingAgents().length > 0 ? 'bg-emerald-500/15' : 'bg-slate-500/15'">
+          <app-icon name="bot" [size]="18" [class]="workingAgents().length > 0 ? 'text-emerald-400' : 'text-slate-500'" />
         </div>
-        <div>
+        <div class="flex-1">
           <p
             class="text-[10px] text-slate-500 uppercase tracking-wider font-bold"
           >
             {{ 'dashboard.statAgents' | translate }}
           </p>
-          <p
-            class="text-lg font-mono font-bold leading-tight"
-            [class]="
-              workingAgents().length > 0
-                ? 'text-emerald-400'
-                : 'text-slate-400'
-            "
-          >
-            {{ workingAgents().length
-            }}<span class="text-slate-600 text-sm">/10</span>
-          </p>
+          <div class="flex items-baseline gap-1">
+            <p
+              class="text-xl font-mono font-bold leading-tight"
+              [class]="
+                workingAgents().length > 0
+                  ? 'text-emerald-400'
+                  : 'text-slate-400'
+              "
+            >
+              {{ workingAgents().length }}
+            </p>
+            <span class="text-slate-600 text-xs font-mono">/10</span>
+          </div>
         </div>
       </div>
-      <div class="glass rounded-xl px-4 py-3 flex items-center gap-3">
-        <div class="p-2 bg-blue-500/15 rounded-lg">
-          <app-icon name="play" [size]="15" class="text-blue-400" />
+      <div class="glass rounded-xl px-4 py-3.5 flex items-center gap-3 card-lift cursor-default">
+        <div class="p-2.5 bg-blue-500/15 rounded-xl relative">
+          <app-icon name="play" [size]="18" class="text-blue-400" />
+          @if ((taskStats()['RUNNING'] ?? 0) > 0) {
+            <span class="absolute -top-1 -right-1 h-2.5 w-2.5 rounded-full bg-blue-400 animate-pulse"></span>
+          }
         </div>
-        <div>
+        <div class="flex-1">
           <p
             class="text-[10px] text-slate-500 uppercase tracking-wider font-bold"
           >
             {{ 'dashboard.statRunning' | translate }}
           </p>
           <p
-            class="text-lg font-mono font-bold text-blue-400 leading-tight"
+            class="text-xl font-mono font-bold text-blue-400 leading-tight"
           >
             {{ taskStats()['RUNNING'] ?? 0 }}
           </p>
         </div>
       </div>
-      <div class="glass rounded-xl px-4 py-3 flex items-center gap-3">
-        <div class="p-2 bg-violet-500/15 rounded-lg">
-          <app-icon name="check-check" [size]="15" class="text-violet-400" />
+      <div class="glass rounded-xl px-4 py-3.5 flex items-center gap-3 card-lift cursor-default">
+        <div class="p-2.5 bg-violet-500/15 rounded-xl">
+          <app-icon name="check-check" [size]="18" class="text-violet-400" />
         </div>
-        <div>
+        <div class="flex-1">
           <p
             class="text-[10px] text-slate-500 uppercase tracking-wider font-bold"
           >
             {{ 'dashboard.statCompleted' | translate }}
           </p>
           <p
-            class="text-lg font-mono font-bold text-violet-400 leading-tight"
+            class="text-xl font-mono font-bold text-violet-400 leading-tight"
           >
             {{ taskStats()['COMPLETED'] ?? 0 }}
           </p>
@@ -246,15 +251,18 @@ const SHORT_ROLES: Record<string, string> = {
           <div class="divide-y divide-white/[0.03]">
             @for (item of displayActivity(); track item.id) {
               <div
-                class="px-5 py-2.5 flex items-center gap-3 hover:bg-white/[0.02] transition-colors"
+                class="px-5 py-2.5 flex items-center gap-3 hover:bg-white/[0.02] transition-colors border-l-2"
+                [class]="item.agentRole ? accentBorder(item.agentRole) : 'border-l-slate-700'"
               >
                 <div class="shrink-0">
                   @if (item.agentRole) {
-                    <app-icon
-                      [name]="agentIcon(item.agentRole)"
-                      [size]="14"
-                      [class]="agentColor(item.agentRole)"
-                    />
+                    <div class="p-1 rounded-md" [class]="getRoleMeta(item.agentRole).bgColor">
+                      <app-icon
+                        [name]="agentIcon(item.agentRole)"
+                        [size]="12"
+                        [class]="agentColor(item.agentRole)"
+                      />
+                    </div>
                   } @else {
                     <app-icon
                       name="circle-dot"
@@ -267,7 +275,7 @@ const SHORT_ROLES: Record<string, string> = {
                   <p class="text-xs text-slate-300 truncate">
                     @if (item.agentRole) {
                       <span
-                        class="font-mono font-bold mr-1.5"
+                        class="font-mono font-bold mr-1.5 text-[10px]"
                         [class]="agentColor(item.agentRole)"
                         >{{ shortRole(item.agentRole) }}</span
                       >
@@ -277,7 +285,7 @@ const SHORT_ROLES: Record<string, string> = {
                 </div>
                 @if (item.projectName) {
                   <span
-                    class="text-[10px] text-slate-600 font-mono shrink-0 hidden sm:block"
+                    class="text-[10px] text-slate-600 font-mono shrink-0 hidden sm:block bg-white/[0.03] px-1.5 py-0.5 rounded"
                     >{{ item.projectName }}</span
                   >
                 }
@@ -286,14 +294,19 @@ const SHORT_ROLES: Record<string, string> = {
                 </span>
               </div>
             } @empty {
-              <div class="px-5 py-8 text-center">
-                <app-icon
-                  name="radio"
-                  [size]="20"
-                  class="text-slate-700 mx-auto mb-2"
-                />
-                <p class="text-xs text-slate-600">
+              <div class="px-5 py-10 text-center">
+                <div class="p-3 bg-slate-800/50 rounded-2xl inline-block mb-3">
+                  <app-icon
+                    name="radio"
+                    [size]="24"
+                    class="text-slate-600"
+                  />
+                </div>
+                <p class="text-xs text-slate-500">
                   {{ 'dashboard.noActivity' | translate }}
+                </p>
+                <p class="text-[10px] text-slate-600 mt-1">
+                  Agent activity will appear here in real-time
                 </p>
               </div>
             }
@@ -304,10 +317,10 @@ const SHORT_ROLES: Record<string, string> = {
       <!-- Right: Agents + Projects (1/3) -->
       <div class="space-y-4">
         <!-- Agent Pipeline Status -->
-        <div class="glass rounded-2xl p-5 animate-in stagger-4">
-          <div class="flex items-center justify-between mb-4">
+        <div class="glass rounded-2xl overflow-hidden animate-in stagger-4">
+          <div class="flex items-center justify-between px-5 py-3 border-b border-white/5">
             <div class="flex items-center gap-2">
-              <app-icon name="bot" [size]="14" class="text-slate-500" />
+              <app-icon name="bot" [size]="14" class="text-indigo-400" />
               <h3
                 class="text-xs font-bold uppercase tracking-widest text-slate-400"
               >
@@ -323,21 +336,21 @@ const SHORT_ROLES: Record<string, string> = {
           </div>
 
           <!-- Pipeline grid: 5x2 -->
-          <div class="grid grid-cols-5 gap-2">
+          <div class="grid grid-cols-5 gap-1 p-4">
             @for (role of pipelineRoles; track role) {
               @let meta = getRoleMeta(role);
               @let data = getRoleData(role);
               <div
-                class="group relative flex flex-col items-center gap-1.5 py-2 px-1 rounded-xl transition-all duration-300 cursor-default"
+                class="group relative flex flex-col items-center gap-1.5 py-2.5 px-1 rounded-xl transition-all duration-300 cursor-default"
                 [class]="
                   data?.status === 'WORKING'
-                    ? 'bg-white/[0.04]'
+                    ? 'bg-white/[0.06] ring-1 ring-white/10'
                     : 'hover:bg-white/[0.02]'
                 "
               >
                 <div class="relative">
                   <div
-                    class="p-1.5 rounded-lg transition-colors"
+                    class="p-2 rounded-xl transition-all duration-300"
                     [class]="
                       data?.status === 'WORKING'
                         ? meta.bgColor
@@ -346,7 +359,7 @@ const SHORT_ROLES: Record<string, string> = {
                   >
                     <app-icon
                       [name]="meta.icon"
-                      [size]="14"
+                      [size]="15"
                       [class]="
                         data?.status === 'WORKING'
                           ? meta.color
@@ -370,10 +383,10 @@ const SHORT_ROLES: Record<string, string> = {
                   }
                 </div>
                 <span
-                  class="text-[8px] font-mono leading-none text-center"
+                  class="text-[8px] font-mono leading-none text-center font-bold"
                   [class]="
                     data?.status === 'WORKING'
-                      ? 'text-slate-300'
+                      ? meta.color
                       : 'text-slate-600'
                   "
                 >
@@ -383,9 +396,9 @@ const SHORT_ROLES: Record<string, string> = {
                 <!-- Tooltip on hover for working agents -->
                 @if (data?.currentTask) {
                   <div
-                    class="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 w-36 glass-heavy rounded-lg p-2 opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none z-10"
+                    class="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 w-40 tooltip-glass rounded-xl p-2.5 opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none z-10"
                   >
-                    <p class="text-[10px] text-slate-300 truncate">
+                    <p class="text-[10px] font-bold text-slate-200 truncate">
                       {{ data!.currentTask.type }}
                     </p>
                     @if (data!.activeProjects.length) {
@@ -401,10 +414,10 @@ const SHORT_ROLES: Record<string, string> = {
 
           <!-- Working agents detail list -->
           @if (workingAgents().length > 0) {
-            <div class="mt-3 pt-3 border-t border-white/5 space-y-2">
+            <div class="px-4 pb-4 space-y-1.5">
               @for (agent of workingAgents(); track agent.role) {
                 @let meta = getRoleMeta(agent.role);
-                <div class="flex items-center gap-2">
+                <div class="flex items-center gap-2 px-2.5 py-1.5 rounded-lg bg-white/[0.02] border-l-2" [class]="accentBorder(agent.role)">
                   <app-icon
                     [name]="meta.icon"
                     [size]="12"
@@ -426,7 +439,7 @@ const SHORT_ROLES: Record<string, string> = {
                     }
                   </span>
                   @if (agent.currentTask) {
-                    <span class="text-[9px] text-slate-600 font-mono">{{
+                    <span class="text-[9px] text-slate-600 font-mono bg-white/[0.03] px-1.5 py-0.5 rounded">{{
                       agent.currentTask.type
                     }}</span>
                   }
@@ -437,8 +450,8 @@ const SHORT_ROLES: Record<string, string> = {
         </div>
 
         <!-- Active Projects -->
-        <div class="glass rounded-2xl p-5 animate-in stagger-6">
-          <div class="flex items-center justify-between mb-4">
+        <div class="glass rounded-2xl overflow-hidden animate-in stagger-6">
+          <div class="flex items-center justify-between px-5 py-3 border-b border-white/5">
             <div class="flex items-center gap-2">
               <app-icon name="zap" [size]="14" class="text-amber-500" />
               <h3
@@ -454,19 +467,20 @@ const SHORT_ROLES: Record<string, string> = {
               {{ 'dashboard.viewAll' | translate }} &rarr;
             </a>
           </div>
-          <div class="space-y-2">
+          <div class="divide-y divide-white/[0.03]">
             @for (project of activeProjects(); track project.id) {
               <a
                 [routerLink]="['/projects', project.slug]"
-                class="flex items-center gap-3 p-2.5 rounded-xl hover:bg-white/[0.04] transition-all group"
+                class="flex items-center gap-3 px-5 py-3 hover:bg-white/[0.03] transition-all group"
               >
                 <div
-                  class="p-1.5 bg-indigo-500/10 rounded-lg group-hover:bg-indigo-500/20 transition-colors"
+                  class="p-2 rounded-xl transition-colors"
+                  [class]="project.status === 'INTERVIEWING' ? 'bg-sky-500/10 group-hover:bg-sky-500/20' : 'bg-amber-500/10 group-hover:bg-amber-500/20'"
                 >
                   <app-icon
-                    name="folder-git-2"
+                    [name]="project.status === 'INTERVIEWING' ? 'mic' : 'settings'"
                     [size]="14"
-                    class="text-indigo-400"
+                    [class]="project.status === 'INTERVIEWING' ? 'text-sky-400' : 'text-amber-400'"
                   />
                 </div>
                 <div class="flex-1 min-w-0">
@@ -484,17 +498,19 @@ const SHORT_ROLES: Record<string, string> = {
                 <app-icon
                   name="chevron-right"
                   [size]="12"
-                  class="text-slate-700 group-hover:text-slate-400 transition-colors"
+                  class="text-slate-700 group-hover:text-indigo-400 transition-colors"
                 />
               </a>
             } @empty {
-              <div class="text-center py-4">
-                <app-icon
-                  name="coffee"
-                  [size]="18"
-                  class="text-slate-700 mx-auto mb-2"
-                />
-                <p class="text-[10px] text-slate-600 font-mono">
+              <div class="text-center py-8 px-5">
+                <div class="p-3 bg-slate-800/50 rounded-2xl inline-block mb-3">
+                  <app-icon
+                    name="coffee"
+                    [size]="20"
+                    class="text-slate-600"
+                  />
+                </div>
+                <p class="text-xs text-slate-500">
                   {{ 'dashboard.allIdle' | translate }}
                 </p>
               </div>
@@ -504,8 +520,8 @@ const SHORT_ROLES: Record<string, string> = {
 
         <!-- Recent Projects (quick nav) -->
         @if (recentProjects().length > 0) {
-          <div class="glass rounded-2xl p-5 animate-in stagger-7">
-            <div class="flex items-center gap-2 mb-3">
+          <div class="glass rounded-2xl overflow-hidden animate-in stagger-7">
+            <div class="flex items-center gap-2 px-5 py-3 border-b border-white/5">
               <app-icon name="clock" [size]="14" class="text-slate-500" />
               <h3
                 class="text-xs font-bold uppercase tracking-widest text-slate-400"
@@ -513,12 +529,13 @@ const SHORT_ROLES: Record<string, string> = {
                 {{ 'dashboard.recentProjects' | translate }}
               </h3>
             </div>
-            <div class="space-y-1">
+            <div class="divide-y divide-white/[0.02]">
               @for (project of recentProjects(); track project.id) {
                 <a
                   [routerLink]="['/projects', project.slug]"
-                  class="flex items-center gap-2.5 px-2 py-1.5 rounded-lg hover:bg-white/[0.03] transition-colors group"
+                  class="flex items-center gap-2.5 px-5 py-2.5 hover:bg-white/[0.03] transition-colors group"
                 >
+                  <div class="h-1.5 w-1.5 rounded-full shrink-0" [class]="statusDot(project.status)"></div>
                   <span
                     class="text-xs text-slate-400 truncate flex-1 group-hover:text-slate-200 transition-colors"
                     >{{ project.name }}</span
@@ -725,5 +742,31 @@ export class DashboardPage implements OnInit, OnDestroy {
       day: '2-digit',
       month: 'short',
     });
+  }
+
+  accentBorder(role: string): string {
+    const map: Record<string, string> = {
+      INTERVIEWER: 'border-l-sky-400',
+      ARCHITECT: 'border-l-violet-400',
+      ISSUE_COMPILER: 'border-l-amber-400',
+      CODER: 'border-l-indigo-400',
+      CODE_REVIEWER: 'border-l-emerald-400',
+      UI_TESTER: 'border-l-pink-400',
+      FUNCTIONAL_TESTER: 'border-l-teal-400',
+      PEN_TESTER: 'border-l-red-400',
+      DOCUMENTER: 'border-l-cyan-400',
+      DEVOPS: 'border-l-orange-400',
+    };
+    return map[role] ?? 'border-l-slate-600';
+  }
+
+  statusDot(status?: string): string {
+    const map: Record<string, string> = {
+      INTERVIEWING: 'bg-sky-400',
+      SETTING_UP: 'bg-amber-400',
+      READY: 'bg-emerald-400',
+      ARCHIVED: 'bg-slate-600',
+    };
+    return map[status ?? ''] ?? 'bg-slate-600';
   }
 }

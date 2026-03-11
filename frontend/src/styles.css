@@ -329,6 +329,97 @@ body::after {
   box-shadow: 0 0 4px rgba(16, 185, 129, 0.3);
 }
 
+/* ─── Card Hover Lift ──────────────────────────────────────── */
+.card-lift {
+  transition: transform 0.3s ease, box-shadow 0.3s ease;
+}
+
+.card-lift:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 8px 30px rgba(0, 0, 0, 0.3), 0 0 40px rgba(99, 102, 241, 0.06);
+}
+
+/* ─── Accent Left Border Cards ─────────────────────────────── */
+.accent-border-sky    { border-left: 3px solid #38bdf8; }
+.accent-border-violet { border-left: 3px solid #8b5cf6; }
+.accent-border-amber  { border-left: 3px solid #f59e0b; }
+.accent-border-indigo { border-left: 3px solid #6366f1; }
+.accent-border-emerald{ border-left: 3px solid #10b981; }
+.accent-border-pink   { border-left: 3px solid #ec4899; }
+.accent-border-teal   { border-left: 3px solid #14b8a6; }
+.accent-border-red    { border-left: 3px solid #ef4444; }
+.accent-border-cyan   { border-left: 3px solid #06b6d4; }
+.accent-border-orange { border-left: 3px solid #f97316; }
+
+/* ─── Glass Accent (subtle highlight) ──────────────────────── */
+.glass-accent {
+  background: rgba(15, 23, 42, 0.6);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  border: 1px solid rgba(99, 102, 241, 0.12);
+}
+
+.glass-accent:hover {
+  border-color: rgba(99, 102, 241, 0.25);
+}
+
+/* ─── Section Header with Gradient Underline ───────────────── */
+.section-header {
+  position: relative;
+  padding-bottom: 0.75rem;
+}
+
+.section-header::after {
+  content: '';
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  width: 3rem;
+  height: 2px;
+  border-radius: 1px;
+  background: linear-gradient(90deg, #6366f1, #8b5cf6);
+}
+
+/* ─── Pipeline Flow Connector ──────────────────────────────── */
+.pipeline-connector {
+  position: relative;
+}
+
+.pipeline-connector::after {
+  content: '';
+  position: absolute;
+  top: 50%;
+  right: -12px;
+  width: 12px;
+  height: 2px;
+  background: rgba(99, 102, 241, 0.2);
+}
+
+.pipeline-connector:last-child::after {
+  display: none;
+}
+
+/* ─── Focus Ring ───────────────────────────────────────────── */
+input:focus, select:focus, textarea:focus {
+  outline: none;
+  border-color: rgba(99, 102, 241, 0.5) !important;
+  box-shadow: 0 0 0 3px rgba(99, 102, 241, 0.1);
+}
+
+/* ─── Status Indicators ────────────────────────────────────── */
+.status-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.375rem;
+  padding: 0.25rem 0.625rem;
+  border-radius: 9999px;
+  font-size: 0.625rem;
+  font-family: var(--font-mono);
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
 /* ─── Sidebar Active State ──────────────────────────────────── */
 .nav-link-active {
   background: rgba(99, 102, 241, 0.1);
@@ -347,4 +438,40 @@ body::after {
   border-radius: 0 3px 3px 0;
   background: #6366f1;
   box-shadow: 0 0 12px rgba(99, 102, 241, 0.6);
+}
+
+/* ─── Improved Table Styles ────────────────────────────────── */
+.table-row-hover {
+  transition: background-color 0.15s ease;
+}
+
+.table-row-hover:hover {
+  background: rgba(255, 255, 255, 0.03);
+}
+
+/* ─── Tooltip Styling ──────────────────────────────────────── */
+.tooltip-glass {
+  background: rgba(15, 23, 42, 0.95);
+  backdrop-filter: blur(20px);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.5);
+}
+
+/* ─── Gradient Text Variants ───────────────────────────────── */
+.gradient-text-sky {
+  background: linear-gradient(135deg, #38bdf8, #818cf8);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+}
+
+.gradient-text-emerald {
+  background: linear-gradient(135deg, #10b981, #38bdf8);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+}
+
+.gradient-text-amber {
+  background: linear-gradient(135deg, #f59e0b, #ef4444);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
 }

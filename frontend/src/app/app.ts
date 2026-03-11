@@ -16,30 +16,30 @@ import { ApiService } from './services/api.service';
       [class.w-16]="!sidebarOpen()"
     >
       <!-- Logo -->
-      <div class="flex items-center gap-3 px-4 h-16 border-b border-white/5">
+      <div class="flex items-center gap-3 px-4 h-14 border-b border-white/5">
         <button
           (click)="sidebarOpen.set(!sidebarOpen())"
-          class="p-1 rounded-lg hover:bg-white/5 transition-colors text-slate-400 hover:text-white"
+          class="p-1.5 rounded-lg hover:bg-white/5 transition-colors text-slate-400 hover:text-white"
         >
-          <app-icon [name]="sidebarOpen() ? 'panel-left-close' : 'panel-left-open'" [size]="20" />
+          <app-icon [name]="sidebarOpen() ? 'panel-left-close' : 'panel-left-open'" [size]="18" />
         </button>
         @if (sidebarOpen()) {
-          <a routerLink="/" class="text-lg font-extrabold tracking-tight">
+          <a routerLink="/" class="text-base font-extrabold tracking-tight">
             <span class="bg-gradient-to-r from-indigo-400 via-violet-400 to-purple-400 bg-clip-text text-transparent">VibCode</span>
-            <span class="text-slate-500 font-light"> Hub</span>
+            <span class="text-slate-500 font-light ml-0.5">Hub</span>
           </a>
         }
       </div>
 
       <!-- Nav Links -->
-      <nav class="flex-1 py-4 flex flex-col gap-1 px-2">
+      <nav class="flex-1 py-3 flex flex-col gap-0.5 px-2">
         <a
           routerLink="/"
           routerLinkActive="nav-link-active"
           [routerLinkActiveOptions]="{ exact: true }"
-          class="flex items-center gap-3 px-3 py-2.5 rounded-xl text-slate-400 hover:text-white hover:bg-white/5 transition-all"
+          class="flex items-center gap-3 px-3 py-2 rounded-xl text-slate-400 hover:text-white hover:bg-white/5 transition-all group"
         >
-          <app-icon name="layout-dashboard" [size]="18" />
+          <app-icon name="layout-dashboard" [size]="18" class="group-hover:scale-110 transition-transform" />
           @if (sidebarOpen()) {
             <span class="text-sm font-medium">{{ 'sidebar.dashboard' | translate }}</span>
           }
@@ -47,9 +47,9 @@ import { ApiService } from './services/api.service';
         <a
           routerLink="/projects"
           routerLinkActive="nav-link-active"
-          class="flex items-center gap-3 px-3 py-2.5 rounded-xl text-slate-400 hover:text-white hover:bg-white/5 transition-all"
+          class="flex items-center gap-3 px-3 py-2 rounded-xl text-slate-400 hover:text-white hover:bg-white/5 transition-all group"
         >
-          <app-icon name="folder-git-2" [size]="18" />
+          <app-icon name="folder-git-2" [size]="18" class="group-hover:scale-110 transition-transform" />
           @if (sidebarOpen()) {
             <span class="text-sm font-medium">{{ 'sidebar.projects' | translate }}</span>
           }
@@ -57,9 +57,9 @@ import { ApiService } from './services/api.service';
         <a
           routerLink="/agents"
           routerLinkActive="nav-link-active"
-          class="flex items-center gap-3 px-3 py-2.5 rounded-xl text-slate-400 hover:text-white hover:bg-white/5 transition-all"
+          class="flex items-center gap-3 px-3 py-2 rounded-xl text-slate-400 hover:text-white hover:bg-white/5 transition-all group"
         >
-          <app-icon name="bot" [size]="18" />
+          <app-icon name="bot" [size]="18" class="group-hover:scale-110 transition-transform" />
           @if (sidebarOpen()) {
             <span class="text-sm font-medium">{{ 'sidebar.agents' | translate }}</span>
           }
@@ -67,9 +67,9 @@ import { ApiService } from './services/api.service';
         <a
           routerLink="/live-feed"
           routerLinkActive="nav-link-active"
-          class="flex items-center gap-3 px-3 py-2.5 rounded-xl text-slate-400 hover:text-white hover:bg-white/5 transition-all"
+          class="flex items-center gap-3 px-3 py-2 rounded-xl text-slate-400 hover:text-white hover:bg-white/5 transition-all group"
         >
-          <app-icon name="activity" [size]="18" />
+          <app-icon name="activity" [size]="18" class="group-hover:scale-110 transition-transform" />
           @if (sidebarOpen()) {
             <span class="text-sm font-medium">{{ 'sidebar.liveFeed' | translate }}</span>
           }
@@ -77,13 +77,13 @@ import { ApiService } from './services/api.service';
       </nav>
 
       <!-- Bottom -->
-      <div class="px-2 py-4 border-t border-white/5">
+      <div class="px-2 py-3 border-t border-white/5">
         <a
           routerLink="/settings"
           routerLinkActive="nav-link-active"
-          class="flex items-center gap-3 px-3 py-2.5 rounded-xl text-slate-400 hover:text-white hover:bg-white/5 transition-all cursor-pointer"
+          class="flex items-center gap-3 px-3 py-2 rounded-xl text-slate-400 hover:text-white hover:bg-white/5 transition-all cursor-pointer group"
         >
-          <app-icon name="settings" [size]="18" />
+          <app-icon name="settings" [size]="18" class="group-hover:rotate-45 transition-transform duration-500" />
           @if (sidebarOpen()) {
             <span class="text-sm font-medium">{{ 'sidebar.settings' | translate }}</span>
           }
@@ -93,7 +93,7 @@ import { ApiService } from './services/api.service';
 
     <!-- Main Content -->
     <main class="flex-1 min-h-screen min-w-0">
-      <div class="p-6 max-w-7xl mx-auto">
+      <div class="p-6 max-w-[1400px] mx-auto">
         <router-outlet />
       </div>
     </main>

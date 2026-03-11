@@ -110,70 +110,80 @@ const LEVEL_COLORS: Record<string, string> = {
       </div>
 
       <!-- Activity Stream -->
-      <div class="space-y-2 animate-in stagger-4">
-        @for (item of filteredItems(); track item.id; let i = $index) {
-          <div class="glass rounded-xl px-4 py-3 flex items-start gap-3 hover:bg-white/[0.03] transition-colors animate-in"
-               [style.animation-delay]="(0.05 * Math.min(i, 20)) + 's'">
-            <!-- Agent Icon -->
-            <div class="mt-0.5 shrink-0">
-              @if (item.agentRole) {
-                <app-icon [name]="agentIcon(item.agentRole)" [size]="16" [class]="agentColor(item.agentRole)" />
-              } @else {
-                <app-icon name="circle-dot" [size]="16" class="text-slate-500" />
-              }
-            </div>
-
-            <!-- Content -->
-            <div class="flex-1 min-w-0">
-              <div class="flex items-center gap-2 flex-wrap">
+      <div class="glass rounded-2xl overflow-hidden animate-in stagger-4">
+        <div class="divide-y divide-white/[0.03]">
+          @for (item of filteredItems(); track item.id; let i = $index) {
+            <div class="px-4 py-3 flex items-start gap-3 hover:bg-white/[0.02] transition-colors border-l-2"
+                 [class]="item.agentRole ? accentBorder(item.agentRole) : 'border-l-slate-700'">
+              <!-- Agent Icon -->
+              <div class="mt-0.5 shrink-0">
                 @if (item.agentRole) {
-                  <span class="text-xs font-mono font-bold" [class]="agentColor(item.agentRole)">
-                    {{ item.agentRole }}
-                  </span>
-                }
-                @if (item.level) {
-                  <span class="text-[10px] font-mono px-1.5 py-0.5 rounded" [class]="levelColor(item.level)">
-                    {{ item.level }}
-                  </span>
-                }
-                @if (item.type === 'comment') {
-                  <span class="text-[10px] font-mono text-purple-400 bg-purple-400/10 px-1.5 py-0.5 rounded">COMMENT</span>
-                }
-                @if (item.type === 'message') {
-                  <span class="text-[10px] font-mono text-blue-400 bg-blue-400/10 px-1.5 py-0.5 rounded">CHAT</span>
-                }
-                @if (item.projectName) {
-                  <a [routerLink]="['/projects', item.projectSlug]" class="text-[10px] text-slate-500 hover:text-indigo-400 transition-colors">
-                    {{ item.projectName }}
-                  </a>
+                  <div class="p-1 rounded-md" [class]="agentBg(item.agentRole)">
+                    <app-icon [name]="agentIcon(item.agentRole)" [size]="14" [class]="agentColor(item.agentRole)" />
+                  </div>
+                } @else {
+                  <app-icon name="circle-dot" [size]="16" class="text-slate-500" />
                 }
               </div>
-              <p class="text-sm text-slate-300 mt-1 break-words">{{ item.message }}</p>
-              @if (item.issueTitle) {
-                <p class="text-xs text-slate-500 mt-0.5">↳ {{ item.issueTitle }}</p>
-              }
-            </div>
 
-            <!-- Timestamp -->
-            <span class="text-[10px] font-mono text-slate-600 whitespace-nowrap shrink-0 mt-0.5">
-              {{ item.createdAt | date:'HH:mm:ss' }}
-            </span>
-          </div>
-        } @empty {
-          <div class="glass rounded-2xl p-12 text-center">
-            <app-icon name="radio" [size]="32" class="text-slate-600 mx-auto mb-3" />
-            <p class="text-slate-500">{{ 'liveFeed.noActivity' | translate }}</p>
-          </div>
-        }
+              <!-- Content -->
+              <div class="flex-1 min-w-0">
+                <div class="flex items-center gap-2 flex-wrap">
+                  @if (item.agentRole) {
+                    <span class="text-[10px] font-mono font-bold" [class]="agentColor(item.agentRole)">
+                      {{ item.agentRole }}
+                    </span>
+                  }
+                  @if (item.level && item.level !== 'INFO') {
+                    <span class="text-[10px] font-mono px-1.5 py-0.5 rounded-md font-bold" [class]="levelColor(item.level)">
+                      {{ item.level }}
+                    </span>
+                  }
+                  @if (item.type === 'comment') {
+                    <span class="text-[10px] font-mono text-purple-400 bg-purple-400/10 px-1.5 py-0.5 rounded-md font-bold">COMMENT</span>
+                  }
+                  @if (item.type === 'message') {
+                    <span class="text-[10px] font-mono text-blue-400 bg-blue-400/10 px-1.5 py-0.5 rounded-md font-bold">CHAT</span>
+                  }
+                  @if (item.projectName) {
+                    <a [routerLink]="['/projects', item.projectSlug]" class="text-[10px] text-slate-500 hover:text-indigo-400 transition-colors bg-white/[0.03] px-1.5 py-0.5 rounded">
+                      {{ item.projectName }}
+                    </a>
+                  }
+                </div>
+                <p class="text-sm text-slate-300 mt-1 break-words leading-relaxed">{{ item.message }}</p>
+                @if (item.issueTitle) {
+                  <p class="text-[11px] text-slate-500 mt-0.5 font-mono">↳ {{ item.issueTitle }}</p>
+                }
+              </div>
+
+              <!-- Timestamp -->
+              <span class="text-[10px] font-mono text-slate-600 whitespace-nowrap shrink-0 mt-1 bg-white/[0.02] px-1.5 py-0.5 rounded">
+                {{ item.createdAt | date:'HH:mm:ss' }}
+              </span>
+            </div>
+          } @empty {
+            <div class="p-16 text-center">
+              <div class="p-4 bg-slate-800/50 rounded-2xl inline-block mb-4">
+                <app-icon name="radio" [size]="32" class="text-slate-600" />
+              </div>
+              <p class="text-sm text-slate-500">{{ 'liveFeed.noActivity' | translate }}</p>
+              <p class="text-xs text-slate-600 mt-1">Agent events will stream here in real-time</p>
+            </div>
+          }
+        </div>
 
         <!-- Load More -->
         @if (hasMore()) {
-          <button
-            (click)="loadMore()"
-            class="w-full glass rounded-xl py-3 text-sm text-slate-400 hover:text-white hover:bg-white/5 transition-colors"
-          >
-            {{ 'liveFeed.loadMore' | translate }}
-          </button>
+          <div class="border-t border-white/5">
+            <button
+              (click)="loadMore()"
+              class="w-full py-3.5 text-sm text-slate-400 hover:text-white hover:bg-white/[0.03] transition-colors flex items-center justify-center gap-2"
+            >
+              <app-icon name="chevron-down" [size]="14" />
+              {{ 'liveFeed.loadMore' | translate }}
+            </button>
+          </div>
         }
       </div>
     </div>
@@ -264,6 +274,44 @@ export class LiveFeedPage implements OnInit, OnDestroy {
   }
 
   levelColor(level: string): string {
-    return LEVEL_COLORS[level] ?? 'text-slate-400';
+    const map: Record<string, string> = {
+      DEBUG: 'text-slate-400 bg-slate-400/10',
+      INFO: 'text-blue-400 bg-blue-400/10',
+      WARN: 'text-amber-400 bg-amber-400/10',
+      ERROR: 'text-red-400 bg-red-400/10',
+    };
+    return map[level] ?? 'text-slate-400 bg-slate-400/10';
+  }
+
+  accentBorder(role: string): string {
+    const map: Record<string, string> = {
+      INTERVIEWER: 'border-l-sky-400',
+      ARCHITECT: 'border-l-violet-400',
+      ISSUE_COMPILER: 'border-l-amber-400',
+      CODER: 'border-l-indigo-400',
+      CODE_REVIEWER: 'border-l-emerald-400',
+      UI_TESTER: 'border-l-pink-400',
+      FUNCTIONAL_TESTER: 'border-l-teal-400',
+      PEN_TESTER: 'border-l-red-400',
+      DOCUMENTER: 'border-l-cyan-400',
+      DEVOPS: 'border-l-orange-400',
+    };
+    return map[role] ?? 'border-l-slate-600';
+  }
+
+  agentBg(role: string): string {
+    const map: Record<string, string> = {
+      INTERVIEWER: 'bg-sky-500/20',
+      ARCHITECT: 'bg-violet-500/20',
+      ISSUE_COMPILER: 'bg-amber-500/20',
+      CODER: 'bg-indigo-500/20',
+      CODE_REVIEWER: 'bg-emerald-500/20',
+      UI_TESTER: 'bg-pink-500/20',
+      FUNCTIONAL_TESTER: 'bg-teal-500/20',
+      PEN_TESTER: 'bg-red-500/20',
+      DOCUMENTER: 'bg-cyan-500/20',
+      DEVOPS: 'bg-orange-500/20',
+    };
+    return map[role] ?? 'bg-slate-500/20';
   }
 }

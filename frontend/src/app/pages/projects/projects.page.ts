@@ -37,32 +37,32 @@ const STATUS_ICONS: Record<string, string> = {
       </div>
 
       <!-- Stats Summary -->
-      <div class="flex flex-wrap gap-4 animate-in stagger-2">
-        <div class="glass rounded-2xl px-5 py-3 flex items-center gap-3">
-          <div class="p-2 bg-indigo-500/20 rounded-xl">
-            <app-icon name="folder-git-2" [size]="16" class="text-indigo-400" />
+      <div class="grid grid-cols-3 gap-3 animate-in stagger-2">
+        <div class="glass rounded-xl px-4 py-3.5 flex items-center gap-3 card-lift cursor-default">
+          <div class="p-2.5 bg-indigo-500/15 rounded-xl">
+            <app-icon name="folder-git-2" [size]="18" class="text-indigo-400" />
           </div>
           <div>
-            <p class="text-xs text-slate-500">{{ 'projectsList.total' | translate }}</p>
-            <p class="text-lg font-mono font-bold text-white">{{ projects().length }}</p>
+            <p class="text-[10px] text-slate-500 uppercase tracking-wider font-bold">{{ 'projectsList.total' | translate }}</p>
+            <p class="text-xl font-mono font-bold text-white">{{ projects().length }}</p>
           </div>
         </div>
-        <div class="glass rounded-2xl px-5 py-3 flex items-center gap-3">
-          <div class="p-2 bg-emerald-500/20 rounded-xl">
-            <app-icon name="check-circle" [size]="16" class="text-emerald-400" />
+        <div class="glass rounded-xl px-4 py-3.5 flex items-center gap-3 card-lift cursor-default">
+          <div class="p-2.5 bg-emerald-500/15 rounded-xl">
+            <app-icon name="check-circle" [size]="18" class="text-emerald-400" />
           </div>
           <div>
-            <p class="text-xs text-slate-500">{{ 'projectsList.ready' | translate }}</p>
-            <p class="text-lg font-mono font-bold text-emerald-400">{{ countByStatus('READY') }}</p>
+            <p class="text-[10px] text-slate-500 uppercase tracking-wider font-bold">{{ 'projectsList.ready' | translate }}</p>
+            <p class="text-xl font-mono font-bold text-emerald-400">{{ countByStatus('READY') }}</p>
           </div>
         </div>
-        <div class="glass rounded-2xl px-5 py-3 flex items-center gap-3">
-          <div class="p-2 bg-sky-500/20 rounded-xl">
-            <app-icon name="activity" [size]="16" class="text-sky-400" />
+        <div class="glass rounded-xl px-4 py-3.5 flex items-center gap-3 card-lift cursor-default">
+          <div class="p-2.5 bg-sky-500/15 rounded-xl">
+            <app-icon name="activity" [size]="18" class="text-sky-400" />
           </div>
           <div>
-            <p class="text-xs text-slate-500">{{ 'projectsList.active' | translate }}</p>
-            <p class="text-lg font-mono font-bold text-sky-400">{{ countByStatus('INTERVIEWING') + countByStatus('SETTING_UP') }}</p>
+            <p class="text-[10px] text-slate-500 uppercase tracking-wider font-bold">{{ 'projectsList.active' | translate }}</p>
+            <p class="text-xl font-mono font-bold text-sky-400">{{ countByStatus('INTERVIEWING') + countByStatus('SETTING_UP') }}</p>
           </div>
         </div>
       </div>
@@ -117,40 +117,54 @@ const STATUS_ICONS: Record<string, string> = {
               <tr
                 class="border-b border-white/[0.02] hover:bg-white/[0.03] transition-colors cursor-pointer group"
               >
-                <td class="px-4 py-3">
+                <td class="px-4 py-3.5">
                   <a [routerLink]="['/projects', project.slug]" class="flex items-center gap-3">
-                    <div class="p-2 bg-indigo-500/10 rounded-xl group-hover:bg-indigo-500/20 transition-colors">
-                      <app-icon name="folder-git-2" [size]="16" class="text-indigo-400" />
+                    <div class="p-2 rounded-xl transition-all duration-300 border"
+                         [class]="project.status === 'READY' ? 'bg-emerald-500/10 border-emerald-500/20 group-hover:bg-emerald-500/20' :
+                                  project.status === 'INTERVIEWING' ? 'bg-sky-500/10 border-sky-500/20 group-hover:bg-sky-500/20' :
+                                  project.status === 'SETTING_UP' ? 'bg-amber-500/10 border-amber-500/20 group-hover:bg-amber-500/20' :
+                                  'bg-indigo-500/10 border-indigo-500/20 group-hover:bg-indigo-500/20'">
+                      <app-icon [name]="statusIcon(project.status)" [size]="16"
+                                [class]="project.status === 'READY' ? 'text-emerald-400' :
+                                         project.status === 'INTERVIEWING' ? 'text-sky-400' :
+                                         project.status === 'SETTING_UP' ? 'text-amber-400' :
+                                         'text-indigo-400'" />
                     </div>
                     <div>
                       <p class="text-sm font-semibold text-white group-hover:text-indigo-300 transition-colors">{{ project.name }}</p>
-                      <p class="text-xs text-slate-500 line-clamp-1">{{ project.description || ('common.noDescription' | translate) }}</p>
+                      <p class="text-[11px] text-slate-500 line-clamp-1 max-w-xs">{{ project.description || ('common.noDescription' | translate) }}</p>
                     </div>
                   </a>
                 </td>
-                <td class="px-4 py-3">
-                  <span class="text-[10px] font-mono font-bold uppercase tracking-wider px-2 py-1 rounded-lg" [class]="statusColor(project.status)">
-                    <app-icon [name]="statusIcon(project.status)" [size]="12" class="inline mr-1" />
+                <td class="px-4 py-3.5">
+                  <span class="text-[10px] font-mono font-bold uppercase tracking-wider px-2.5 py-1 rounded-full inline-flex items-center gap-1" [class]="statusColor(project.status)">
+                    <span class="h-1.5 w-1.5 rounded-full" [class]="project.status === 'READY' ? 'bg-emerald-400' :
+                                                                      project.status === 'INTERVIEWING' ? 'bg-sky-400' :
+                                                                      project.status === 'SETTING_UP' ? 'bg-amber-400' :
+                                                                      'bg-slate-500'"></span>
                     {{ project.status }}
                   </span>
                 </td>
-                <td class="px-4 py-3 hidden md:table-cell">
-                  <span class="font-mono text-xs text-slate-500">/{{ project.slug }}</span>
+                <td class="px-4 py-3.5 hidden md:table-cell">
+                  <span class="font-mono text-xs text-slate-500 bg-white/[0.03] px-2 py-0.5 rounded">/{{ project.slug }}</span>
                 </td>
-                <td class="px-4 py-3 hidden lg:table-cell">
+                <td class="px-4 py-3.5 hidden lg:table-cell">
                   <span class="text-xs text-slate-500">{{ project.updatedAt | date:'dd.MM.yyyy HH:mm' }}</span>
                 </td>
-                <td class="px-4 py-3 text-right">
-                  <a [routerLink]="['/projects', project.slug]" class="text-slate-600 hover:text-indigo-400 transition-colors">
+                <td class="px-4 py-3.5 text-right">
+                  <a [routerLink]="['/projects', project.slug]" class="p-1.5 rounded-lg text-slate-600 hover:text-indigo-400 hover:bg-indigo-500/10 transition-all inline-flex">
                     <app-icon name="arrow-up-right" [size]="16" />
                   </a>
                 </td>
               </tr>
             } @empty {
               <tr>
-                <td colspan="5" class="px-4 py-12 text-center text-slate-500">
-                  <app-icon name="inbox" [size]="32" class="mx-auto mb-3 text-slate-600" />
-                  <p>{{ 'projectsList.noProjects' | translate }}</p>
+                <td colspan="5" class="px-4 py-16 text-center">
+                  <div class="p-4 bg-slate-800/50 rounded-2xl inline-block mb-4">
+                    <app-icon name="inbox" [size]="32" class="text-slate-600" />
+                  </div>
+                  <p class="text-sm text-slate-500">{{ 'projectsList.noProjects' | translate }}</p>
+                  <p class="text-xs text-slate-600 mt-1">Create your first project to get started</p>
                 </td>
               </tr>
             }
