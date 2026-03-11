@@ -54,6 +54,8 @@ VibCode Hub ist ein AI-Entwicklerteam-Portal. Der Nutzer agiert als "Chef" und s
 - [x] DevOps YOLO Mode (handleInfraCommand via MCP agent loop after setup)
 - [x] Feature Interview (startFeatureInterview/continueFeatureInterview in Dev Sessions)
 - [x] ENVIRONMENT.md generation during project setup
+- [x] Session-Scoped Pipeline (Issue Compiler/Architect/Coder filter by chatSessionId, read FeatureInterviewResult)
+- [x] Workspace Isolation via Git Worktrees (`.session-worktrees/`, resolveWorkspace() in BaseAgent, cleanup on archive)
 - [x] Code Reviewer Agent (MR-Diffs → Ollama Review → Approve/Request Changes)
 - [x] Issue Comments (IssueComment Model, CRUD API, GitLab-Sync, Frontend Detail-Panel)
 - [x] Pipeline Feedback Loop (CI/CD Failure → Job-Logs → Coder fixIssue)

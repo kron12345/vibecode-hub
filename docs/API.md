@@ -110,6 +110,7 @@
   priority?: 'LOW' | 'MEDIUM' | 'HIGH' | 'CRITICAL';  // Default: MEDIUM
   labels?: string[];
   parentId?: string;       // Für Sub-Issues
+  chatSessionId?: string;  // Links issue to a Dev Session (session-scoped pipeline)
   syncToGitlab?: boolean;  // Erstellt das Issue auch in GitLab
 }
 ```
@@ -500,7 +501,7 @@ Der Issue Compiler Agent startet automatisch after the Architect design phase in
 1. Feature Interview completes in Dev Session → `agent.featureInterviewComplete` → Architect Phase A
 2. Architect design completes → `agent.architectDesignComplete` → `startIssueCompilation()`
 3. Issue Compiler erstellt AgentInstance (ISSUE_COMPILER) + AgentTask (CREATE_ISSUES) in gleicher ChatSession
-4. Lädt Projekt-Features aus Interview-Result (`project.techStack.features`)
+4. Lädt Features: In Dev Sessions aus `FeatureInterviewResult` (FEATURE_INTERVIEW AgentTask output), otherwise from `project.techStack.features`
 5. Sendet Features an LLM → erhält strukturierte Issues + Tasks als JSON
 6. Erstellt Issues in DB via `IssuesService.create({ syncToGitlab: true })`
 7. Erstellt Tasks als GitLab Work Items (Child-Tasks) via GraphQL `workItemCreate`
@@ -888,6 +889,7 @@ map $hub_project $hub_upstream {
 
 | Datum | Änderung |
 |---|---|
+| 2026-03-11 | Session-Scoped Pipeline with Workspace Isolation: Git worktrees for dev sessions (`.session-worktrees/{slug}--{branch}/`), all session agents use `resolveWorkspace()`. Issue Compiler reads features from FeatureInterviewResult in sessions. Architect Phase A includes session features + ENVIRONMENT.md. Architect Phase B + Coder filter issues by chatSessionId. Coder does direct commits in session (no MR). CreateIssueDto gains `chatSessionId` field. Session pipeline: Interview → Architect A → Issue Compiler → Architect B → Coder → DONE. Worktrees removed on session archive. |
 | 2026-03-11 | Pipeline Split: Infrastructure Chat (Interview → DevOps → STOP + YOLO mode for infra commands) vs Dev Session Chat (Feature Interview → Architect → Issue Compiler → full pipeline). New task types: FEATURE_INTERVIEW, INFRA_COMMAND. DevOps generates ENVIRONMENT.md. New events: session.devSessionCreated, agent.featureInterviewComplete. agent.devopsComplete no longer triggers Architect. Interviewer has startFeatureInterview/continueFeatureInterview. DevOps has handleInfraCommand() YOLO mode. No new REST endpoints (uses existing + events). |
 | 2026-03-11 | Session-Based Branching: ChatSession erweitert um type/status/branch/archivedAt/parentId. 6 neue Endpoints (POST dev, archive, resolve, continue; PATCH :id; GET archived). SessionBranchService: create/archive/continue/resolve Lifecycle. Coder Option A: direkte Commits auf Session-Branch. 3-Tier Frontend UI (Infrastructure/Dev Sessions/Archive). |
 | 2026-03-09 | Pipeline Bugfixes (8 total): Atomic start-lock für Agent-Duplikat-Verhinderung, Architect modelSupportsTools() für deepseek-r1, fetch MCP-Server deaktiviert (npm removed), maxTokens hochgesetzt (8K-16K je Rolle), Issue-Deduplizierung im Issue Compiler (title-check), Cache-Refresh Endpoint POST /settings/system/refresh. |

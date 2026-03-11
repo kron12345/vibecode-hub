@@ -76,6 +76,38 @@ vibcode-hub/
 └── shared/            # Geteilte Types (Frontend ↔ Backend)
 ```
 
+## Workspace Isolation (Git Worktrees)
+
+Dev Sessions use **git worktrees** to provide isolated working copies of the repository. This prevents concurrent sessions and infrastructure commands from interfering with each other.
+
+```
+backend/workspaces/{projectSlug}/                  # Main workspace (workBranch)
+  └── .session-worktrees/
+      └── {projectSlug}--{sanitizedBranch}/        # Session worktree (session branch)
+```
+
+### Lifecycle
+
+1. **Session Created** → `git worktree add .session-worktrees/{slug}--{branch} {branch}` creates an isolated copy
+2. **Agents Work** → All session agents (Interviewer, Architect, Issue Compiler, Coder) operate in the worktree directory
+3. **Session Archived** → Session branch is merged into workBranch, then `git worktree remove` cleans up the directory
+
+### Workspace Resolution (`resolveWorkspace()`)
+
+All agents use `BaseAgent.resolveWorkspace()` to determine the correct working directory:
+
+- **Infrastructure Chat** → returns main workspace path (`backend/workspaces/{slug}/`)
+- **Dev Session Chat** → returns worktree path (`.session-worktrees/{slug}--{branch}/`)
+
+MCP servers (filesystem, shell, git) are sandboxed to the resolved workspace path.
+
+### Key Properties
+
+- **Main workspace stays clean** — always on workBranch, never touched by session agents
+- **Concurrent sessions** — each session has its own worktree, no file conflicts
+- **Shared `.git`** — worktrees share the git object store, so branches are visible across all worktrees
+- **Cleanup on archive** — worktree directory is removed after successful merge
+
 ## Preview-Infrastruktur
 
 ```
@@ -99,9 +131,9 @@ Dev-Server auf localhost:{port}
 
 - **Project** → hat Issues, ChatSessions, AgentInstances. Status: `INTERVIEWING` | `SETTING_UP` | `READY` | `ARCHIVED`. Optional: `techStack` (JSON, Interview-Ergebnis), `previewPort` (unique, für Subdomain-Preview), `workBranch` (String?, Ziel-Branch für Feature-Branches — Feature-Branches werden davon abgezweigt und MRs dagegen erstellt; bei `null` wird der GitLab-Default-Branch verwendet)
 - **Milestone** → Gruppierung von Issues pro Projekt, optional GitLab-gespiegelt (`gitlabMilestoneId`). Felder: title, description, sortOrder, startDate, dueDate. Wird vom Issue Compiler Agent automatisch erzeugt.
-- **Issue** → hierarchisch (parent/sub-issues), gespiegelt von GitLab, optional einem Milestone zugeordnet (`milestoneId`), `sortOrder` für Reihenfolge
+- **Issue** → hierarchisch (parent/sub-issues), gespiegelt von GitLab, optional einem Milestone zugeordnet (`milestoneId`), optional einer ChatSession zugeordnet (`chatSessionId` für session-scoped Issues), `sortOrder` für Reihenfolge
 - **IssueComment** → Kommentare auf Issues, Typ: AGENT/USER/SYSTEM, GitLab-Note-ID (`gitlabNoteId`) für 2-Wege-Sync, gleicher rich Markdown wie GitLab-Note, optional an AgentTask gebunden. Agent-Kommentare bilden einen sichtbaren "Chat" auf jedem Issue (Coder → Reviewer → Functional → UI → Pen → Docs)
-- **ChatSession** → pro Projekt, enthält ChatMessages. `type`: `INFRASTRUCTURE` (permanenter Chat) | `DEV_SESSION` (eigener Git-Branch). `status`: `ACTIVE` | `MERGING` | `ARCHIVED` | `CONFLICT`. Optional: `branch` (Git-Branch-Name), `archivedAt`, `parentId` (Fortsetzung einer archivierten Session). Dev-Sessions werden bei Archivierung in main gemergt. Issues können über `chatSessionId` einer Session zugeordnet sein.
+- **ChatSession** → pro Projekt, enthält ChatMessages. `type`: `INFRASTRUCTURE` (permanenter Chat) | `DEV_SESSION` (eigener Git-Branch + eigener Worktree). `status`: `ACTIVE` | `MERGING` | `ARCHIVED` | `CONFLICT`. Optional: `branch` (Git-Branch-Name), `archivedAt`, `parentId` (Fortsetzung einer archivierten Session). Dev-Sessions werden bei Archivierung in main gemergt, Worktree wird entfernt. Issues können über `chatSessionId` einer Session zugeordnet sein.
 - **AgentInstance** → konfigurierter Agent pro Projekt (Rolle + Provider + Model)
 - **AgentTask** → einzelner Arbeitsschritt eines Agenten (13 Task-Typen, including `FEATURE_INTERVIEW` and `INFRA_COMMAND`)
 - **AgentLog** → Echtzeit-Logs für Live-Dashboard
@@ -163,23 +195,44 @@ After initial setup completes, the Infrastructure Chat becomes a persistent YOLO
 ### Dev Session Chat (DEV_SESSION)
 
 ```
-User creates Dev Session → session.devSessionCreated (own git branch)
+User creates Dev Session → session.devSessionCreated
+  → git worktree add (isolated workspace on session branch)
   → Feature Interview (Interviewer) → agent.featureInterviewComplete
     → Architect (Phase A: Design) → agent.architectDesignComplete
+      - Reads session features from FeatureInterviewResult (FEATURE_INTERVIEW task output)
+      - Includes ENVIRONMENT.md context from worktree
       → Issue Compiler → agent.issueCompilerComplete
+        - Reads features from FeatureInterviewResult (not project.techStack)
+        - Issues get chatSessionId linking them to the session
         → Architect (Phase B: Grounding) → agent.architectGroundingComplete
+          - Only grounds issues belonging to the current session (filtered by chatSessionId)
           → Coder Agent (pro Issue im Milestone, sequenziell)
-            → agent.codingComplete
-              → Code Reviewer
-                → agent.reviewApproved
-                  → Functional Tester → agent.functionalTestComplete
-                    → pass → UI Tester → agent.uiTestComplete
-                      → pass → Pen Tester → agent.penTestComplete
-                        → pass → Documenter → agent.docsComplete → Issue DONE
-                        → fail → Coder fixIssue(security feedback)
-                      → fail → Coder fixIssue(UI feedback)
-                    → fail → Coder fixIssue(functional test feedback)
-                → agent.reviewChangesRequested → Coder fixIssue()
+            - Only processes session-scoped issues (filtered by chatSessionId)
+            - Works in worktree directory (resolveWorkspace())
+            - Direct commits on session branch (no MR per issue)
+            → agent.codingComplete → DONE (no review/test per issue)
+
+Session archive merges session branch → workBranch, removes worktree.
+```
+
+**Session-Scoped Pipeline** (simplified — no MR/review/test per issue):
+- Feature Interview → Architect (Phase A) → Issue Compiler → Architect (Phase B) → Coder → DONE
+- The session merge into workBranch replaces per-issue MRs
+- Review/testing happens at the session level, not per issue
+
+**Full Pipeline** (issues outside dev sessions, e.g. from GitLab webhooks):
+```
+Coder → agent.codingComplete
+  → Code Reviewer
+    → agent.reviewApproved
+      → Functional Tester → agent.functionalTestComplete
+        → pass → UI Tester → agent.uiTestComplete
+          → pass → Pen Tester → agent.penTestComplete
+            → pass → Documenter → agent.docsComplete → Issue DONE
+            → fail → Coder fixIssue(security feedback)
+          → fail → Coder fixIssue(UI feedback)
+        → fail → Coder fixIssue(functional test feedback)
+    → agent.reviewChangesRequested → Coder fixIssue()
 
 GitLab Webhooks:
   gitlab.pipelineResult (failed) → Coder fixIssue() mit Job-Logs
@@ -192,6 +245,10 @@ GitLab Webhooks:
 |---|---|---|
 | DevOps completion | Triggers Architect | STOPS (pipeline ends for infra chat) |
 | Feature interview | Same as project interview | Separate `startFeatureInterview()` / `continueFeatureInterview()` on Interviewer |
+| Workspace | Shared workspace for all agents | Worktree per session, main workspace for infra |
+| Issue scoping | All issues in project | Session issues filtered by `chatSessionId` |
+| Coder in session | Feature branch + MR per issue | Direct commits on session branch, no MR |
+| Review/Test in session | Full pipeline per issue | Skipped — session merge replaces per-issue review |
 | New events | — | `session.devSessionCreated`, `agent.featureInterviewComplete` |
 | New task types | — | `FEATURE_INTERVIEW`, `INFRA_COMMAND` |
 | Infra after setup | One-shot | YOLO mode (persistent, MCP-based) |
@@ -202,11 +259,13 @@ GitLab Webhooks:
 
 ### Architect Agent (2 Phasen)
 - **Phase A — Design** (after Feature Interview in Dev Session, Task: `DESIGN_ARCHITECTURE`)
+  - Reads session features from `FeatureInterviewResult` (stored in FEATURE_INTERVIEW AgentTask output)
+  - Includes ENVIRONMENT.md context from the session worktree
   - Liest Projektstruktur via MCP Filesystem (bestehender Code) oder entwirft Architektur (leeres Repo)
   - Postet Architektur-Überblick als Chat-Message
   - Adaptiv: Analysiert vorhandenen Code ODER designt von Grund auf
 - **Phase B — Grounding** (nach Issue Compiler, Task: `ANALYZE_ISSUES`)
-  - Iteriert über alle OPEN Issues
+  - Iteriert nur über OPEN Issues der aktuellen Session (filtered by `chatSessionId`)
   - Pro Issue: Liest relevanten Code via MCP → postet Grounding-Kommentar auf das Issue
   - Kommentar enthält: Relevante Dateien, zu erstellende Dateien, Approach, Patterns
   - Nutzt `postAgentComment()` → sichtbar in GitLab + lokaler DB
@@ -217,7 +276,8 @@ GitLab Webhooks:
 ### Coder Agent
 - Nutzt **MCP Agent Loop**: Ollama (Tool-Calling) + MCP Filesystem Server
 - LLM liest/schreibt/editiert Dateien selbst über MCP-Tools (read_file, write_file, edit_file, search_files, directory_tree etc.)
-- Pro Issue: Feature-Branch erstellen → Agent Loop (LLM ↔ Tools) → Commit & Push → GitLab MR → Issue IN_REVIEW
+- **Session mode** (Dev Session): Works in session worktree (`resolveWorkspace()`), direct commits on session branch — no feature branch, no MR per issue. Only processes issues with matching `chatSessionId`.
+- **Standalone mode** (outside session): Pro Issue: Feature-Branch erstellen → Agent Loop (LLM ↔ Tools) → Commit & Push → GitLab MR → Issue IN_REVIEW
 - Fix-Modus: Bestehenden Branch auschecken, Feedback in Prompt, Push auf MR
 - 10 Minuten Timeout, max 30 Iterationen
 
