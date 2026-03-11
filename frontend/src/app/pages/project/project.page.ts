@@ -83,12 +83,20 @@ type Tab = 'overview' | 'settings';
             }
             @if (p.previewPort) {
               <span class="mx-2 text-slate-700">&middot;</span>
-              <a [href]="'https://' + p.slug + '.hub.example.com'" target="_blank" class="text-emerald-400 hover:text-emerald-300 font-mono text-sm">
-                <app-icon name="globe" [size]="12" class="inline" /> {{ 'project.previewUrl' | translate }}
-              </a>
+              <span class="text-emerald-400/60 font-mono text-sm">
+                <app-icon name="globe" [size]="12" class="inline" /> {{ p.slug }}.hub.example.com
+              </span>
             }
           </p>
         </div>
+        @if (p.previewPort) {
+          <a [href]="'https://' + p.slug + '.hub.example.com'" target="_blank"
+            class="flex items-center gap-2 px-5 py-2.5 rounded-xl bg-emerald-500/15 text-emerald-400 border border-emerald-500/20 hover:bg-emerald-500/25 hover:border-emerald-500/40 transition-all text-sm font-medium shadow-lg shadow-emerald-500/5 animate-in stagger-2">
+            <app-icon name="globe" [size]="16" />
+            {{ 'project.openPreview' | translate }}
+            <app-icon name="external-link" [size]="14" class="opacity-50" />
+          </a>
+        }
       </div>
 
       <!-- Tabs -->
