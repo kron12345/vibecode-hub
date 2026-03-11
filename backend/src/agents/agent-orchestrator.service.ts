@@ -1325,7 +1325,7 @@ export class AgentOrchestratorService implements OnModuleInit, OnModuleDestroy {
     feedbackSource: 'review' | 'pipeline' | 'user' | 'functional-test' | 'ui-test' | 'security',
   ): Promise<void> {
     const pipelineCfg = this.settings.getPipelineConfig();
-    const maxAttempts = pipelineCfg.maxFixAttempts ?? 20;
+    const maxAttempts = pipelineCfg.maxFixAttempts ?? 5;
 
     try {
       // Check how many FIX_CODE tasks already exist for this issue

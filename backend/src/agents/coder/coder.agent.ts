@@ -416,7 +416,8 @@ export class CoderAgent extends BaseAgent {
     feedback: string,
     feedbackSource: 'review' | 'pipeline' | 'user',
   ): Promise<void> {
-    let agentTask: { id: string } | null = null;
+    // Reuse the orchestrator-created task instead of creating a duplicate
+    const agentTask = { id: ctx.agentTaskId };
 
     try {
       await this.updateStatus(ctx, AgentStatus.WORKING);
@@ -441,16 +442,10 @@ export class CoderAgent extends BaseAgent {
       // Update issue status
       await this.issuesService.update(issueId, { status: IssueStatus.IN_PROGRESS });
 
-      // Create fix task
-      agentTask = await this.prisma.agentTask.create({
-        data: {
-          agentId: ctx.agentInstanceId,
-          issueId,
-          type: AgentTaskType.FIX_CODE,
-          status: AgentTaskStatus.RUNNING,
-          startedAt: new Date(),
-          input: { feedback, feedbackSource } as any,
-        },
+      // Update orchestrator task with fix details
+      await this.prisma.agentTask.update({
+        where: { id: ctx.agentTaskId },
+        data: { input: { feedback, feedbackSource } as any },
       });
 
       const sourceLabel = feedbackSource === 'review' ? 'Code Review'
@@ -581,14 +576,12 @@ export class CoderAgent extends BaseAgent {
       this.logger.error(`fixIssue failed: ${err.message}`, err.stack);
 
       // Mark task as FAILED in DB (prevents orphaned RUNNING tasks)
-      if (agentTask) {
-        try {
-          await this.prisma.agentTask.update({
-            where: { id: agentTask.id },
-            data: { status: AgentTaskStatus.FAILED, completedAt: new Date() },
-          });
-        } catch { /* best effort */ }
-      }
+      try {
+        await this.prisma.agentTask.update({
+          where: { id: agentTask.id },
+          data: { status: AgentTaskStatus.FAILED, completedAt: new Date() },
+        });
+      } catch { /* best effort */ }
 
       // Reset issue status so it can be retried
       try {

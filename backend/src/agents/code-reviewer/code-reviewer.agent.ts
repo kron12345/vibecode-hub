@@ -194,7 +194,8 @@ Provide your review analysis and end with the completion marker and JSON result.
             (f: ReviewFinding) => `${f.file}:${f.line ?? ''}:${f.message.substring(0, 50).toLowerCase()}`,
           );
 
-          const approved = this.dualTestService.determineApproval(merged);
+          // Code reviews tolerate more warnings than tests — approve with up to 5 non-critical warnings
+          const approved = this.dualTestService.determineApproval(merged, 5);
           reviewResult = { ...reviewResult, findings: merged, approved };
 
           await this.sendAgentMessage(
