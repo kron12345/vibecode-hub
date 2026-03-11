@@ -182,10 +182,44 @@
 
 | Method | Endpoint | Auth | Beschreibung |
 |---|---|---|---|
-| `GET` | `/api/chat/sessions?projectId=xxx` | Ja | Chat-Sessions eines Projekts (inkl. letzter Nachricht) |
+| `GET` | `/api/chat/sessions?projectId=xxx&type=` | Ja | Chat-Sessions eines Projekts, optional nach type filtern |
+| `GET` | `/api/chat/sessions/archived?projectId=xxx` | Ja | Archivierte Dev-Sessions eines Projekts |
 | `GET` | `/api/chat/sessions/:id` | Ja | Session mit allen Nachrichten |
-| `POST` | `/api/chat/sessions` | Ja | Neue Chat-Session erstellen |
+| `POST` | `/api/chat/sessions` | Ja | Neue Chat-Session erstellen (INFRASTRUCTURE) |
+| `POST` | `/api/chat/sessions/dev` | Ja | Neue Dev-Session mit Git-Branch erstellen |
+| `POST` | `/api/chat/sessions/:id/archive` | Ja | Session archivieren (Merge in main) |
+| `POST` | `/api/chat/sessions/:id/resolve` | Ja | Merge-Konflikt erneut versuchen |
+| `POST` | `/api/chat/sessions/:id/continue` | Ja | Archivierte Session fortsetzen (neue Session mit parentId) |
+| `PATCH` | `/api/chat/sessions/:id` | Ja | Session-Titel ändern |
 | `DELETE` | `/api/chat/sessions/:id` | Ja | Chat-Session löschen |
+
+### Session DTOs
+
+**CreateDevSessionDto**
+```typescript
+{
+  projectId: string;   // Pflicht
+  title?: string;      // Default: "New Session"
+  branch?: string;     // Optional, auto-generiert: session/<slug>-<id>
+}
+```
+
+**UpdateSessionDto**
+```typescript
+{
+  title?: string;
+}
+```
+
+**ArchiveResult** (Response)
+```typescript
+{
+  success: boolean;
+  merged: boolean;
+  conflicts?: string[];   // Bei CONFLICT-Status
+  error?: string;
+}
+```
 
 ### Messages
 
@@ -846,6 +880,7 @@ map $hub_project $hub_upstream {
 
 | Datum | Änderung |
 |---|---|
+| 2026-03-11 | Session-Based Branching: ChatSession erweitert um type/status/branch/archivedAt/parentId. 6 neue Endpoints (POST dev, archive, resolve, continue; PATCH :id; GET archived). SessionBranchService: create/archive/continue/resolve Lifecycle. Coder Option A: direkte Commits auf Session-Branch. 3-Tier Frontend UI (Infrastructure/Dev Sessions/Archive). |
 | 2026-03-09 | Pipeline Bugfixes (8 total): Atomic start-lock für Agent-Duplikat-Verhinderung, Architect modelSupportsTools() für deepseek-r1, fetch MCP-Server deaktiviert (npm removed), maxTokens hochgesetzt (8K-16K je Rolle), Issue-Deduplizierung im Issue Compiler (title-check), Cache-Refresh Endpoint POST /settings/system/refresh. |
 | 2026-03-09 | LLM Timeouts entfernt: Alle Provider (Ollama, Anthropic, OpenAI, Google, CLI) ohne Timeout — Agenten dürfen unbegrenzt arbeiten. Ollama keep_alive von '0' auf '2m' geändert. MCP Agent Loop nur durch maxIterations (30) begrenzt. Neuer Endpoint: POST /agents/architect/start für manuelles Triggern. |
 | 2026-03-09 | Phase 4: MonitorModule (HardwareService + MonitorGateway + MonitorController). Live GPU/CPU/RAM via nvtop/sysfs/proc. WebSocket /monitor Namespace. 3 neue Frontend-Pages: /projects (Tabelle), /agents (Rollen-Overview), /live-feed (Unified Activity Stream). Dashboard Hardware-Widget ersetzt statische Placeholder. Sidebar-Links alle aktiv. 4 neue i18n-Sektionen (monitor, liveFeed, projectsList, agentsPage). |

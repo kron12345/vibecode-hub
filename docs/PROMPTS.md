@@ -527,3 +527,39 @@ Dokumentation aller Prompts/Anforderungen die zur Entwicklung genutzt wurden.
 **Commits:** `2a3281c`, `3cbd22b`, `378cf2f`
 **Commands:** `npx ng build` (grün), Playwright Screenshots (dark + light), Gemini CLI Reviews
 **Status:** Dual Theme ✅, Gemini-approved ✅, Truncation Fixes ✅
+
+## Session 11 — 2026-03-11 — Session-Based Branching
+
+### Prompt 1: Session-Branching Architektur
+> Das passt so entwirf einen genauen Plan wie wir das umsetzten wollen denke auch an das UI hier soll man die Struktur im Projekt auch klar erkennen können ohne zu rätseln was nehme ich wann
+
+### Prompt 2: Implementierung + Codex Review
+> Ich nehme Option A für Feature-Branches. Du kannst jetzt alle punkte 1-12 in einen großen wurf abarbeiten, lass deinen Code von der hier installierten codex-cli reviewen und berichtigen wenn nötig.
+
+### Ergebnis
+- **3-Tier Session-Architektur**: Infrastructure (permanent) + Dev Sessions (eigener Branch) + Archive (read-only, gemergt)
+- **Prisma**: ChatSessionType, SessionStatus Enums, branch/archivedAt/parentId auf ChatSession, chatSessionId auf Issue
+- **SessionBranchService**: create/archive/continue/resolve Lifecycle mit Git-Branch-Management
+- **Coder Agent Option A**: Direkte Commits auf Session-Branch, kein MR für Sessions
+- **Orchestrator**: Session-type-aware Routing, session-owned Issue-Lookup
+- **Frontend**: 3-Sektionen-Navigator, New Session Modal, Archive Confirm Dialog
+- **i18n**: Alle 4 Sprachen (DE/EN/IT/FR) erweitert
+- **Codex-CLI Review**: 4 Bugs gefunden und gefixt (P0: GitlabModule Import, P1: getChangedFiles Ternary, P2: Route Ordering, P1: Issue-Closing vor Merge)
+
+**Geänderte Dateien:**
+- `backend/prisma/schema.prisma` — ChatSessionType, SessionStatus, session↔issue relation
+- `backend/prisma/migrations/20260311134643_add_session_branching/` — Migration
+- `backend/src/chat/session-branch.service.ts` — NEU: SessionBranchService
+- `backend/src/chat/chat.module.ts` — GitlabModule Import
+- `backend/src/chat/chat.controller.ts` — 6 neue Endpoints, Route-Ordering Fix
+- `backend/src/chat/chat.dto.ts` — CreateDevSessionDto, UpdateSessionDto
+- `backend/src/chat/chat.service.ts` — type-Filter, getArchivedSessions()
+- `backend/src/agents/agent-orchestrator.service.ts` — Session-aware Routing
+- `backend/src/agents/coder/coder.agent.ts` — Session-Branch Support
+- `frontend/src/app/pages/project/project.page.ts` — 3-Tier UI
+- `frontend/src/app/services/api.service.ts` — Session-API Types + Methods
+- `frontend/src/assets/i18n/{de,en,it,fr}.json` — session.* Keys
+
+**Commits:** `8131f79`
+**Commands:** `npx prisma migrate dev`, `npx nest build` (grün), `npx ng build` (grün), `codex review --uncommitted`
+**Status:** Alle Bugs gefixt ✅, Builds grün ✅

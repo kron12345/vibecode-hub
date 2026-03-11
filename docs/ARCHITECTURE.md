@@ -101,7 +101,7 @@ Dev-Server auf localhost:{port}
 - **Milestone** → Gruppierung von Issues pro Projekt, optional GitLab-gespiegelt (`gitlabMilestoneId`). Felder: title, description, sortOrder, startDate, dueDate. Wird vom Issue Compiler Agent automatisch erzeugt.
 - **Issue** → hierarchisch (parent/sub-issues), gespiegelt von GitLab, optional einem Milestone zugeordnet (`milestoneId`), `sortOrder` für Reihenfolge
 - **IssueComment** → Kommentare auf Issues, Typ: AGENT/USER/SYSTEM, GitLab-Note-ID (`gitlabNoteId`) für 2-Wege-Sync, gleicher rich Markdown wie GitLab-Note, optional an AgentTask gebunden. Agent-Kommentare bilden einen sichtbaren "Chat" auf jedem Issue (Coder → Reviewer → Functional → UI → Pen → Docs)
-- **ChatSession** → pro Projekt, enthält ChatMessages
+- **ChatSession** → pro Projekt, enthält ChatMessages. `type`: `INFRASTRUCTURE` (permanenter Chat) | `DEV_SESSION` (eigener Git-Branch). `status`: `ACTIVE` | `MERGING` | `ARCHIVED` | `CONFLICT`. Optional: `branch` (Git-Branch-Name), `archivedAt`, `parentId` (Fortsetzung einer archivierten Session). Dev-Sessions werden bei Archivierung in main gemergt. Issues können über `chatSessionId` einer Session zugeordnet sein.
 - **AgentInstance** → konfigurierter Agent pro Projekt (Rolle + Provider + Model)
 - **AgentTask** → einzelner Arbeitsschritt eines Agenten (11 Task-Typen)
 - **AgentLog** → Echtzeit-Logs für Live-Dashboard
