@@ -10,7 +10,7 @@ import { ChatService } from '../../chat/chat.service';
 import { ChatGateway } from '../../chat/chat.gateway';
 import { LlmService } from '../../llm/llm.service';
 import { GitlabService } from '../../gitlab/gitlab.service';
-import { BaseAgent, AgentContext } from '../agent-base';
+import { BaseAgent, AgentContext, KNOWLEDGE_BASE_FILE } from '../agent-base';
 import { MonitorGateway } from '../../monitor/monitor.gateway';
 import { InterviewResult } from '../interviewer/interview-result.interface';
 import {
@@ -121,6 +121,9 @@ export class DevopsAgent extends BaseAgent {
 
       // Step 6c: Generate .gitignore
       await this.stepGenerateGitignore(ctx, result, projectDir, interviewResult);
+
+      // Step 6d: Generate project documentation (README, CHANGELOG, CONTRIBUTING, Knowledge Base)
+      await this.stepGenerateProjectDocs(ctx, result, projectDir, project.name, interviewResult);
 
       // Step 7: Git commit & push
       await this.stepGitCommitAndPush(
@@ -701,6 +704,187 @@ build:
     sections.push('# Misc', '.cache/', 'tmp/', '.tmp/', '');
 
     return sections.join('\n') + '\n';
+  }
+
+  // ─── Step 6d: Generate Project Documentation ───────────────
+
+  private async stepGenerateProjectDocs(
+    ctx: AgentContext,
+    result: DevopsSetupResult,
+    projectDir: string,
+    projectName: string,
+    interviewResult: InterviewResult,
+  ): Promise<void> {
+    const start = Date.now();
+    try {
+      const ts = interviewResult.techStack ?? {};
+      const features = (interviewResult.features ?? []).map((f, i) => {
+        if (typeof f === 'string') return `${i + 1}. ${f}`;
+        return `${i + 1}. **${f.title}** (${f.priority})${f.description ? ` — ${f.description}` : ''}`;
+      });
+      const deploy = interviewResult.deployment;
+      const setup = interviewResult.setupInstructions;
+
+      const techLine = [ts.framework, ts.language, ts.backend, ts.database]
+        .filter(Boolean).join(', ');
+
+      // ── PROJECT_KNOWLEDGE.md ──
+      const knowledgeBase = [
+        `# Project Knowledge Base — ${projectName}`,
+        `> Auto-maintained by VibCode Hub. Updated: ${new Date().toISOString().split('T')[0]}`,
+        '',
+        '## Project Description',
+        interviewResult.description || projectName,
+        '',
+        '## Tech Stack',
+        ts.framework ? `- **Framework:** ${ts.framework}` : null,
+        ts.language ? `- **Language:** ${ts.language}` : null,
+        ts.backend ? `- **Backend:** ${ts.backend}` : null,
+        ts.database ? `- **Database:** ${ts.database}` : null,
+        ...(ts.additional ?? []).map(a => `- ${a}`),
+        '',
+        '## Implemented Features',
+        '_No features implemented yet. This section is updated automatically after each completed issue._',
+        '',
+        '## Architecture & Patterns',
+        '_Will be populated after the Architect agent designs the project structure._',
+        '',
+        '## Key Files',
+        '_Will be populated as code is added._',
+        '',
+        '## Known Constraints',
+        '_None yet._',
+        '',
+      ].filter(l => l !== null).join('\n');
+
+      await fs.writeFile(path.join(projectDir, KNOWLEDGE_BASE_FILE), knowledgeBase, 'utf-8');
+
+      // ── README.md ──
+      const readme = [
+        `# ${projectName}`,
+        '',
+        interviewResult.description || `A ${techLine} project.`,
+        '',
+        '## Tech Stack',
+        '',
+        techLine ? `- ${techLine}` : '- See PROJECT_KNOWLEDGE.md for details',
+        '',
+        '## Features',
+        '',
+        features.length > 0 ? features.join('\n') : '- Coming soon',
+        '',
+        '## Getting Started',
+        '',
+        '### Prerequisites',
+        '',
+        ts.language === 'TypeScript' || ts.framework ? '- Node.js >= 18' : '- See project documentation',
+        ts.framework === 'Angular' ? '- Angular CLI (`npm install -g @angular/cli`)' : null,
+        '',
+        '### Installation',
+        '',
+        '```bash',
+        `git clone <repository-url>`,
+        `cd ${projectName.toLowerCase().replace(/\s+/g, '-')}`,
+        setup?.initCommand ? setup.initCommand : 'npm install',
+        '```',
+        '',
+        deploy?.devServerCommand ? [
+          '### Development',
+          '',
+          '```bash',
+          deploy.devServerCommand,
+          '```',
+          '',
+          deploy.devServerPort ? `The dev server runs on http://localhost:${deploy.devServerPort}` : null,
+          '',
+        ].filter(Boolean).join('\n') : null,
+        deploy?.buildCommand ? [
+          '### Build',
+          '',
+          '```bash',
+          deploy.buildCommand,
+          '```',
+          '',
+        ].join('\n') : null,
+        '## License',
+        '',
+        'MIT',
+        '',
+      ].filter(l => l !== null).join('\n');
+
+      // Only write README if it doesn't exist yet (respect user's existing README)
+      const readmePath = path.join(projectDir, 'README.md');
+      try {
+        await fs.access(readmePath);
+        this.logger.log('README.md already exists — skipping');
+      } catch {
+        await fs.writeFile(readmePath, readme, 'utf-8');
+      }
+
+      // ── CHANGELOG.md ──
+      const changelog = [
+        '# Changelog',
+        '',
+        'All notable changes to this project will be documented in this file.',
+        'This file is auto-maintained by VibCode Hub after each completed issue.',
+        '',
+        '## [Unreleased]',
+        '',
+        '### Added',
+        '- Initial project setup',
+        '',
+      ].join('\n');
+
+      await fs.writeFile(path.join(projectDir, 'CHANGELOG.md'), changelog, 'utf-8');
+
+      // ── CONTRIBUTING.md ──
+      const contributing = [
+        `# Contributing to ${projectName}`,
+        '',
+        '## Development Workflow',
+        '',
+        'This project uses [VibCode Hub](https://hub.example.com) for AI-assisted development.',
+        'Issues are automatically processed through a multi-agent pipeline:',
+        '',
+        '1. **Coder** — Implements the feature/fix',
+        '2. **Code Reviewer** — Reviews code quality and patterns',
+        '3. **Functional Tester** — Verifies acceptance criteria',
+        '4. **UI Tester** — Checks UI/UX (for web projects)',
+        '5. **Pen Tester** — Security analysis',
+        '6. **Documenter** — Updates documentation',
+        '',
+        '## Branch Strategy',
+        '',
+        '- `main` — Production-ready code',
+        '- `feature/<issue-id>-<title>` — Feature branches (auto-created)',
+        '',
+        '## Code Style',
+        '',
+        ts.language === 'TypeScript' ? [
+          '- TypeScript strict mode',
+          '- ESLint + Prettier for formatting',
+          '- Meaningful variable and function names',
+        ].join('\n- ') : '- Follow existing code conventions',
+        '',
+        '## Commit Messages',
+        '',
+        'We use [Conventional Commits](https://www.conventionalcommits.org/):',
+        '- `feat:` — New feature',
+        '- `fix:` — Bug fix',
+        '- `docs:` — Documentation changes',
+        '- `refactor:` — Code refactoring',
+        '- `test:` — Test additions/changes',
+        '',
+      ].join('\n');
+
+      await fs.writeFile(path.join(projectDir, 'CONTRIBUTING.md'), contributing, 'utf-8');
+
+      result.steps.push(this.step('generateProjectDocs', 'success', 'README, CHANGELOG, CONTRIBUTING, Knowledge Base generated', start));
+      await this.sendAgentMessage(ctx, `📚 Generated project documentation (README.md, CHANGELOG.md, CONTRIBUTING.md, ${KNOWLEDGE_BASE_FILE})`);
+    } catch (err) {
+      result.steps.push(this.step('generateProjectDocs', 'failed', err.message, start));
+      await this.log(ctx.agentTaskId, 'WARN', `Project docs generation failed: ${err.message}`);
+    }
   }
 
   // ─── Step 7: Git Commit & Push ─────────────────────────────

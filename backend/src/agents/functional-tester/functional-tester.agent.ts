@@ -147,11 +147,21 @@ export class FunctionalTesterAgent extends BaseAgent {
         ? `\n## Previous Agent Comments on this Issue\n${commentHistory}\n`
         : '';
 
+      // Inject project knowledge base for context
+      const project = await this.prisma.project.findUnique({
+        where: { id: ctx.projectId },
+        select: { slug: true },
+      });
+      const workspace = project
+        ? require('path').resolve(this.settings.devopsWorkspacePath, project.slug)
+        : '';
+      const knowledgeSection = workspace ? await this.buildKnowledgeSection(workspace) : '';
+
       const userPrompt = `Verify the following merge request implements the issue requirements:
 
 **Issue:** ${issue.title}
 **Description:** ${issue.description || 'N/A'}
-${historySection}
+${historySection}${knowledgeSection}
 ## Acceptance Criteria:
 ${acceptanceCriteria || '_No sub-issues / acceptance criteria defined — verify based on issue description._'}
 

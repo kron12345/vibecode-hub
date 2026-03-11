@@ -154,11 +154,21 @@ export class CodeReviewerAgent extends BaseAgent {
         ? `\n\n_Note: ${skippedCount} additional file(s) were omitted (node_modules, lock files, or low-priority). Focus on the shown diffs._`
         : '';
 
+      // Inject project knowledge base for context
+      const project = await this.prisma.project.findUnique({
+        where: { id: ctx.projectId },
+        select: { slug: true },
+      });
+      const workspace = project
+        ? require('path').resolve(this.settings.devopsWorkspacePath, project.slug)
+        : '';
+      const knowledgeSection = workspace ? await this.buildKnowledgeSection(workspace) : '';
+
       const userPrompt = `Review the following merge request:
 
 **Issue:** ${issue.title}
 **Description:** ${issue.description || 'N/A'}
-
+${knowledgeSection}
 ## MR Diffs (${reviewDiffs.length} of ${diffs.length} file(s)):
 
 ${diffText}${skippedNote}

@@ -364,6 +364,9 @@ export class ArchitectAgent extends BaseAgent {
     const config = this.getRoleConfig();
     const systemPrompt = config.systemPrompt || DEFAULT_GROUNDING_PROMPT;
 
+    // Read project knowledge base for context
+    const knowledgeSection = await this.buildKnowledgeSection(workspace);
+
     // Build issue context
     const issueContext = [
       `## Issue: ${issue.title}`,
@@ -376,9 +379,11 @@ export class ArchitectAgent extends BaseAgent {
       '',
       `## Project: ${project.name}`,
       `## Workspace: ${workspace}`,
+      knowledgeSection,
       '',
       'Analyze the codebase and create a precise implementation plan for this issue.',
       'Use the filesystem tools to read relevant files.',
+      'Reuse existing code, services, and patterns documented in the knowledge base.',
     ].filter(Boolean).join('\n');
 
     // Check if workspace has code AND model supports tools — use MCP if both, plain LLM otherwise

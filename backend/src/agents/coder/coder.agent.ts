@@ -653,6 +653,9 @@ export class CoderAgent extends BaseAgent {
       { workspace, allowedPaths: [workspace], projectId },
     );
 
+    // Read project knowledge base for context
+    const knowledgeSection = await this.buildKnowledgeSection(workspace);
+
     const systemPrompt = [
       'You are a skilled software developer. Your task is to implement features by reading and modifying files in the project.',
       '',
@@ -678,11 +681,13 @@ export class CoderAgent extends BaseAgent {
       'Rules:',
       '- ALWAYS use relative paths (e.g., "src/app.ts", "packages/backend/package.json")',
       '- Follow existing code patterns and conventions',
+      '- Reuse existing services, components, and utilities — do NOT duplicate code',
       '- Add error handling where appropriate',
       '- Do NOT create test files unless the task specifically asks for tests',
       '- Do NOT modify unrelated files',
       '- If asked to fix security vulnerabilities, use "npm audit fix" or update package versions',
       '- When done, respond with a brief summary of what you changed',
+      knowledgeSection,
     ].join('\n');
 
     this.logger.log(`Starting MCP agent loop in ${workspace} with model ${model}`);

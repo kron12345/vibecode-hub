@@ -172,11 +172,25 @@ export class InterviewerAgent extends BaseAgent {
     const basePrompt = config.systemPrompt || DEFAULT_SYSTEM_PROMPT;
     const systemPrompt = basePrompt + COMPLETION_INSTRUCTIONS;
 
+    // For existing projects: inject knowledge base so the interviewer knows what's already built
+    const project = await this.prisma.project.findUnique({
+      where: { id: ctx.projectId },
+      select: { slug: true, status: true },
+    });
+    let projectContext = '';
+    if (project?.slug) {
+      const workspace = require('path').resolve(this.settings.devopsWorkspacePath, project.slug);
+      const kb = await this.readProjectKnowledge(workspace);
+      if (kb) {
+        projectContext = `\n\nIMPORTANT: This is an EXISTING project that already has code and features. Here is the current state:\n\n${kb}\n\nBased on this, help the user add NEW features or improvements. Don't suggest things that are already implemented.`;
+      }
+    }
+
     const messages: LlmMessage[] = [
       { role: 'system', content: systemPrompt },
       {
         role: 'user',
-        content: `I want to create a new project called "${projectName}". Help me figure out the tech stack and setup so the DevOps agent can initialize it.`,
+        content: `I want to create a new project called "${projectName}". Help me figure out the tech stack and setup so the DevOps agent can initialize it.${projectContext}`,
       },
     ];
 

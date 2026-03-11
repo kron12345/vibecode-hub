@@ -1,4 +1,6 @@
 import { Logger } from '@nestjs/common';
+import * as fs from 'fs/promises';
+import * as path from 'path';
 import { PrismaService } from '../prisma/prisma.service';
 import { SystemSettingsService } from '../settings/system-settings.service';
 import { ChatService } from '../chat/chat.service';
@@ -7,6 +9,8 @@ import { LlmService } from '../llm/llm.service';
 import { LlmMessage, LlmCompletionResult } from '../llm/llm.interfaces';
 import { MonitorGateway } from '../monitor/monitor.gateway';
 import { AgentRole, AgentStatus, MessageRole } from '@prisma/client';
+
+export const KNOWLEDGE_BASE_FILE = 'PROJECT_KNOWLEDGE.md';
 
 export interface AgentContext {
   projectId: string;
@@ -208,6 +212,37 @@ export abstract class BaseAgent {
     } catch {
       return null;
     }
+  }
+
+  /**
+   * Read the project knowledge base from workspace.
+   * Returns the content or empty string if not found.
+   * Optionally truncate to maxChars to avoid blowing up prompts.
+   */
+  protected async readProjectKnowledge(
+    workspace: string,
+    maxChars = 6000,
+  ): Promise<string> {
+    try {
+      const filePath = path.resolve(workspace, KNOWLEDGE_BASE_FILE);
+      const content = await fs.readFile(filePath, 'utf-8');
+      if (content.length > maxChars) {
+        return content.substring(0, maxChars) + '\n\n... (truncated)';
+      }
+      return content;
+    } catch {
+      return '';
+    }
+  }
+
+  /**
+   * Build a prompt section from the knowledge base content.
+   * Returns empty string if no knowledge base found.
+   */
+  protected async buildKnowledgeSection(workspace: string): Promise<string> {
+    const kb = await this.readProjectKnowledge(workspace);
+    if (!kb) return '';
+    return `\n## Project Knowledge Base\n${kb}\n`;
   }
 
   /** Map Prisma MessageRole to LLM role */

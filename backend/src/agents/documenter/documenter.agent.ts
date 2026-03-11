@@ -11,7 +11,7 @@ import { ChatGateway } from '../../chat/chat.gateway';
 import { LlmService } from '../../llm/llm.service';
 import { GitlabService } from '../../gitlab/gitlab.service';
 import { LlmMessage } from '../../llm/llm.interfaces';
-import { BaseAgent, AgentContext } from '../agent-base';
+import { BaseAgent, AgentContext, KNOWLEDGE_BASE_FILE } from '../agent-base';
 import { MonitorGateway } from '../../monitor/monitor.gateway';
 import { DualTestService } from '../dual-test.service';
 import { postAgentComment, getAgentCommentHistory } from '../agent-comment.utils';
@@ -32,19 +32,24 @@ const DEFAULT_SYSTEM_PROMPT = `You are the Documenter Agent for VibCode Hub — 
 
 ## Your Role
 You generate and update project documentation based on merge request changes.
+You MUST update these files after EVERY issue:
 
-## Documentation Types
-- **README.md** — Project overview, installation, usage, API summary
-- **API docs** — Endpoint documentation (if new API routes added)
-- **JSDoc/TSDoc** — Inline code documentation for complex functions
-- **CHANGELOG** — Summary of changes for the current version
+### Mandatory Updates
+1. **${KNOWLEDGE_BASE_FILE}** — Project Knowledge Base. Add the completed feature to "Implemented Features", update "Architecture & Patterns" and "Key Files" if new patterns/files were introduced. Keep all existing content, only ADD new information.
+2. **CHANGELOG.md** — Add a new entry under "[Unreleased] > Added/Changed/Fixed" describing what this issue implemented.
+3. **README.md** — Update if the feature changes installation, usage, or API surface.
+
+### Optional Updates
+- **API docs** — If new API routes were added
+- **JSDoc/TSDoc** — For complex functions introduced
 
 ## Guidelines
-- Only update docs relevant to the actual code changes
+- ALWAYS update ${KNOWLEDGE_BASE_FILE} and CHANGELOG.md — these are mandatory
 - Keep documentation concise and accurate
 - Use existing doc style and formatting conventions
-- Don't duplicate information already in the code
-- Include code examples where helpful
+- README.md: Include installation steps, project description, feature list, usage examples
+- CHANGELOG.md: Follow Keep a Changelog format (Added/Changed/Fixed/Removed)
+- ${KNOWLEDGE_BASE_FILE}: Accumulate knowledge — never remove existing entries, only add
 
 ## Output Format
 Provide the files to create or update as a JSON array.
@@ -55,24 +60,25 @@ End your analysis with EXACTLY this format:
 ${COMPLETION_MARKER}
 \`\`\`json
 {
-  "summary": "Updated README with new API endpoints and added JSDoc to service methods",
+  "summary": "Updated Knowledge Base, CHANGELOG, and README with new feature",
   "files": [
     {
-      "path": "README.md",
-      "content": "# Project Name\\n\\n...",
+      "path": "${KNOWLEDGE_BASE_FILE}",
+      "content": "# Project Knowledge Base...full content...",
       "action": "update"
     },
     {
-      "path": "docs/api.md",
-      "content": "# API Documentation\\n\\n...",
-      "action": "create"
+      "path": "CHANGELOG.md",
+      "content": "# Changelog...full content...",
+      "action": "update"
     }
   ]
 }
 \`\`\`
 
 CRITICAL: The JSON must be valid. Each file needs "path", "content", and "action" ("create" or "update").
-IMPORTANT: "content" must be the COMPLETE file content, not a diff or partial update.`;
+IMPORTANT: "content" must be the COMPLETE file content, not a diff or partial update.
+IMPORTANT: ALWAYS include ${KNOWLEDGE_BASE_FILE} and CHANGELOG.md in your output files.`;
 
 @Injectable()
 export class DocumenterAgent extends BaseAgent {
@@ -361,7 +367,7 @@ For code-level docs (README, API, JSDoc), keep \`wikiPage: false\` or omit it.`;
 
   private async readExistingDocs(workspace: string): Promise<{ path: string; content: string }[]> {
     const docFiles: { path: string; content: string }[] = [];
-    const candidates = ['README.md', 'docs/README.md', 'docs/api.md', 'docs/API.md', 'CHANGELOG.md'];
+    const candidates = [KNOWLEDGE_BASE_FILE, 'README.md', 'CHANGELOG.md', 'CONTRIBUTING.md', 'docs/README.md', 'docs/api.md', 'docs/API.md'];
 
     for (const candidate of candidates) {
       try {
