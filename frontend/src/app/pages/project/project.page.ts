@@ -73,7 +73,7 @@ type Tab = 'overview' | 'settings';
           <h1 class="text-3xl font-extrabold tracking-tight bg-gradient-to-r from-white via-indigo-200 to-slate-500 bg-clip-text text-transparent animate-in stagger-2">
             {{ p.name }}
           </h1>
-          <p class="text-slate-500 mt-1">
+          <p class="text-slate-500 mt-1 line-clamp-2">
             {{ p.description }}
             @if (p.gitlabUrl) {
               <span class="mx-2 text-slate-700">&middot;</span>
@@ -130,56 +130,59 @@ type Tab = 'overview' | 'settings';
             }
           </div>
 
-          <div class="relative flex items-center justify-between gap-4">
-            <!-- Connection Line -->
-            <div class="absolute top-1/2 left-0 w-full h-[2px] bg-slate-800 -translate-y-1/2 z-0"></div>
-            @if (hasWorkingAgent()) {
-              <div class="absolute top-1/2 left-0 w-full h-[2px] -translate-y-1/2 z-0 pulse-line"></div>
-            }
+          <div class="relative overflow-x-auto pb-2">
+            <div class="relative flex items-center gap-3 min-w-max">
+              <!-- Connection Line -->
+              <div class="absolute top-1/2 left-0 w-full h-[2px] bg-slate-800 -translate-y-1/2 z-0"></div>
+              @if (hasWorkingAgent()) {
+                <div class="absolute top-1/2 left-0 w-full h-[2px] -translate-y-1/2 z-0 pulse-line"></div>
+              }
 
-            <!-- Agent Cards -->
-            @for (entry of agentEntries(); track entry.role) {
-              <div
-                class="flex-1 glass p-4 rounded-2xl z-10 transition-all duration-500 border border-transparent"
-                [class]="entry.instance?.status === 'WORKING' ? 'agent-glow-' + entry.color + ' -translate-y-1' : 'opacity-50'"
-              >
-                <div class="flex items-center gap-3 mb-2">
-                  <div
-                    class="p-2.5 rounded-xl"
-                    [class]="'bg-' + entry.color + '-500/20 text-' + entry.color + '-400'"
-                  >
-                    @if (entry.instance?.status === 'WORKING') {
-                      <div class="activity-ring">
-                        <app-icon [name]="entry.icon" [size]="18" />
-                      </div>
-                    } @else {
-                      <app-icon [name]="entry.icon" [size]="18" />
-                    }
+              <!-- Agent Cards -->
+              @for (entry of agentEntries(); track entry.role) {
+                <div
+                  class="w-[130px] shrink-0 glass p-3 rounded-2xl z-10 transition-all duration-500 border border-transparent"
+                  [class]="entry.instance?.status === 'WORKING' ? 'agent-glow-' + entry.color + ' -translate-y-1' : 'opacity-50'"
+                >
+                  <div class="flex items-center gap-2 mb-1.5">
+                    <div
+                      class="p-2 rounded-xl shrink-0"
+                      [class]="'bg-' + entry.color + '-500/20 text-' + entry.color + '-400'"
+                    >
+                      @if (entry.instance?.status === 'WORKING') {
+                        <div class="activity-ring">
+                          <app-icon [name]="entry.icon" [size]="16" />
+                        </div>
+                      } @else {
+                        <app-icon [name]="entry.icon" [size]="16" />
+                      }
+                    </div>
+                    <span class="font-semibold text-xs text-white truncate" [title]="entry.labelKey | translate">{{ entry.labelKey | translate }}</span>
                   </div>
-                  <span class="font-semibold text-sm text-white">{{ entry.labelKey | translate }}</span>
-                </div>
-                <p class="text-[10px] text-slate-600 font-mono mb-2">
-                  {{ entry.instance?.provider ?? ('project.notAssigned' | translate) }}
-                  @if (entry.instance?.model) {
-                    &middot; {{ entry.instance!.model }}
+                  <p class="text-[10px] text-slate-600 font-mono mb-1.5 truncate"
+                     [title]="(entry.instance?.provider ?? '') + (entry.instance?.model ? ' · ' + entry.instance!.model : '')">
+                    {{ entry.instance?.provider ?? ('project.notAssigned' | translate) }}
+                    @if (entry.instance?.model) {
+                      · {{ entry.instance!.model }}
+                    }
+                  </p>
+                  @if (entry.instance?.status === 'WORKING') {
+                    <span class="text-[10px] font-mono animate-pulse uppercase tracking-widest"
+                      [class]="'text-' + entry.color + '-400'"
+                    >
+                      {{ 'project.working' | translate }}
+                    </span>
+                  } @else if (entry.instance) {
+                    <span class="text-[10px] text-slate-600 font-mono uppercase">{{ entry.instance.status }}</span>
                   }
-                </p>
-                @if (entry.instance?.status === 'WORKING') {
-                  <span class="text-[10px] font-mono animate-pulse uppercase tracking-widest"
-                    [class]="'text-' + entry.color + '-400'"
-                  >
-                    {{ 'project.working' | translate }}
-                  </span>
-                } @else if (entry.instance) {
-                  <span class="text-[10px] text-slate-600 font-mono uppercase">{{ entry.instance.status }}</span>
-                }
-              </div>
-            }
+                </div>
+              }
+            </div>
           </div>
         </div>
 
         <!-- Main Content: Issues + Chat/Terminal -->
-        <div class="grid grid-cols-1 lg:grid-cols-[280px_1fr] gap-4">
+        <div class="grid grid-cols-1 lg:grid-cols-[320px_1fr] gap-4">
 
           <!-- Left: Issues (grouped by milestones) -->
           <div class="glass rounded-3xl p-5 max-h-[65vh] overflow-y-auto animate-in stagger-5">
