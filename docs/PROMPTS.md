@@ -563,3 +563,55 @@ Dokumentation aller Prompts/Anforderungen die zur Entwicklung genutzt wurden.
 **Commits:** `8131f79`
 **Commands:** `npx prisma migrate dev`, `npx nest build` (grün), `npx ng build` (grün), `codex review --uncommitted`
 **Status:** Alle Bugs gefixt ✅, Builds grün ✅
+
+## Session 10 — 2026-03-12 — Pipeline Quality + Vaadin Support
+
+### Prompt 1: Pipeline-Qualitätsverbesserungen
+> Die Tester sollten dem Coder besser sagen was zu verbessern ist. Der Pentester sagt kritische Bugs die nicht gefixt werden (LLM sagt "passed" trotz critical findings). Wenn Issues in NEEDS_REVIEW landen, soll der MR trotzdem gemergt werden damit das nächste Issue den Code hat.
+
+**Ergebnis:** 3 Verbesserungen implementiert:
+1. **Pen Tester Rule-Based Override**: Critical findings → auto-FAIL, egal was LLM sagt
+2. **NEEDS_REVIEW Auto-Merge**: Neue `autoMergeForNeedsReview()` in Orchestrator — merged MR via GitLab API + pullt Code im Workspace
+3. **Structured Fix Feedback**: Alle Tester (Func, UI, Pen) geben nummerierte Items mit Severity/Problem/Fix-Instructions; Coder `buildFixPrompt()` mit klaren Sektionen
+
+**Geänderte Dateien:**
+- `backend/src/agents/agent-orchestrator.service.ts` — `autoMergeForNeedsReview()` (~110 Zeilen)
+- `backend/src/agents/coder/coder.agent.ts` — `buildFixPrompt()` überarbeitet
+- `backend/src/agents/pen-tester/pen-tester.agent.ts` — Rule-based override + structured feedback
+- `backend/src/agents/functional-tester/functional-tester.agent.ts` — Structured feedback
+- `backend/src/agents/ui-tester/ui-tester.agent.ts` — Structured feedback
+
+**Commits:** `afa8fad`
+
+### Prompt 2: Vaadin-Unterstützung
+> Kann die Pipeline auch ein Vaadin Projekt machen? Alles für Vaadin vorbereiten, Maven installieren, Vaadin-MCP einbauen, Pipeline anpassen für: Vaadin Flow + Tailwind CSS 4 + Spring Boot + Spring Data JPA + Hibernate + Flyway + PostgreSQL + Maven. Danach kleines Vaadin Testprojekt über UI aufbauen und Pipeline checken.
+
+**Ergebnis:** Volle Vaadin/Spring Boot/Java Pipeline-Unterstützung:
+
+**Infrastruktur:**
+- Maven 3.9.9 installiert (`sudo apt install maven`)
+- JDK 21 bereits vorhanden
+- PostgreSQL `task_manager` DB erstellt
+
+**MCP Server (2 neue):**
+- **Vaadin MCP** (offiziell, remote HTTP): `https://mcp.vaadin.com/` — Vaadin Flow Doku, Component API, Best Practices
+- **Spring Docs MCP** (Community): `@enokdev/springdocs-mcp` — Spring Boot, JPA, Security Doku
+
+**Pipeline-Änderungen:**
+- `interviewer.agent.ts` — Vaadin/Spring Boot in Framework-Suggestions, Init-Commands (Spring Initializr), Defaults (port 8080, mvn spring-boot:run)
+- `devops.agent.ts` — Java/Maven CI/CD Template (3 Stages: build/test/package), Java .gitignore, ALLOWED_BINARIES (+java, javac, curl, tar), Vaadin/spring-docs in MCP_SERVER_REGISTRY
+- `coder.agent.ts` — System-Prompt erweitert mit Java/Vaadin/Spring Boot Workflow (Maven Layout, JPA Entities, Flyway Migrations, Spring Annotations)
+- `mcp-client.service.ts` — HTTP Transport Support (StreamableHTTPClientTransport) für Remote-Server
+- `mcp-registry.service.ts` — Vaadin + spring-docs als Built-in Server geseedet
+- `mcp.interfaces.ts` — `transport`/`url` Felder für HTTP MCP
+
+**Bug gefunden + gefixt:**
+- Framework-Normalisierung: "Spring Boot" → "spring-boot", "Java 21" → "java" für CI/CD- und .gitignore-Erkennung
+
+**E2E Test:**
+- `tests/e2e-vaadin-app.ts` — Task Manager mit Vaadin + Spring Boot + JPA + Flyway
+- Interview+DevOps+Architect in 3 Min! 11 Issues erstellt, Pipeline läuft
+
+**Commits:** `de946ff` (Vaadin Support), `c09648a` (E2E Test), `3257629` (Normalisierung Fix)
+**Commands:** `sudo apt install maven`, `npx nest build` (grün), `systemctl --user restart vibcode-api`
+**Status:** Pipeline läuft, E2E Test aktiv 🔄
