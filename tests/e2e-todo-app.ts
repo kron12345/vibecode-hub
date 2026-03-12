@@ -1,0 +1,609 @@
+/**
+ * E2E Test Runner — ToDo App Pipeline Test
+ *
+ * Simulates a user creating a ToDo app project through the VibCode Hub.
+ * Tests the full pipeline: Interview → DevOps → Dev Session → Feature Interview → Architect → Issues → Coder
+ *
+ * Usage: npx ts-node tests/e2e-todo-app.ts
+ */
+
+const API = 'http://localhost:3100/api';
+const KEYCLOAK_URL = 'https://sso.example.com';
+const REALM = 'vibcodehub';
+const CLIENT_ID = 'vibcodehub-frontend';
+const BOT_USER = 'vibcode-bot';
+const BOT_PASS = 'REDACTED_BOT_PASSWORD';
+
+const POLL_INTERVAL = 15_000; // 15 seconds
+const INTERVIEW_TIMEOUT = 30 * 60_000; // 30 min
+const DEVOPS_TIMEOUT = 60 * 60_000; // 60 min
+const PIPELINE_TIMEOUT = 8 * 60 * 60_000; // 8 hours
+
+// ─── Interview Responses ──────────────────────────────────
+
+const INFRA_INTERVIEW_RESPONSES = [
+  // First response — comprehensive project description
+  `Ich möchte eine ToDo-App bauen. Eine Web-Anwendung zur Aufgabenverwaltung mit folgenden Details:
+
+**Tech Stack:**
+- Frontend: Angular 21 mit Tailwind CSS für Styling
+- Backend: NestJS als REST API
+- Datenbank: PostgreSQL mit Prisma ORM
+- Sprache: TypeScript durchgängig
+
+**Kern-Features:**
+1. ToDo CRUD (erstellen, lesen, aktualisieren, löschen)
+2. Kategorien für ToDos (Arbeit, Privat, Einkaufen, etc.)
+3. Tags für ToDos (many-to-many)
+4. Prioritäten (Low, Medium, High, Critical)
+5. Fälligkeitsdatum mit Kalender-Picker
+6. Status-Workflow: Open → In Progress → Done
+7. Filterung nach Status, Kategorie, Priorität
+8. Suchfunktion über Titel und Beschreibung
+9. Responsive Design für Mobile und Desktop
+10. Dark Mode Toggle
+
+**Deployment:**
+- Dev Server Port: 4200 (Frontend), 3000 (Backend)
+- Build: ng build / nest build
+- PostgreSQL Datenbank: todo_app`,
+
+  // Follow-up: confirmation
+  `Ja genau, das sind alle Features die ich brauche. Die App soll einfach und übersichtlich sein. Kein Auth/Login nötig, es ist eine Single-User App. Die Datenbank soll alle nötigen Tabellen haben: Todo, Category, Tag mit den richtigen Relationen. Tailwind CSS für das Styling reicht, kein extra UI Framework.`,
+
+  // Another follow-up if needed
+  `Keine zusätzlichen Features nötig. Kein Auth, keine Echtzeit-Updates, kein File Upload. Einfach eine saubere ToDo App mit den genannten Features. Bitte alles so einfach wie möglich halten. Die App soll auf localhost laufen für Entwicklung.`,
+
+  // Catch-all confirmation
+  `Ja, das passt so. Bitte fasse zusammen und starte mit dem Setup.`,
+  `Ja, einverstanden. Los geht's!`,
+  `Bestätigt.`,
+];
+
+const FEATURE_INTERVIEW_RESPONSES = [
+  // Comprehensive feature description for the dev session
+  `Für diese Session möchte ich die Kern-Features der ToDo App implementieren:
+
+1. **Todo CRUD** — Vollständiges Create/Read/Update/Delete für Todos
+   - Titel (required), Beschreibung (optional), Priorität (LOW/MEDIUM/HIGH/CRITICAL)
+   - Fälligkeitsdatum (optional, Date Picker)
+   - Status: OPEN → IN_PROGRESS → DONE
+   - Soft-Delete oder Hard-Delete
+
+2. **Kategorien** — Todos nach Kategorien gruppieren
+   - CRUD für Kategorien (Name + Farbe als Hex)
+   - Jeder Todo gehört zu einer Kategorie (optional)
+   - Dropdown-Auswahl beim Erstellen/Bearbeiten
+
+3. **Tags** — Flexible Verschlagwortung
+   - Many-to-Many Relation (Todo ↔ Tag)
+   - Tags erstellen inline beim Todo-Erstellen
+   - Tag-Chips mit Farbe anzeigen
+
+4. **Filterung & Suche**
+   - Filter nach Status, Kategorie, Priorität, Tags
+   - Volltextsuche über Titel + Beschreibung
+   - Kombinierte Filter möglich
+   - URL-Parameter für Filter-State
+
+5. **Responsive UI mit Tailwind**
+   - Kanban-Board-Ansicht (Spalten: Open, In Progress, Done)
+   - Listen-Ansicht als Alternative
+   - Dark Mode Toggle (localStorage)
+   - Mobile-optimiert (Cards statt Tabelle)`,
+
+  // Follow-up confirmation
+  `Ja, das sind alle Features. Bitte starte mit der Architektur und den Issues. Die Prioritäten:
+- Must-have: Todo CRUD, Kategorien, Filterung, Responsive UI
+- Should-have: Tags, Suche, Dark Mode
+- Nice-to-have: Kanban-Board Ansicht`,
+
+  // Additional confirmation
+  `Perfekt, das passt. Bitte mach weiter.`,
+  `Ja, einverstanden.`,
+  `Bestätigt, weiter.`,
+];
+
+// ─── State ────────────────────────────────────────────────
+
+interface TestState {
+  token: string;
+  projectId: string;
+  projectSlug: string;
+  infraSessionId: string;
+  devSessionId: string;
+  phase: string;
+  startTime: number;
+  errors: string[];
+}
+
+const state: TestState = {
+  token: '',
+  projectId: '',
+  projectSlug: '',
+  infraSessionId: '',
+  devSessionId: '',
+  phase: 'INIT',
+  startTime: Date.now(),
+  errors: [],
+};
+
+// ─── Logging ──────────────────────────────────────────────
+
+function log(msg: string) {
+  const elapsed = Math.floor((Date.now() - state.startTime) / 1000);
+  const mins = Math.floor(elapsed / 60);
+  const secs = elapsed % 60;
+  const ts = `[${String(mins).padStart(3, '0')}:${String(secs).padStart(2, '0')}]`;
+  const line = `${ts} [${state.phase}] ${msg}`;
+  console.log(line);
+}
+
+function logError(msg: string) {
+  state.errors.push(msg);
+  log(`❌ ERROR: ${msg}`);
+}
+
+// ─── HTTP Helpers ─────────────────────────────────────────
+
+async function api(method: string, path: string, body?: any): Promise<any> {
+  const url = `${API}${path}`;
+  const opts: RequestInit = {
+    method,
+    headers: {
+      'Content-Type': 'application/json',
+      'Authorization': `Bearer ${state.token}`,
+    },
+  };
+  if (body) opts.body = JSON.stringify(body);
+
+  const res = await fetch(url, opts);
+  const text = await res.text();
+
+  if (!res.ok) {
+    throw new Error(`API ${method} ${path} → ${res.status}: ${text.substring(0, 300)}`);
+  }
+
+  try {
+    return JSON.parse(text);
+  } catch {
+    return text;
+  }
+}
+
+async function getToken(): Promise<string> {
+  const url = `${KEYCLOAK_URL}/realms/${REALM}/protocol/openid-connect/token`;
+  const body = new URLSearchParams({
+    grant_type: 'password',
+    client_id: CLIENT_ID,
+    username: BOT_USER,
+    password: BOT_PASS,
+  });
+
+  const res = await fetch(url, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+    body: body.toString(),
+  });
+
+  if (!res.ok) {
+    const text = await res.text();
+    throw new Error(`Keycloak auth failed: ${res.status} ${text.substring(0, 200)}`);
+  }
+
+  const data = await res.json();
+  return data.access_token;
+}
+
+async function refreshToken() {
+  try {
+    state.token = await getToken();
+    log('Token refreshed');
+  } catch (err: any) {
+    logError(`Token refresh failed: ${err.message}`);
+  }
+}
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+// ─── Message Helpers ──────────────────────────────────────
+
+async function getMessages(sessionId: string): Promise<any[]> {
+  return api('GET', `/chat/sessions/${sessionId}/messages`);
+}
+
+async function sendMessage(sessionId: string, content: string): Promise<any> {
+  return api('POST', '/chat/messages', {
+    chatSessionId: sessionId,
+    role: 'USER',
+    content,
+  });
+}
+
+async function getLastAgentMessage(sessionId: string): Promise<any | null> {
+  const messages = await getMessages(sessionId);
+  const agentMsgs = messages.filter((m: any) => m.role === 'AGENT' || m.role === 'SYSTEM');
+  return agentMsgs.length > 0 ? agentMsgs[agentMsgs.length - 1] : null;
+}
+
+async function waitForAgentMessage(sessionId: string, afterId: string, timeoutMs: number): Promise<any | null> {
+  const start = Date.now();
+  while (Date.now() - start < timeoutMs) {
+    const messages = await getMessages(sessionId);
+    const newMsgs = messages.filter((m: any) =>
+      (m.role === 'AGENT' || m.role === 'SYSTEM') && m.id > afterId
+    );
+    if (newMsgs.length > 0) return newMsgs[newMsgs.length - 1];
+    await sleep(POLL_INTERVAL);
+  }
+  return null;
+}
+
+// ─── Interview Runner ─────────────────────────────────────
+
+async function runInterview(
+  sessionId: string,
+  responses: string[],
+  label: string,
+  timeoutMs: number,
+): Promise<boolean> {
+  log(`Starting ${label}...`);
+
+  let responseIdx = 0;
+  let lastMessageId = '';
+  let lastMessageCount = 0;
+  let stableCount = 0;
+  const start = Date.now();
+
+  // Wait for first agent message
+  await sleep(5000);
+
+  while (Date.now() - start < timeoutMs) {
+    // Refresh token every 4 minutes
+    if ((Date.now() - start) % (4 * 60_000) < POLL_INTERVAL) {
+      await refreshToken();
+    }
+
+    const messages = await getMessages(sessionId);
+    const agentMsgs = messages.filter((m: any) => m.role === 'AGENT');
+    const systemMsgs = messages.filter((m: any) => m.role === 'SYSTEM');
+
+    // Check for completion markers in messages
+    const allContent = messages.map((m: any) => m.content).join('\n');
+    if (allContent.includes(':::INTERVIEW_COMPLETE:::') ||
+        allContent.includes(':::FEATURE_INTERVIEW_COMPLETE:::') ||
+        allContent.includes('Interview abgeschlossen') ||
+        allContent.includes('interview complete') ||
+        allContent.includes('setup complete') ||
+        allContent.includes('Project setup complete')) {
+      log(`✅ ${label} completed!`);
+      return true;
+    }
+
+    // Check if the last message is from an agent and waiting for user input
+    const lastMsg = messages[messages.length - 1];
+    if (lastMsg && lastMsg.role === 'AGENT' && lastMsg.id !== lastMessageId) {
+      lastMessageId = lastMsg.id;
+      stableCount = 0;
+
+      // Check if agent is waiting for response (heuristic: message contains a question mark)
+      const isQuestion = lastMsg.content.includes('?') ||
+                         lastMsg.content.toLowerCase().includes('was') ||
+                         lastMsg.content.toLowerCase().includes('welche') ||
+                         lastMsg.content.toLowerCase().includes('tell me') ||
+                         lastMsg.content.toLowerCase().includes('describe');
+
+      if (isQuestion && responseIdx < responses.length) {
+        log(`Agent asked (${lastMsg.content.substring(0, 80)}...) — sending response #${responseIdx + 1}`);
+        await sleep(2000); // Simulate human delay
+        await sendMessage(sessionId, responses[responseIdx]);
+        responseIdx++;
+        await sleep(3000); // Wait for processing
+        continue;
+      }
+    }
+
+    // Check if messages haven't changed (agent might be processing)
+    if (messages.length === lastMessageCount) {
+      stableCount++;
+      if (stableCount > 20) { // 5 minutes without new messages
+        // Try sending a nudge if we have responses left
+        if (responseIdx < responses.length) {
+          log(`No activity for 5 min — sending nudge response #${responseIdx + 1}`);
+          await sendMessage(sessionId, responses[responseIdx]);
+          responseIdx++;
+          stableCount = 0;
+        }
+      }
+    } else {
+      stableCount = 0;
+    }
+    lastMessageCount = messages.length;
+
+    // Log progress
+    if (stableCount % 4 === 0 && stableCount > 0) {
+      log(`Waiting... (${messages.length} messages, ${agentMsgs.length} from agents)`);
+    }
+
+    await sleep(POLL_INTERVAL);
+  }
+
+  logError(`${label} timed out after ${timeoutMs / 60000} minutes`);
+  return false;
+}
+
+// ─── Pipeline Monitor ─────────────────────────────────────
+
+async function monitorPipeline(sessionId: string): Promise<boolean> {
+  log('Pipeline monitoring started...');
+  const start = Date.now();
+  let lastLogLine = '';
+  let lastErrorId = '';
+
+  while (Date.now() - start < PIPELINE_TIMEOUT) {
+    // Refresh token every 4 minutes
+    if ((Date.now() - start) % (4 * 60_000) < POLL_INTERVAL) {
+      await refreshToken();
+    }
+
+    try {
+      // Check agent status
+      const agentStatus = await api('GET', `/agents/status/${state.projectId}`);
+      const activeAgents = (agentStatus || []).filter((a: any) =>
+        a.status === 'WORKING' || a.status === 'WAITING'
+      );
+
+      // Check issues
+      const issues = await api('GET', `/issues?projectId=${state.projectId}`);
+      const topLevel = issues.filter((i: any) => !i.parentId);
+      const openCount = topLevel.filter((i: any) => i.status === 'OPEN').length;
+      const doneCount = topLevel.filter((i: any) => i.status === 'DONE' || i.status === 'CLOSED').length;
+      const inProgressCount = topLevel.filter((i: any) => i.status === 'IN_PROGRESS').length;
+
+      // Get latest messages
+      const messages = await getMessages(sessionId);
+      const lastMsg = messages[messages.length - 1];
+      const lastLine = lastMsg?.content?.substring(0, 100) || '';
+
+      // Status update
+      const statusLine = `Agents: ${activeAgents.map((a: any) => a.role).join(', ') || 'none'} | ` +
+        `Issues: ${doneCount}/${topLevel.length} done, ${inProgressCount} in progress, ${openCount} open`;
+
+      if (statusLine !== lastLogLine) {
+        log(statusLine);
+        lastLogLine = statusLine;
+      }
+
+      // Check for completion: all issues done and no active agents
+      if (topLevel.length > 0 && openCount === 0 && inProgressCount === 0 && activeAgents.length === 0) {
+        log(`✅ Pipeline complete! ${doneCount}/${topLevel.length} issues done.`);
+
+        // Summary
+        log('─── ISSUE SUMMARY ───');
+        for (const issue of topLevel) {
+          log(`  [${issue.status}] ${issue.title} (${issue.priority})`);
+        }
+
+        return true;
+      }
+
+      // Check for stuck agents (no progress for 30 min)
+      // This is handled by the Hub's built-in stuck check
+
+      // Check for errors
+      const errorMsgs = messages.filter((m: any) =>
+        m.content?.includes('❌') || m.content?.includes('error') || m.content?.includes('failed')
+      );
+      if (errorMsgs.length > 0) {
+        const lastError = errorMsgs[errorMsgs.length - 1];
+        if (lastError.id !== lastErrorId) {
+          lastErrorId = lastError.id;
+          log(`⚠️ Error detected: ${lastError.content.substring(0, 150)}`);
+        }
+      }
+
+    } catch (err: any) {
+      logError(`Monitor error: ${err.message}`);
+    }
+
+    await sleep(POLL_INTERVAL);
+  }
+
+  logError('Pipeline timed out');
+  return false;
+}
+
+// ─── Project Status Check ─────────────────────────────────
+
+async function waitForProjectReady(timeoutMs: number): Promise<boolean> {
+  log('Waiting for project to reach READY status...');
+  const start = Date.now();
+
+  while (Date.now() - start < timeoutMs) {
+    if ((Date.now() - start) % (4 * 60_000) < POLL_INTERVAL) {
+      await refreshToken();
+    }
+
+    try {
+      const project = await api('GET', `/projects/${state.projectSlug}`);
+      if (project.status === 'READY') {
+        log(`✅ Project is READY`);
+        return true;
+      }
+
+      // Check latest messages for progress
+      const messages = await getMessages(state.infraSessionId);
+      const lastAgent = messages.filter((m: any) => m.role === 'AGENT').pop();
+      if (lastAgent) {
+        log(`DevOps: ${lastAgent.content.substring(0, 100)}`);
+      }
+    } catch (err: any) {
+      logError(`Status check failed: ${err.message}`);
+    }
+
+    await sleep(POLL_INTERVAL);
+  }
+
+  logError('Project READY timeout');
+  return false;
+}
+
+// ─── Main ─────────────────────────────────────────────────
+
+async function main() {
+  log('═══════════════════════════════════════════════════');
+  log('  VibCode Hub E2E Test — ToDo App Pipeline');
+  log('═══════════════════════════════════════════════════');
+
+  // ── Phase 0: Auth ──
+  state.phase = 'AUTH';
+  log('Getting Keycloak token...');
+  state.token = await getToken();
+  log('✅ Authenticated');
+
+  // ── Phase 1: Create Project ──
+  state.phase = 'CREATE';
+  log('Creating project "ToDo App"...');
+  const result = await api('POST', '/projects/quick', { name: 'ToDo App' });
+  state.projectId = result.project.id;
+  state.projectSlug = result.project.slug;
+  state.infraSessionId = result.interview.chatSessionId;
+  log(`✅ Project created: ${state.projectId} (slug: ${state.projectSlug})`);
+  log(`   Infrastructure session: ${state.infraSessionId}`);
+
+  // ── Phase 2: Infrastructure Interview ──
+  state.phase = 'INFRA_INTERVIEW';
+  const interviewOk = await runInterview(
+    state.infraSessionId,
+    INFRA_INTERVIEW_RESPONSES,
+    'Infrastructure Interview',
+    INTERVIEW_TIMEOUT,
+  );
+  if (!interviewOk) {
+    logError('Infrastructure interview failed — aborting');
+    return printSummary();
+  }
+
+  // ── Phase 3: Wait for DevOps Setup ──
+  state.phase = 'DEVOPS';
+  const devopsOk = await waitForProjectReady(DEVOPS_TIMEOUT);
+  if (!devopsOk) {
+    logError('DevOps setup failed — aborting');
+    return printSummary();
+  }
+
+  // ── Phase 4: Create Dev Session ──
+  state.phase = 'DEV_SESSION';
+  log('Creating Dev Session "Core Features"...');
+  await sleep(3000);
+  const devSession = await api('POST', '/chat/sessions/dev', {
+    projectId: state.projectId,
+    title: 'Core Features',
+  });
+  state.devSessionId = devSession.id;
+  log(`✅ Dev Session created: ${state.devSessionId} (branch: ${devSession.branch})`);
+
+  // ── Phase 5: Feature Interview ──
+  state.phase = 'FEATURE_INTERVIEW';
+  const featureOk = await runInterview(
+    state.devSessionId,
+    FEATURE_INTERVIEW_RESPONSES,
+    'Feature Interview',
+    INTERVIEW_TIMEOUT,
+  );
+  if (!featureOk) {
+    // Feature interview might have completed without clear marker
+    log('Feature interview may have completed (no explicit marker) — continuing...');
+  }
+
+  // ── Phase 6: Monitor Pipeline ──
+  state.phase = 'PIPELINE';
+  log('Dev Session pipeline starting...');
+  log('Expected flow: Architect → Issue Compiler → Grounding → Coder');
+  const pipelineOk = await monitorPipeline(state.devSessionId);
+
+  // ── Phase 7: Verification ──
+  state.phase = 'VERIFY';
+  await runVerification();
+
+  // ── Done ──
+  printSummary();
+}
+
+async function runVerification() {
+  log('─── VERIFICATION ───');
+
+  try {
+    // Check issues
+    const issues = await api('GET', `/issues?projectId=${state.projectId}`);
+    const topLevel = issues.filter((i: any) => !i.parentId);
+    log(`Issues created: ${topLevel.length} (with ${issues.length - topLevel.length} subtasks)`);
+
+    // Check milestones
+    const milestones = await api('GET', `/milestones?projectId=${state.projectId}`);
+    log(`Milestones: ${milestones.length}`);
+
+    // Check GitLab workspace
+    const project = await api('GET', `/projects/${state.projectSlug}`);
+    log(`Project status: ${project.status}`);
+    log(`GitLab project ID: ${project.gitlabProjectId || 'none'}`);
+
+    // Check session
+    if (state.devSessionId) {
+      const session = await api('GET', `/chat/sessions/${state.devSessionId}`);
+      log(`Dev Session status: ${session.status}`);
+      log(`Dev Session branch: ${session.branch}`);
+    }
+
+    // Check agent logs for errors
+    try {
+      const logs = await api('GET', `/monitor/logs?projectId=${state.projectId}&agentRole=ALL&level=ERROR`);
+      if (logs.length > 0) {
+        log(`⚠️ ${logs.length} error logs found:`);
+        for (const entry of logs.slice(-5)) {
+          log(`  [${entry.agentRole ?? 'unknown'}] ${entry.message}`);
+        }
+      } else {
+        log('✅ No error logs');
+      }
+    } catch {
+      // Monitor endpoint might not support these params
+    }
+
+  } catch (err: any) {
+    logError(`Verification failed: ${err.message}`);
+  }
+}
+
+function printSummary() {
+  const elapsed = Math.floor((Date.now() - state.startTime) / 1000);
+  const hours = Math.floor(elapsed / 3600);
+  const mins = Math.floor((elapsed % 3600) / 60);
+
+  log('');
+  log('═══════════════════════════════════════════════════');
+  log(`  TEST COMPLETE — ${hours}h ${mins}m elapsed`);
+  log('═══════════════════════════════════════════════════');
+  log(`  Project: ${state.projectSlug} (${state.projectId})`);
+  log(`  Infra Session: ${state.infraSessionId}`);
+  log(`  Dev Session: ${state.devSessionId}`);
+  log(`  Errors: ${state.errors.length}`);
+  if (state.errors.length > 0) {
+    log('  Error details:');
+    for (const err of state.errors) {
+      log(`    - ${err}`);
+    }
+  }
+  log('═══════════════════════════════════════════════════');
+}
+
+// ─── Run ──────────────────────────────────────────────────
+
+main().catch((err) => {
+  logError(`Fatal: ${err.message}`);
+  console.error(err.stack);
+  printSummary();
+  process.exit(1);
+});

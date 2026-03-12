@@ -879,6 +879,14 @@ export class AgentOrchestratorService implements OnModuleInit, OnModuleDestroy {
           data: { status: IssueStatus.DONE },
         });
 
+        // Force the current Coder agent to IDLE before re-triggering.
+        // The codingComplete event fires from within processIssue() before
+        // runMilestoneCoding sets status to IDLE, causing a race condition.
+        await this.prisma.agentInstance.updateMany({
+          where: { projectId, role: AgentRole.CODER, status: AgentStatus.WORKING },
+          data: { status: AgentStatus.IDLE },
+        });
+
         // Trigger Coder for next session issue
         if (!this.acquireStartLock(projectId, AgentRole.CODER)) return;
         try {
