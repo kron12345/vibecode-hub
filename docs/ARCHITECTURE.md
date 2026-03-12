@@ -137,7 +137,7 @@ Dev-Server auf localhost:{port}
 - **AgentInstance** → konfigurierter Agent pro Projekt (Rolle + Provider + Model)
 - **AgentTask** → einzelner Arbeitsschritt eines Agenten (13 Task-Typen, including `FEATURE_INTERVIEW` and `INFRA_COMMAND`)
 - **AgentLog** → Echtzeit-Logs für Live-Dashboard
-- **McpServerDefinition** → Registrierte MCP-Server (name unique, command, args, argTemplate, envTemplate, category, builtin-Flag). 9 Built-in Server (filesystem, git, gitlab, prisma, angular-cli, shell, playwright, eslint, security-audit) beim Start geseeded, nicht löschbar.
+- **McpServerDefinition** → Registrierte MCP-Server (name unique, command, args, argTemplate, envTemplate, category, builtin-Flag). 14 Built-in Server beim Start geseeded: filesystem, git, gitlab, prisma, angular-cli, vaadin (HTTP remote), spring-docs, shell, playwright, eslint, security-audit, postgres, docker, sequential-thinking, memory, searxng. HTTP-Transport für Remote-Server via leeres command + argTemplate=URL Convention.
 - **McpServerOnRole** → Many-to-many Join zwischen McpServerDefinition und AgentRole. Definiert welche MCP-Server einer Agent-Rolle zur Verfügung stehen. @@unique(mcpServerId, agentRole).
 - **McpServerProjectOverride** → Pro-Projekt Override der globalen MCP-Server-Konfiguration. ENABLE/DISABLE pro Server+Rolle. @@unique(projectId, mcpServerId, agentRole).
 - **UserSetting** → Pro-User Key-Value Settings (Sprache, Theme, UI-Präferenzen)
@@ -282,18 +282,20 @@ GitLab Webhooks:
 - 10 Minuten Timeout, max 30 Iterationen
 
 ### MCP Integration (McpModule)
-- **McpClientService**: Startet MCP-Server als Subprozesse, verwaltet Connections, Tool-Discovery
+- **McpClientService**: Startet MCP-Server als Subprozesse (stdio) oder verbindet Remote-Server (HTTP/StreamableHTTP), verwaltet Connections, Tool-Discovery
 - **McpAgentLoopService**: Generischer Agent-Loop (LLM-Call → tool_calls → MCP-Execution → Repeat)
 - **Filesystem MCP Server**: `@modelcontextprotocol/server-filesystem` — 14 Tools (read, write, edit, search, tree etc.)
 - **Shell MCP Server**: `shell-server.mjs` — `run_command` Tool für Shell-Befehle im Workspace
+- **Vaadin MCP Server**: Remote HTTP-Server (`https://mcp.vaadin.com/`) — Vaadin Flow Doku, Component API, Best Practices
+- **Spring Docs MCP**: `@enokdev/springdocs-mcp` — Spring Boot, Data JPA, Security Doku und Guides
 - **Sandboxing**: MCP-Server erhalten nur Zugriff auf den Workspace-Ordner des Projekts
-- **Erweiterbar**: Weitere MCP-Server (Git, Angular CLI, Prisma) können über die MCP Server Registry hinzugefügt werden
+- **Transport**: stdio (lokale Server) + StreamableHTTPClientTransport (remote Server via URL)
 
 ### MCP Server Registry
 - **McpRegistryService**: CRUD für MCP-Server-Definitionen, Rollen-Zuordnung, Runtime-Auflösung, Project Overrides
 - **McpRegistryController**: 6 REST-Endpoints unter `/api/mcp-servers` (Admin only)
 - **McpProjectOverrideController**: 3 REST-Endpoints unter `/api/projects/:projectId/mcp-overrides` (Admin, PM)
-- **13 Built-in Server**: filesystem, git, gitlab, prisma, angular-cli, shell, playwright, eslint, security-audit, postgres, docker, sequential-thinking, memory — beim Start geseeded, nicht löschbar
+- **16 Built-in Server**: filesystem, git, gitlab, prisma, angular-cli, vaadin (remote HTTP), spring-docs, shell, playwright, eslint, security-audit, postgres, docker, sequential-thinking, memory, searxng — beim Start geseeded, nicht löschbar
 - **Custom Server**: Admins können eigene MCP-Server registrieren
 - **Rollen-Zuordnung**: Many-to-many (`McpServerOnRole`) — pro Agent-Rolle konfigurierbar welche Server verfügbar sind
 - **Project Overrides**: `McpServerProjectOverride` erlaubt pro Projekt+Rolle Server zu ENABLE/DISABLE (überschreibt Global-Config)
@@ -397,7 +399,7 @@ Eigener MCP-Server, der dem Coder Agent sichere Shell-Befehle im Workspace ermö
 
 ### DevOps Agent — CI/CD + YOLO Mode
 - Generiert deterministische `.gitlab-ci.yml` basierend auf Tech-Stack
-- Templates: Node/Angular/React (4 Stages), Python, Rust, Go, Generic
+- Templates: Node/Angular/React (4 Stages), Python, Rust, Go, Java/Maven/Spring Boot/Vaadin (3 Stages), Generic
 - Runner-Tags: `docker`, `vibcode`
 - **Initiale Projekt-Dokumentation**: README.md, CHANGELOG.md, CONTRIBUTING.md, PROJECT_KNOWLEDGE.md
 - **ENVIRONMENT.md**: Generated during project setup in the workspace root — contains environment details, installed dependencies, tech stack summary, and workspace paths. Used as context by other agents.

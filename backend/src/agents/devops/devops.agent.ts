@@ -465,7 +465,10 @@ export class DevopsAgent extends BaseAgent {
   }
 
   /** Build a deterministic .gitlab-ci.yml based on the tech stack */
-  private buildCiYml(framework: string, language: string): string {
+  private buildCiYml(rawFramework: string, rawLanguage: string): string {
+    const framework = rawFramework.toLowerCase().replace(/\s+/g, '-');
+    const language = rawLanguage.toLowerCase().replace(/[\s\d.]+/g, '').trim();
+
     // Angular / React / Vue / Node projects
     if (['angular', 'react', 'vue', 'next', 'nuxt', 'svelte'].includes(framework) ||
         ['typescript', 'javascript'].includes(language)) {
@@ -744,10 +747,12 @@ build:
   }
 
   /** Build a .gitignore appropriate for the tech stack */
-  private buildGitignore(framework: string, language: string): string {
-    const isJava = language === 'java' || ['java', 'spring', 'spring-boot', 'vaadin', 'quarkus'].includes(framework);
+  private buildGitignore(rawFramework: string, rawLanguage: string): string {
+    const framework = rawFramework.toLowerCase().replace(/\s+/g, '-');
+    const language = rawLanguage.toLowerCase().replace(/[\s\d.]+/g, '').trim();
+    const isJava = language === 'java' || ['java', 'spring', 'spring-boot', 'vaadin', 'quarkus'].some(k => framework.includes(k));
     const isNode = !isJava || ['typescript', 'javascript'].includes(language) ||
-      ['angular', 'react', 'vue', 'next', 'nuxt', 'svelte', 'nest', 'express'].includes(framework);
+      ['angular', 'react', 'vue', 'next', 'nuxt', 'svelte', 'nest', 'express'].some(k => framework.includes(k));
 
     const sections: string[] = [];
 
@@ -856,10 +861,10 @@ build:
         '',
         '### Prerequisites',
         '',
-        ['java', 'spring', 'spring-boot', 'vaadin', 'quarkus'].includes(ts.framework?.toLowerCase() ?? '') || ts.language?.toLowerCase() === 'java'
+        ['java', 'spring', 'vaadin', 'quarkus'].some(k => (ts.framework ?? '').toLowerCase().includes(k)) || (ts.language ?? '').toLowerCase().includes('java')
           ? '- JDK >= 17\n- Maven >= 3.9'
           : ts.language === 'TypeScript' || ts.framework ? '- Node.js >= 18' : '- See project documentation',
-        ts.framework === 'Angular' ? '- Angular CLI (`npm install -g @angular/cli`)' : null,
+        (ts.framework ?? '').toLowerCase().includes('angular') ? '- Angular CLI (`npm install -g @angular/cli`)' : null,
         '',
         '### Installation',
         '',
