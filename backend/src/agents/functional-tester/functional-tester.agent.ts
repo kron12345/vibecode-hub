@@ -298,10 +298,15 @@ Do NOT omit the JSON block.`;
     await this.updateStatus(ctx, AgentStatus.IDLE);
 
     // Build feedback for Coder
-    const feedback = testResult.findings
-      .filter(f => !f.passed)
-      .map(f => `[${(f.severity ?? 'warning').toUpperCase()}] ${f.criterion}: ${f.details}`)
-      .join('\n');
+    const failedFindings = testResult.findings.filter(f => !f.passed);
+    const feedback = failedFindings
+      .map((f, i) => {
+        const severity = (f.severity ?? 'warning').toUpperCase();
+        const parts = [`${i + 1}. [${severity}] ${f.criterion}`];
+        parts.push(`   Problem: ${f.details}`);
+        return parts.join('\n');
+      })
+      .join('\n\n');
 
     this.eventEmitter.emit('agent.functionalTestComplete', {
       projectId: ctx.projectId,

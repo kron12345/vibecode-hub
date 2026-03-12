@@ -311,6 +311,15 @@ Do NOT omit the JSON block.`;
         return;
       }
 
+      // Rule-based override: critical findings → always fail, regardless of LLM opinion
+      const criticalCount = testResult.findings.filter(f => f.severity === 'critical').length;
+      const warningCount = testResult.findings.filter(f => f.severity === 'warning').length;
+      if (testResult.passed && criticalCount > 0) {
+        this.logger.warn(`Pen Tester LLM said passed but found ${criticalCount} critical + ${warningCount} warning findings — overriding to FAIL`);
+        testResult.passed = false;
+        testResult.summary = `[OVERRIDE] ${criticalCount} critical finding(s) detected — auto-failed. ${testResult.summary}`;
+      }
+
       // Post unified comment (same rich markdown for local + GitLab)
       const testMarkdown = this.buildTestMarkdown(testResult);
       await postAgentComment({
@@ -530,10 +539,16 @@ Do NOT omit the JSON block.`;
 
     await this.updateStatus(ctx, AgentStatus.IDLE);
 
-    const feedback = testResult.findings
-      .filter(f => f.severity !== 'info')
-      .map(f => `[${f.severity.toUpperCase()}] [${f.category}]${f.file ? ` ${f.file}${f.line ? `:${f.line}` : ''}` : ''}: ${f.description}. Recommendation: ${f.recommendation}`)
-      .join('\n');
+    const relevantFindings = testResult.findings.filter(f => f.severity !== 'info');
+    const feedback = relevantFindings
+      .map((f, i) => {
+        const parts = [`${i + 1}. [${f.severity.toUpperCase()}] [${f.category}]`];
+        parts.push(`   Vulnerability: ${f.description}`);
+        if (f.file) parts.push(`   File: ${f.file}${f.line ? `:${f.line}` : ''}`);
+        parts.push(`   Fix: ${f.recommendation}`);
+        return parts.join('\n');
+      })
+      .join('\n\n');
 
     this.eventEmitter.emit('agent.penTestComplete', {
       projectId: ctx.projectId,

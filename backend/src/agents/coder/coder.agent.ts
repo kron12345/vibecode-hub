@@ -786,15 +786,37 @@ export class CoderAgent extends BaseAgent {
   }
 
   private buildFixPrompt(issue: any, feedback: string, source: string): string {
+    const sourceLabel: Record<string, string> = {
+      'review': 'Code Review',
+      'functional-test': 'Functional Test',
+      'ui-test': 'UI Test',
+      'security': 'Security/Pen Test',
+      'pipeline': 'Pipeline',
+      'user': 'User Feedback',
+    };
+
     const parts: string[] = [
-      `Fix the following issue based on ${source} feedback:`,
+      `# Fix Required: ${issue.title}`,
       '',
-      `## ${issue.title}`,
-      '',
+      `## Context`,
       issue.description || 'No description provided.',
       '',
-      `## Feedback to address:`,
+      `## ${sourceLabel[source] || source} Findings`,
+      '',
+      `The following issues were found by the **${sourceLabel[source] || source}** and MUST be fixed:`,
+      '',
       feedback,
+      '',
+      `## Fix Instructions`,
+      '',
+      `1. Read each finding carefully — pay attention to file paths, line numbers, and severity levels`,
+      `2. For CRITICAL/HIGH severity: these MUST be fixed, they are blocking`,
+      `3. For WARNING/MEDIUM severity: fix these too, they will cause the review to fail again`,
+      `4. For each finding: open the mentioned file, locate the issue, and make a concrete code change`,
+      `5. Do NOT just add comments or TODOs — make actual code fixes`,
+      `6. After fixing, verify your changes don't break existing functionality`,
+      '',
+      `IMPORTANT: Previous fix attempts for this issue may have failed. Make sure you actually change the relevant source files. A fix attempt that produces 0 file changes will be rejected.`,
     ];
 
     return parts.join('\n');

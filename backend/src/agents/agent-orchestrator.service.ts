@@ -1634,6 +1634,117 @@ export class AgentOrchestratorService implements OnModuleInit, OnModuleDestroy {
     }
   }
 
+  // ─── Auto-Merge for NEEDS_REVIEW ────────────────────────
+
+  /**
+   * When an issue hits NEEDS_REVIEW (max fix attempts), auto-merge the MR
+   * so the next issue in the pipeline has access to the latest code.
+   */
+  private async autoMergeForNeedsReview(
+    issueId: string,
+    projectId: string,
+    chatSessionId: string,
+  ): Promise<void> {
+    try {
+      // Find the latest task with a gitlabMrIid for this issue
+      const taskWithMr = await this.prisma.agentTask.findFirst({
+        where: { issueId, gitlabMrIid: { not: null } },
+        orderBy: { createdAt: 'desc' },
+        select: { gitlabMrIid: true },
+      });
+
+      if (!taskWithMr?.gitlabMrIid) {
+        this.logger.warn(`autoMergeForNeedsReview: No MR found for issue ${issueId} — skipping`);
+        return;
+      }
+
+      const project = await this.prisma.project.findUnique({
+        where: { id: projectId },
+        select: { gitlabProjectId: true, slug: true, workBranch: true },
+      });
+      if (!project?.gitlabProjectId) return;
+
+      const mrIid = taskWithMr.gitlabMrIid;
+      const pipelineConfig = this.settings.getPipelineConfig();
+      const mergeConfig = pipelineConfig.merge ?? {
+        autoMerge: true, method: 'merge' as const, removeSourceBranch: true,
+        requireApproval: false, closeIssueOnMerge: true,
+      };
+
+      // Attempt merge with retries
+      const MAX_RETRIES = 3;
+      const RETRY_DELAY = 5_000;
+      let merged = false;
+
+      for (let attempt = 1; attempt <= MAX_RETRIES; attempt++) {
+        try {
+          await this.gitlabService.acceptMergeRequest(project.gitlabProjectId, mrIid, {
+            squash: mergeConfig.method === 'squash',
+            removeSourceBranch: mergeConfig.removeSourceBranch,
+          });
+          this.logger.log(`autoMergeForNeedsReview: MR !${mrIid} merged for NEEDS_REVIEW issue ${issueId}`);
+          merged = true;
+          break;
+        } catch (err) {
+          const msg = err.message ?? String(err);
+          const isConflict = /conflict|cannot be merged|merge_request_not_mergeable/i.test(msg);
+
+          if (isConflict) {
+            this.logger.warn(`autoMergeForNeedsReview: MR !${mrIid} has conflicts — cannot auto-merge: ${msg}`);
+            return;
+          }
+
+          if (attempt < MAX_RETRIES) {
+            this.logger.warn(`autoMergeForNeedsReview: Merge attempt ${attempt}/${MAX_RETRIES} failed: ${msg} — retrying`);
+            await new Promise(r => setTimeout(r, RETRY_DELAY));
+          } else {
+            this.logger.error(`autoMergeForNeedsReview: All ${MAX_RETRIES} attempts failed for MR !${mrIid}: ${msg}`);
+            return;
+          }
+        }
+      }
+
+      if (!merged) return;
+
+      // Pull latest code in workspace so the next issue has fresh state
+      const sessionInfo = await this.prisma.chatSession.findUnique({
+        where: { id: chatSessionId },
+        select: { type: true, branch: true },
+      });
+      const isDevSession = sessionInfo?.type === ChatSessionType.DEV_SESSION;
+
+      let workspace: string;
+      let baseBranch: string;
+
+      if (isDevSession && sessionInfo.branch) {
+        const { getSessionWorktreePath } = require('./agent-base');
+        workspace = getSessionWorktreePath(
+          this.settings.devopsWorkspacePath,
+          project.slug,
+          sessionInfo.branch,
+        );
+        baseBranch = sessionInfo.branch;
+      } else {
+        const pathMod = require('path');
+        workspace = pathMod.resolve(this.settings.devopsWorkspacePath, project.slug);
+        baseBranch = project.workBranch || 'main';
+      }
+
+      try {
+        const { execFile } = require('child_process');
+        const { promisify } = require('util');
+        const execFileAsync = promisify(execFile);
+        await execFileAsync('git', ['checkout', baseBranch], { cwd: workspace, timeout: 10_000 });
+        await execFileAsync('git', ['pull', '--ff-only'], { cwd: workspace, timeout: 30_000 });
+        this.logger.log(`autoMergeForNeedsReview: Pulled latest ${baseBranch} in ${workspace}`);
+      } catch (pullErr) {
+        this.logger.warn(`autoMergeForNeedsReview: Failed to pull ${baseBranch}: ${pullErr.message}`);
+      }
+    } catch (err) {
+      this.logger.error(`autoMergeForNeedsReview error: ${err.message}`);
+    }
+  }
+
   // ─── Shared: Re-trigger Coder ──────────────────────────
 
   private async retriggerCoder(
@@ -1679,24 +1790,28 @@ export class AgentOrchestratorService implements OnModuleInit, OnModuleDestroy {
             stoppedIssue.gitlabIid,
             `⚠️ **Max fix attempts reached** (${fixCount}/${maxAttempts})\n\n` +
             `This issue has been automatically moved to **Needs Review** after ${fixCount} fix attempts ` +
-            `(last source: ${feedbackSource}). Manual intervention required.\n\n` +
+            `(last source: ${feedbackSource}). The MR was auto-merged so subsequent issues have access to this code.\n\n` +
             `Last feedback:\n> ${feedback.substring(0, 500)}`,
           ).catch(() => {});
         }
 
+        // Auto-merge the MR so the next issue has access to the code
+        await this.autoMergeForNeedsReview(issueId, projectId, chatSessionId);
+
         // Continue pipeline with next open issue (don't block on stuck issues)
+        const chatSessionFilter = await this.getSessionFilter(chatSessionId);
         const nextOpen = await this.prisma.issue.findFirst({
-          where: { projectId, status: IssueStatus.OPEN, parentId: null },
+          where: { projectId, status: IssueStatus.OPEN, parentId: null, ...chatSessionFilter },
           orderBy: [{ sortOrder: 'asc' }, { createdAt: 'asc' }],
         });
         if (nextOpen) {
-          this.logger.log(`Issue ${issueId} stuck at NEEDS_REVIEW — starting next issue ${nextOpen.id}`);
+          this.logger.log(`Issue ${issueId} at NEEDS_REVIEW (MR merged) — starting next issue ${nextOpen.id}`);
           await this.startCoding(projectId, chatSessionId);
         } else {
-          this.logger.log(`Issue ${issueId} stuck at NEEDS_REVIEW — no more open issues`);
+          this.logger.log(`Issue ${issueId} at NEEDS_REVIEW — no more open issues`);
           this.chatGateway.emitToSession(chatSessionId, 'chatMessage', {
             chatSessionId,
-            content: `⚠️ Issue stuck at NEEDS_REVIEW and no more open issues. Pipeline paused.`,
+            content: `⚠️ Issue at NEEDS_REVIEW and no more open issues. Pipeline paused.`,
             role: 'assistant',
           });
         }

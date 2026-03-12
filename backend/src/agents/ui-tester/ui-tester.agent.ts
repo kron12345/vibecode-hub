@@ -428,10 +428,14 @@ Do NOT omit the JSON block.`;
 
     await this.updateStatus(ctx, AgentStatus.IDLE);
 
-    const feedback = testResult.findings
-      .filter(f => f.severity !== 'info')
-      .map(f => `[${f.severity.toUpperCase()}] [${f.type}] ${f.page}: ${f.description}`)
-      .join('\n');
+    const relevantFindings = testResult.findings.filter(f => f.severity !== 'info');
+    const feedback = relevantFindings
+      .map((f, i) => {
+        const parts = [`${i + 1}. [${f.severity.toUpperCase()}] [${f.type}] ${f.page}`];
+        parts.push(`   Problem: ${f.description}`);
+        return parts.join('\n');
+      })
+      .join('\n\n');
 
     this.eventEmitter.emit('agent.uiTestComplete', {
       projectId: ctx.projectId,
