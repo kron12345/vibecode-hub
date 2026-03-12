@@ -135,6 +135,9 @@ export class DevopsAgent extends BaseAgent {
       // Step 6e: Generate ENVIRONMENT.md
       await this.stepGenerateEnvironmentDoc(ctx, result, projectDir, project.name, interviewResult);
 
+      // Step 6f: Build verification for Maven/Java projects
+      await this.stepBuildVerification(ctx, result, projectDir, interviewResult);
+
       // Step 7: Git commit & push
       await this.stepGitCommitAndPush(
         ctx, result, projectDir, gitlabProject.default_branch,
@@ -384,6 +387,81 @@ export class DevopsAgent extends BaseAgent {
       allOk ? `${commands.length} commands completed` : 'Some commands failed',
       start,
     ));
+  }
+
+  // ─── Step 6f: Build Verification (Maven/Gradle) ───────────
+
+  /**
+   * For Java/Maven projects: resolve dependencies and compile to verify the build works.
+   * This pre-caches all Maven dependencies so agents can compile/test without network issues.
+   */
+  private async stepBuildVerification(
+    ctx: AgentContext,
+    result: DevopsSetupResult,
+    projectDir: string,
+    interviewResult: InterviewResult,
+  ): Promise<void> {
+    const start = Date.now();
+    const framework = (interviewResult.techStack?.framework ?? '').toLowerCase().replace(/\s+/g, '-');
+    const language = (interviewResult.techStack?.language ?? '').toLowerCase();
+
+    const isMaven = ['spring', 'spring-boot', 'vaadin', 'quarkus'].some(f => framework.includes(f))
+      || language.includes('java');
+
+    if (!isMaven) {
+      result.steps.push(this.step('buildVerification', 'skipped', 'Not a Maven project', start));
+      return;
+    }
+
+    // Check if pom.xml exists
+    const fs = await import('fs');
+    const path = await import('path');
+    const pomPath = path.join(projectDir, 'pom.xml');
+    if (!fs.existsSync(pomPath)) {
+      result.steps.push(this.step('buildVerification', 'skipped', 'No pom.xml found', start));
+      return;
+    }
+
+    try {
+      await this.sendAgentMessage(ctx, '📦 Maven: Resolving dependencies and verifying build...');
+
+      // Step 1: Resolve all dependencies (pre-cache in ~/.m2/repository)
+      const resolveResult = await this.executeCommand(
+        'mvn dependency:resolve -B -q',
+        projectDir,
+        TIMEOUT_COMMAND,
+      );
+
+      if (resolveResult.exitCode !== 0) {
+        this.logger.warn(`Maven dependency:resolve failed: ${resolveResult.stderr.slice(0, 300)}`);
+        await this.sendAgentMessage(ctx, `⚠️ Maven dependency resolution failed (non-fatal): ${resolveResult.stderr.slice(0, 200)}`);
+        result.steps.push(this.step('buildVerification', 'failed', 'Dependency resolution failed', start));
+        return;
+      }
+
+      // Step 2: Compile to verify code compiles
+      const compileResult = await this.executeCommand(
+        'mvn compile -B -q',
+        projectDir,
+        TIMEOUT_COMMAND,
+      );
+
+      if (compileResult.exitCode !== 0) {
+        this.logger.warn(`Maven compile failed: ${compileResult.stderr.slice(0, 300)}`);
+        await this.sendAgentMessage(ctx, `⚠️ Maven compile failed (non-fatal): ${compileResult.stderr.slice(0, 200)}`);
+        result.steps.push(this.step('buildVerification', 'failed', 'Compilation failed', start));
+        return;
+      }
+
+      await this.sendAgentMessage(ctx, '✅ Maven build verified — dependencies cached, compilation OK');
+      result.steps.push(this.step('buildVerification', 'success', 'Maven deps resolved + compile OK', start));
+      await this.log(ctx.agentTaskId, 'INFO', 'Maven build verification passed');
+
+    } catch (err) {
+      result.steps.push(this.step('buildVerification', 'failed', err.message, start));
+      await this.sendAgentMessage(ctx, `⚠️ Build verification failed (non-fatal): ${err.message}`);
+      await this.log(ctx.agentTaskId, 'WARN', `Build verification failed: ${err.message}`);
+    }
   }
 
   // ─── Step 6: Generate .mcp.json ────────────────────────────
