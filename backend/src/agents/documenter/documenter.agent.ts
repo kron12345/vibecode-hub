@@ -148,18 +148,14 @@ export class DocumenterAgent extends BaseAgent {
       // Read existing docs from workspace
       const existingDocs = await this.readExistingDocs(workspace);
 
-      // Determine the branch to work on
-      const branchName = isSessionIssue && issueSession?.branch
-        ? issueSession.branch
-        : `feature/${issue.gitlabIid ?? issue.id}-${this.slugify(issue.title)}`;
+      // Determine the branch to work on — always use feature branch
+      const branchName = `feature/${issue.gitlabIid ?? issue.id}-${this.slugify(issue.title)}`;
 
-      // Ensure we're on the correct branch (session worktrees are already checked out)
-      if (!isSessionIssue) {
-        try {
-          await execFileAsync('git', ['checkout', branchName], { cwd: workspace, timeout: GIT_TIMEOUT_MS });
-        } catch {
-          this.logger.warn(`Could not checkout ${branchName} — working on current branch`);
-        }
+      // Checkout the feature branch
+      try {
+        await execFileAsync('git', ['checkout', branchName], { cwd: workspace, timeout: GIT_TIMEOUT_MS });
+      } catch {
+        this.logger.warn(`Could not checkout ${branchName} — working on current branch`);
       }
 
       // Build LLM prompt

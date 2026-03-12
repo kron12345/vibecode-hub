@@ -96,6 +96,18 @@ export class AgentOrchestratorService implements OnModuleInit, OnModuleDestroy {
    * Guard: Check if there's already an active agent of the given role for a project.
    * Returns true if an agent is already running (caller should skip).
    */
+  private async getSessionFilter(chatSessionId: string): Promise<{ chatSessionId?: string }> {
+    if (!chatSessionId) return {};
+    const session = await this.prisma.chatSession.findUnique({
+      where: { id: chatSessionId },
+      select: { type: true },
+    });
+    if (session?.type === ChatSessionType.DEV_SESSION) {
+      return { chatSessionId };
+    }
+    return {};
+  }
+
   private async hasActiveAgent(projectId: string, role: AgentRole): Promise<boolean> {
     const existing = await this.prisma.agentInstance.findFirst({
       where: {
@@ -865,56 +877,24 @@ export class AgentOrchestratorService implements OnModuleInit, OnModuleDestroy {
     }
 
     if (!mrIid) {
-      // Check if this is a dev session — session issues don't need MRs
-      const session = await this.prisma.chatSession.findUnique({
-        where: { id: chatSessionId },
-        select: { type: true },
+      // No MR means coding produced no changes or MR creation failed — skip pipeline
+      this.logger.warn(`No MR for issue ${issueId} — skipping pipeline, marking NEEDS_REVIEW`);
+      await this.prisma.issue.update({
+        where: { id: issueId },
+        data: { status: IssueStatus.NEEDS_REVIEW },
       });
 
-      if (session?.type === ChatSessionType.DEV_SESSION) {
-        // Dev session: mark issue as DONE and move to next session issue
-        this.logger.log(`Dev session issue ${issueId} coded — no MR needed, marking DONE`);
-        await this.prisma.issue.update({
-          where: { id: issueId },
-          data: { status: IssueStatus.DONE },
-        });
-
-        // Force the current Coder agent to IDLE before re-triggering.
-        // The codingComplete event fires from within processIssue() before
-        // runMilestoneCoding sets status to IDLE, causing a race condition.
-        await this.prisma.agentInstance.updateMany({
-          where: { projectId, role: AgentRole.CODER, status: AgentStatus.WORKING },
-          data: { status: AgentStatus.IDLE },
-        });
-
-        // Trigger Coder for next session issue
-        if (!this.acquireStartLock(projectId, AgentRole.CODER)) return;
+      // Query next open issue — scope to session if applicable
+      const chatSessionFilter = await this.getSessionFilter(chatSessionId);
+      const nextOpen = await this.prisma.issue.findFirst({
+        where: { projectId, status: IssueStatus.OPEN, parentId: null, ...chatSessionFilter },
+      });
+      if (nextOpen) {
+        this.logger.log(`No MR for ${issueId} — moving to next issue ${nextOpen.id}`);
         try {
-          if (await this.hasActiveAgent(projectId, AgentRole.CODER)) return;
           await this.startCoding(projectId, chatSessionId);
         } catch (err) {
-          this.logger.error(`Failed to start Coder for next session issue: ${err.message}`);
-        } finally {
-          this.releaseStartLock(projectId, AgentRole.CODER);
-        }
-      } else {
-        // Infrastructure: mark NEEDS_REVIEW and skip to next
-        this.logger.warn(`No MR for issue ${issueId} — skipping pipeline, marking NEEDS_REVIEW`);
-        await this.prisma.issue.update({
-          where: { id: issueId },
-          data: { status: IssueStatus.NEEDS_REVIEW },
-        });
-
-        const nextOpen = await this.prisma.issue.findFirst({
-          where: { projectId, status: IssueStatus.OPEN, parentId: null },
-        });
-        if (nextOpen) {
-          this.logger.log(`No MR for ${issueId} — moving to next issue ${nextOpen.id}`);
-          try {
-            await this.startCoding(projectId, chatSessionId);
-          } catch (err) {
-            this.logger.error(`Failed to start Coder for next issue: ${err.message}`);
-          }
+          this.logger.error(`Failed to start Coder for next issue: ${err.message}`);
         }
       }
       return;
@@ -968,9 +948,10 @@ export class AgentOrchestratorService implements OnModuleInit, OnModuleDestroy {
       return;
     }
 
-    // Initial coding failed — skip to next open issue
+    // Initial coding failed — skip to next open issue (session-scoped)
+    const chatSessionFilter = await this.getSessionFilter(chatSessionId);
     const nextOpen = await this.prisma.issue.findFirst({
-      where: { projectId, status: IssueStatus.OPEN, parentId: null },
+      where: { projectId, status: IssueStatus.OPEN, parentId: null, ...chatSessionFilter },
     });
 
     if (nextOpen) {
@@ -1594,15 +1575,35 @@ export class AgentOrchestratorService implements OnModuleInit, OnModuleDestroy {
       // Pull latest base branch in the workspace so the Coder has the updated code
       const project = await this.prisma.project.findUnique({ where: { id: projectId } });
       if (project) {
-        const baseBranch = project.workBranch || 'main';
-        const workspace = require('path').resolve(
-          this.settings.devopsWorkspacePath,
-          project.slug,
-        );
+        const { execFile } = require('child_process');
+        const { promisify } = require('util');
+        const pathMod = require('path');
+        const execFileAsync = promisify(execFile);
+
+        // Determine correct workspace and base branch (session-aware)
+        const sessionInfo = await this.prisma.chatSession.findUnique({
+          where: { id: chatSessionId },
+          select: { type: true, branch: true },
+        });
+        const isDevSession = sessionInfo?.type === ChatSessionType.DEV_SESSION;
+
+        let workspace: string;
+        let baseBranch: string;
+
+        if (isDevSession && sessionInfo.branch) {
+          const { getSessionWorktreePath } = require('./agent-base');
+          workspace = getSessionWorktreePath(
+            this.settings.devopsWorkspacePath,
+            project.slug,
+            sessionInfo.branch,
+          );
+          baseBranch = sessionInfo.branch;
+        } else {
+          workspace = pathMod.resolve(this.settings.devopsWorkspacePath, project.slug);
+          baseBranch = project.workBranch || 'main';
+        }
+
         try {
-          const { execFile } = require('child_process');
-          const { promisify } = require('util');
-          const execFileAsync = promisify(execFile);
           await execFileAsync('git', ['checkout', baseBranch], { cwd: workspace, timeout: 10_000 });
           await execFileAsync('git', ['pull', '--ff-only'], { cwd: workspace, timeout: 30_000 });
           this.logger.log(`Pulled latest ${baseBranch} in workspace ${workspace}`);
@@ -1611,9 +1612,10 @@ export class AgentOrchestratorService implements OnModuleInit, OnModuleDestroy {
         }
       }
 
-      // Sequential pipeline: trigger Coder for the next open issue
+      // Sequential pipeline: trigger Coder for the next open issue (session-scoped)
+      const chatSessionFilter = await this.getSessionFilter(chatSessionId);
       const nextOpen = await this.prisma.issue.findFirst({
-        where: { projectId, status: IssueStatus.OPEN, parentId: null },
+        where: { projectId, status: IssueStatus.OPEN, parentId: null, ...chatSessionFilter },
       });
       if (nextOpen) {
         this.logger.log(`Issue ${issueId} merged — ${nextOpen.id} is next in queue, triggering Coder`);

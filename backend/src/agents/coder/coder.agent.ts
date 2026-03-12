@@ -193,9 +193,9 @@ export class CoderAgent extends BaseAgent {
     sessionBranch?: string | null,
   ): Promise<CoderIssueResult> {
     const start = Date.now();
-    // Option A: If session has a branch, commit directly on it. Otherwise create feature branch.
-    const branchName = sessionBranch || `feature/${issue.gitlabIid ?? issue.id}-${this.slugify(issue.title)}`;
-    const baseBranch = sessionBranch ? sessionBranch : defaultBranch;
+    // Always create a feature branch — for session issues it branches from the session branch
+    const branchName = `feature/${issue.gitlabIid ?? issue.id}-${this.slugify(issue.title)}`;
+    const baseBranch = sessionBranch || defaultBranch;
     const result: CoderIssueResult = {
       issueId: issue.id,
       gitlabIid: issue.gitlabIid,
@@ -237,15 +237,10 @@ export class CoderAgent extends BaseAgent {
         });
       }
 
-      // Checkout branch: worktree already on session branch, or create feature branch
-      if (sessionBranch) {
-        // Worktree is already on the session branch — just pull latest
-        await this.gitPull(workspace);
-      } else {
-        await this.gitCheckout(workspace, defaultBranch);
-        await this.gitPull(workspace);
-        await this.gitCreateBranch(workspace, branchName);
-      }
+      // Checkout base branch, pull latest, create feature branch
+      await this.gitCheckout(workspace, baseBranch);
+      await this.gitPull(workspace);
+      await this.gitCreateBranch(workspace, branchName);
 
       // Build the coding prompt
       const prompt = this.buildCodingPrompt(issue);
@@ -255,15 +250,13 @@ export class CoderAgent extends BaseAgent {
       await this.runMcpAgentLoop(workspace, prompt, agentTask.id, ctx.projectId);
 
       // Check what changed (includes both uncommitted AND committed changes vs base)
-      const changedFiles = await this.getChangedFiles(workspace, defaultBranch);
+      const changedFiles = await this.getChangedFiles(workspace, baseBranch);
       result.filesChanged = changedFiles;
 
       if (changedFiles.length === 0) {
         await this.sendAgentMessage(ctx, `⚠️ Agent produced no file changes for #${issue.gitlabIid ?? '?'} — marking for manual review`);
         result.status = 'skipped';
-        if (!sessionBranch) {
-          await this.gitCheckout(workspace, defaultBranch);
-        }
+        await this.gitCheckout(workspace, baseBranch);
 
         // Reset issue status so it doesn't stay orphaned in IN_PROGRESS
         await this.issuesService.update(issue.id, { status: IssueStatus.NEEDS_REVIEW });
@@ -295,12 +288,12 @@ export class CoderAgent extends BaseAgent {
         `feat: implement ${issue.title}\n\nCloses #${issue.gitlabIid ?? ''}`,
       );
 
-      // Create MR — skip for session branches (session merge handles this)
-      if (gitlabProjectId && !sessionBranch) {
+      // Create MR — always create, targeting session branch for sessions or default for infra
+      if (gitlabProjectId) {
         try {
           const mr = await this.gitlabService.createMergeRequest(gitlabProjectId, {
             source_branch: branchName,
-            target_branch: defaultBranch,
+            target_branch: baseBranch,
             title: `feat: ${issue.title}`,
             description: `Closes #${issue.gitlabIid ?? ''}\n\n---\n_Automatically created by Coder Agent_\n\n**Changed files:** ${changedFiles.length}\n${changedFiles.map(f => `- \`${f}\``).join('\n')}`,
           });
@@ -400,10 +393,8 @@ export class CoderAgent extends BaseAgent {
         this.logger.warn(`No MR created for issue ${issue.gitlabIid} — codingComplete emitted without MR`);
       }
 
-      // Switch back to default branch for non-session issues (worktree stays on session branch)
-      if (!sessionBranch) {
-        await this.gitCheckout(workspace, defaultBranch);
-      }
+      // Switch back to base branch (session branch for sessions, default for infra)
+      await this.gitCheckout(workspace, baseBranch);
 
       return result;
 
@@ -431,13 +422,11 @@ export class CoderAgent extends BaseAgent {
         await this.issuesService.update(issue.id, { status: IssueStatus.OPEN });
       } catch { /* best effort */ }
 
-      // Try to switch back to default branch (only for non-session workspaces)
-      if (!sessionBranch) {
-        try {
-          await this.gitCheckout(workspace, defaultBranch);
-        } catch {
-          // Best effort
-        }
+      // Try to switch back to base branch
+      try {
+        await this.gitCheckout(workspace, baseBranch);
+      } catch {
+        // Best effort
       }
 
       return result;
@@ -488,9 +477,7 @@ export class CoderAgent extends BaseAgent {
       const workspace = isSessionIssue && issueSession?.branch
         ? await this.resolveWorkspace(issue.project.slug, issue.chatSessionId!)
         : path.resolve(this.settings.devopsWorkspacePath, issue.project.slug);
-      const branchName = isSessionIssue && issueSession?.branch
-        ? issueSession.branch
-        : `feature/${issue.gitlabIid ?? issue.id}-${this.slugify(issue.title)}`;
+      const branchName = `feature/${issue.gitlabIid ?? issue.id}-${this.slugify(issue.title)}`;
 
       // Update issue status
       await this.issuesService.update(issueId, { status: IssueStatus.IN_PROGRESS });
@@ -524,10 +511,8 @@ export class CoderAgent extends BaseAgent {
         });
       }
 
-      // Checkout existing feature branch (worktree already on session branch)
-      if (!isSessionIssue) {
-        await this.gitCheckout(workspace, branchName);
-      }
+      // Checkout existing feature branch
+      await this.gitCheckout(workspace, branchName);
       await this.gitPull(workspace);
 
       // Build fix prompt with feedback context
@@ -541,8 +526,9 @@ export class CoderAgent extends BaseAgent {
       // Run MCP agent loop (LLM + filesystem tools)
       await this.runMcpAgentLoop(workspace, fixPrompt, agentTask.id, ctx.projectId);
 
-      // Check changes (includes both uncommitted AND committed changes vs default branch)
-      const changedFiles = await this.getChangedFiles(workspace, fixDefaultBranch);
+      // Check changes (includes both uncommitted AND committed changes vs base branch)
+      const sessionBaseBranch = isSessionIssue && issueSession?.branch ? issueSession.branch : fixDefaultBranch;
+      const changedFiles = await this.getChangedFiles(workspace, sessionBaseBranch);
 
       // If no files were changed, the fix attempt was a no-op — signal failure
       if (changedFiles.length === 0) {
@@ -579,9 +565,7 @@ export class CoderAgent extends BaseAgent {
           noChanges: true,
         });
 
-        if (!isSessionIssue) {
-          await this.gitCheckout(workspace, glProject.default_branch);
-        }
+        await this.gitCheckout(workspace, sessionBaseBranch);
         return;
       }
 
@@ -661,10 +645,9 @@ export class CoderAgent extends BaseAgent {
         this.logger.warn(`No MR found for fixIssue ${issueId} — codingComplete emitted without MR`);
       }
 
-      // Switch back to default branch (only for non-session issues)
-      if (!isSessionIssue) {
-        await this.gitCheckout(workspace, glProject.default_branch);
-      }
+      // Switch back to base branch (session branch for sessions, default for infra)
+      const baseForCheckout = isSessionIssue && issueSession?.branch ? issueSession.branch : glProject.default_branch;
+      await this.gitCheckout(workspace, baseForCheckout);
 
       await this.updateStatus(ctx, AgentStatus.IDLE);
 
