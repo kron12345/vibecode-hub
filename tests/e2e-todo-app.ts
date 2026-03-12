@@ -361,6 +361,10 @@ async function monitorPipeline(sessionId: string): Promise<boolean> {
       const openCount = topLevel.filter((i: any) => i.status === 'OPEN').length;
       const doneCount = topLevel.filter((i: any) => i.status === 'DONE' || i.status === 'CLOSED').length;
       const inProgressCount = topLevel.filter((i: any) => i.status === 'IN_PROGRESS').length;
+      const inReviewCount = topLevel.filter((i: any) => i.status === 'IN_REVIEW').length;
+      const testingCount = topLevel.filter((i: any) => i.status === 'TESTING').length;
+      const needsReviewCount = topLevel.filter((i: any) => i.status === 'NEEDS_REVIEW').length;
+      const pendingCount = openCount + inProgressCount + inReviewCount + testingCount;
 
       // Get latest messages
       const messages = await getMessages(sessionId);
@@ -368,16 +372,21 @@ async function monitorPipeline(sessionId: string): Promise<boolean> {
       const lastLine = lastMsg?.content?.substring(0, 100) || '';
 
       // Status update
-      const statusLine = `Agents: ${activeAgents.map((a: any) => a.role).join(', ') || 'none'} | ` +
-        `Issues: ${doneCount}/${topLevel.length} done, ${inProgressCount} in progress, ${openCount} open`;
+      const parts = [`${doneCount}/${topLevel.length} done`];
+      if (inProgressCount) parts.push(`${inProgressCount} coding`);
+      if (inReviewCount) parts.push(`${inReviewCount} review`);
+      if (testingCount) parts.push(`${testingCount} testing`);
+      if (needsReviewCount) parts.push(`${needsReviewCount} needs-review`);
+      if (openCount) parts.push(`${openCount} open`);
+      const statusLine = `Agents: ${activeAgents.map((a: any) => a.role).join(', ') || 'none'} | Issues: ${parts.join(', ')}`;
 
       if (statusLine !== lastLogLine) {
         log(statusLine);
         lastLogLine = statusLine;
       }
 
-      // Check for completion: all issues done and no active agents
-      if (topLevel.length > 0 && openCount === 0 && inProgressCount === 0 && activeAgents.length === 0) {
+      // Check for completion: all issues done/closed/needs-review and no active agents
+      if (topLevel.length > 0 && pendingCount === 0 && activeAgents.length === 0) {
         log(`✅ Pipeline complete! ${doneCount}/${topLevel.length} issues done.`);
 
         // Summary
@@ -465,8 +474,10 @@ async function main() {
 
   // ── Phase 1: Create Project ──
   state.phase = 'CREATE';
-  log('Creating project "ToDo App"...');
-  const result = await api('POST', '/projects/quick', { name: 'ToDo App' });
+  const ts = new Date().toISOString().replace(/[-:T]/g, '').slice(0, 12);
+  const projectName = `ToDo App ${ts}`;
+  log(`Creating project "${projectName}"...`);
+  const result = await api('POST', '/projects/quick', { name: projectName });
   state.projectId = result.project.id;
   state.projectSlug = result.project.slug;
   state.infraSessionId = result.interview.chatSessionId;
@@ -521,7 +532,7 @@ async function main() {
   // ── Phase 6: Monitor Pipeline ──
   state.phase = 'PIPELINE';
   log('Dev Session pipeline starting...');
-  log('Expected flow: Architect → Issue Compiler → Grounding → Coder');
+  log('Expected flow: Architect → Issue Compiler → Grounding → Coder → Review → Test → Docs → Merge → DONE');
   const pipelineOk = await monitorPipeline(state.devSessionId);
 
   // ── Phase 7: Verification ──
@@ -539,7 +550,9 @@ async function runVerification() {
     // Check issues
     const issues = await api('GET', `/issues?projectId=${state.projectId}`);
     const topLevel = issues.filter((i: any) => !i.parentId);
-    log(`Issues created: ${topLevel.length} (with ${issues.length - topLevel.length} subtasks)`);
+    const doneIssues = topLevel.filter((i: any) => i.status === 'DONE' || i.status === 'CLOSED');
+    const needsReview = topLevel.filter((i: any) => i.status === 'NEEDS_REVIEW');
+    log(`Issues: ${topLevel.length} total, ${doneIssues.length} done, ${needsReview.length} needs-review (${issues.length - topLevel.length} subtasks)`);
 
     // Check milestones
     const milestones = await api('GET', `/milestones?projectId=${state.projectId}`);

@@ -398,7 +398,9 @@ ${techInfo}
 **Features to compile:**
 ${featureList}
 
-Create well-structured milestones with issues and actionable tasks. Group logically: setup/config first, then core features, then polish/extras.`;
+Create well-structured milestones with issues and actionable tasks. Group logically: setup/config first, then core features, then polish/extras.
+
+IMPORTANT: Respond with ONLY the JSON object. No prose, no explanation, no markdown outside the JSON. Start your response with \`\`\`json and end with \`\`\`.`;
 
     const messages: LlmMessage[] = [
       { role: 'system', content: systemPrompt },
@@ -407,71 +409,88 @@ Create well-structured milestones with issues and actionable tasks. Group logica
 
     await this.sendAgentMessage(ctx, `🤖 Analyzing ${interviewResult.features.length} features...`);
 
-    const result = await this.callLlm(messages);
+    const MAX_RETRIES = 3;
+    for (let attempt = 1; attempt <= MAX_RETRIES; attempt++) {
+      const result = await this.callLlm(messages);
 
-    if (result.finishReason === 'error') {
-      await this.sendAgentMessage(
-        ctx,
-        '❌ Could not connect to the LLM. Please check the Issue Compiler provider configuration in Settings.',
-      );
-      await this.markFailed(ctx, 'LLM call failed');
-      return null;
-    }
-
-    // Parse completion
-    if (!result.content.includes(COMPLETION_MARKER)) {
-      // LLM didn't use the marker — try to extract JSON anyway
-      this.logger.warn('LLM response missing completion marker, attempting JSON extraction');
-    }
-
-    try {
-      let jsonPart = result.content.includes(COMPLETION_MARKER)
-        ? result.content.substring(result.content.indexOf(COMPLETION_MARKER) + COMPLETION_MARKER.length)
-        : result.content;
-
-      // Strip thinking tags that local LLMs (qwen3.5) often wrap around output
-      jsonPart = jsonPart.replace(/<think>[\s\S]*?<\/think>/g, '').trim();
-
-      // Strip Markdown code fences (```json ... ``` or ``` ... ```)
-      const codeFenceMatch = jsonPart.match(/```(?:json)?\s*\n?([\s\S]*?)```/);
-      if (codeFenceMatch) {
-        jsonPart = codeFenceMatch[1].trim();
-      }
-
-      // Try to find the outermost JSON object containing "milestones" or "issues"
-      const jsonMatch = jsonPart.match(/\{[\s\S]*\}/);
-      if (!jsonMatch) {
-        throw new Error('No JSON object found in LLM response');
-      }
-
-      // Clean common JSON issues from local LLMs
-      let jsonStr = jsonMatch[0];
-      // Remove trailing commas before } or ]
-      jsonStr = jsonStr.replace(/,\s*([}\]])/g, '$1');
-
-      // Try parsing as-is first
-      try {
-        return JSON.parse(jsonStr);
-      } catch (firstErr) {
-        // Attempt bracket-balanced extraction from the beginning
-        this.logger.warn(`First JSON parse failed (${firstErr.message}), trying bracket-balanced extraction`);
-        const balanced = this.extractBalancedJson(jsonStr);
-        if (balanced) {
-          const cleaned = balanced.replace(/,\s*([}\]])/g, '$1');
-          return JSON.parse(cleaned);
+      if (result.finishReason === 'error') {
+        if (attempt < MAX_RETRIES) {
+          this.logger.warn(`LLM call failed (attempt ${attempt}/${MAX_RETRIES}), retrying...`);
+          await this.sendAgentMessage(ctx, `⚠️ LLM call failed (attempt ${attempt}/${MAX_RETRIES}), retrying...`);
+          continue;
         }
-        throw firstErr;
+        await this.sendAgentMessage(
+          ctx,
+          '❌ Could not connect to the LLM. Please check the Issue Compiler provider configuration in Settings.',
+        );
+        await this.markFailed(ctx, 'LLM call failed');
+        return null;
       }
-    } catch (err) {
-      this.logger.error(`Failed to parse compilation result: ${err.message}`);
-      this.logger.debug(`LLM response (first 500 chars): ${result.content.substring(0, 500)}`);
-      await this.sendAgentMessage(
-        ctx,
-        `❌ Failed to parse LLM response. The Issue Compiler will retry or the issues can be created manually.`,
-      );
-      await this.markFailed(ctx, `JSON parse failed: ${err.message}`);
-      return null;
+
+      // Parse completion
+      if (!result.content.includes(COMPLETION_MARKER)) {
+        this.logger.warn('LLM response missing completion marker, attempting JSON extraction');
+      }
+
+      try {
+        let jsonPart = result.content.includes(COMPLETION_MARKER)
+          ? result.content.substring(result.content.indexOf(COMPLETION_MARKER) + COMPLETION_MARKER.length)
+          : result.content;
+
+        // Strip thinking tags that local LLMs (qwen3.5) often wrap around output
+        jsonPart = jsonPart.replace(/<think>[\s\S]*?<\/think>/g, '').trim();
+
+        // Strip Markdown code fences (```json ... ``` or ``` ... ```)
+        const codeFenceMatch = jsonPart.match(/```(?:json)?\s*\n?([\s\S]*?)```/);
+        if (codeFenceMatch) {
+          jsonPart = codeFenceMatch[1].trim();
+        }
+
+        // Try to find the outermost JSON object containing "milestones" or "issues"
+        const jsonMatch = jsonPart.match(/\{[\s\S]*\}/);
+        if (!jsonMatch) {
+          throw new Error('No JSON object found in LLM response');
+        }
+
+        // Clean common JSON issues from local LLMs
+        let jsonStr = jsonMatch[0];
+        // Remove trailing commas before } or ]
+        jsonStr = jsonStr.replace(/,\s*([}\]])/g, '$1');
+
+        // Try parsing as-is first
+        try {
+          return JSON.parse(jsonStr);
+        } catch (firstErr) {
+          // Attempt bracket-balanced extraction from the beginning
+          this.logger.warn(`First JSON parse failed (${firstErr.message}), trying bracket-balanced extraction`);
+          const balanced = this.extractBalancedJson(jsonStr);
+          if (balanced) {
+            const cleaned = balanced.replace(/,\s*([}\]])/g, '$1');
+            return JSON.parse(cleaned);
+          }
+          throw firstErr;
+        }
+      } catch (err) {
+        this.logger.error(`Failed to parse compilation result (attempt ${attempt}/${MAX_RETRIES}): ${err.message}`);
+        this.logger.debug(`LLM response (first 500 chars): ${result.content.substring(0, 500)}`);
+        if (attempt < MAX_RETRIES) {
+          await this.sendAgentMessage(ctx, `⚠️ JSON parse failed (attempt ${attempt}/${MAX_RETRIES}), retrying...`);
+          // Add a hint to the messages for the retry to be more explicit about JSON format
+          messages.push(
+            { role: 'assistant', content: result.content.substring(0, 200) },
+            { role: 'user', content: 'Your response was not valid JSON. Please respond with ONLY the JSON object (no prose, no explanation). Start with { and end with }. Use the exact format from the instructions.' },
+          );
+          continue;
+        }
+        await this.sendAgentMessage(
+          ctx,
+          `❌ Failed to parse LLM response after ${MAX_RETRIES} attempts.`,
+        );
+        await this.markFailed(ctx, `JSON parse failed: ${err.message}`);
+        return null;
+      }
     }
+    return null; // Should not reach here
   }
 
   /**

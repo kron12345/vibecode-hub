@@ -188,21 +188,27 @@ export class GitlabService {
   // ─── Projects ────────────────────────────────────────────────
 
   async createProject(options: CreateProjectOptions): Promise<GitLabProject> {
-    const { data } = await firstValueFrom(
-      this.httpService.post<GitLabProject>(
-        `${this.apiUrl}/projects`,
-        {
-          name: options.name,
-          path: options.path,
-          description: options.description ?? '',
-          initialize_with_readme: options.initializeWithReadme ?? true,
-          visibility: 'private',
-        },
-        { headers: this.headers },
-      ),
-    );
-    this.logger.log(`Created GitLab project: ${data.path_with_namespace} (ID: ${data.id})`);
-    return data;
+    try {
+      const { data } = await firstValueFrom(
+        this.httpService.post<GitLabProject>(
+          `${this.apiUrl}/projects`,
+          {
+            name: options.name,
+            path: options.path,
+            description: options.description ?? '',
+            initialize_with_readme: options.initializeWithReadme ?? true,
+            visibility: 'private',
+          },
+          { headers: this.headers },
+        ),
+      );
+      this.logger.log(`Created GitLab project: ${data.path_with_namespace} (ID: ${data.id})`);
+      return data;
+    } catch (err: any) {
+      const detail = err.response?.data ? JSON.stringify(err.response.data) : err.message;
+      this.logger.error(`GitLab createProject failed (${options.path}): ${detail}`);
+      throw new Error(`GitLab createProject failed: ${detail}`);
+    }
   }
 
   async getProject(projectId: number): Promise<GitLabProject> {
