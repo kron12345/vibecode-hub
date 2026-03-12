@@ -37,12 +37,13 @@ export class McpClientService implements OnModuleDestroy {
    */
   private async loadSdk() {
     if (!this.sdkModule) {
-      const [clientMod, transportMod, typesMod] = await Promise.all([
+      const [clientMod, transportMod, httpTransportMod, typesMod] = await Promise.all([
         import('@modelcontextprotocol/sdk/client/index.js'),
         import('@modelcontextprotocol/sdk/client/stdio.js'),
+        import('@modelcontextprotocol/sdk/client/streamableHttp.js'),
         import('@modelcontextprotocol/sdk/types.js'),
       ]);
-      this.sdkModule = { clientMod, transportMod, typesMod };
+      this.sdkModule = { clientMod, transportMod, httpTransportMod, typesMod };
     }
     return this.sdkModule;
   }
@@ -62,13 +63,22 @@ export class McpClientService implements OnModuleDestroy {
 
     for (const config of configs) {
       try {
-        this.logger.log(`Starting MCP server: ${config.name} (${config.command} ${config.args.join(' ')})`);
+        let transport: any;
 
-        const transport = new StdioClientTransport({
-          command: config.command,
-          args: config.args,
-          env: { ...process.env, ...config.env },
-        });
+        if (config.transport === 'http' && config.url) {
+          // HTTP/Streamable HTTP transport for remote MCP servers (e.g., Vaadin)
+          const { StreamableHTTPClientTransport } = sdk.httpTransportMod;
+          this.logger.log(`Connecting to remote MCP server: ${config.name} (${config.url})`);
+          transport = new StreamableHTTPClientTransport(new URL(config.url));
+        } else {
+          // Default: Stdio transport for local MCP servers
+          this.logger.log(`Starting MCP server: ${config.name} (${config.command} ${config.args.join(' ')})`);
+          transport = new StdioClientTransport({
+            command: config.command,
+            args: config.args,
+            env: { ...process.env, ...config.env },
+          });
+        }
 
         const client = new Client(
           { name: 'vibcode-hub', version: '1.0.0' },

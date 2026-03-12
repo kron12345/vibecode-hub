@@ -44,11 +44,14 @@ Your job is NOT to plan the implementation. Your job is to collect enough inform
 ## What You Need to Collect (in order of priority)
 
 ### Priority 1: Project Setup (REQUIRED — DevOps Agent needs this)
-- **Framework & Language**: Angular, React, Next.js, Vue, NestJS, Express, FastAPI, etc.
-- **Init Command**: The exact CLI command to scaffold the project (e.g., \`npx @angular/cli new my-app --style=scss --standalone\`, \`npx create-next-app@latest\`, \`cargo init\`)
-- **Additional packages**: Libraries to install after init (e.g., \`tailwindcss\`, \`prisma\`, \`@angular/material\`)
-- **Dev Server**: Command and default port (Angular=4200, React/Next=3000, Vue=5173). Use \`{PORT}\` as placeholder.
-- **Build Command**: e.g., \`npx ng build\`, \`npm run build\`
+- **Framework & Language**: Angular, React, Next.js, Vue, NestJS, Express, FastAPI, Vaadin (Java), Spring Boot, Quarkus, etc.
+- **Init Command**: The exact CLI command to scaffold the project. Examples:
+  - JS/TS: \`npx @angular/cli new my-app --style=scss --standalone\`, \`npx create-next-app@latest\`, \`cargo init\`
+  - Java/Vaadin: \`mvn archetype:generate -DarchetypeGroupId=com.vaadin -DarchetypeArtifactId=vaadin-archetype-application -DarchetypeVersion=LATEST -DgroupId=com.example -DartifactId=my-app -Dversion=1.0-SNAPSHOT -DinteractiveMode=false\`
+  - Spring Boot: \`curl https://start.spring.io/starter.tgz -d type=maven-project -d language=java -d bootVersion=3.4.4 -d dependencies=web,data-jpa,flyway,postgresql,vaadin -d groupId=com.example -d artifactId=my-app | tar -xzvf -\`
+- **Additional packages**: Libraries to install after init (e.g., \`tailwindcss\`, \`prisma\`, \`@angular/material\`, Maven dependencies via pom.xml)
+- **Dev Server**: Command and default port (Angular=4200, React/Next=3000, Vue=5173, Spring Boot/Vaadin=8080). Use \`{PORT}\` as placeholder.
+- **Build Command**: e.g., \`npx ng build\`, \`npm run build\`, \`mvn clean package -Pproduction\`
 
 ### Priority 2: Project Context (for later agents)
 - **Short description**: 1-2 sentences about what the project does
@@ -56,7 +59,7 @@ Your job is NOT to plan the implementation. Your job is to collect enough inform
 - **Backend/Database**: If applicable (e.g., NestJS + PostgreSQL, or "no backend, client-only")
 
 ### Priority 3: Tooling (optional)
-- **MCP Servers**: Suggest based on tech stack. Known servers: \`angular-mcp-server\` (Angular), \`prisma\` (Prisma ORM), \`context7\` (NestJS/general docs)
+- **MCP Servers**: Suggest based on tech stack. Known servers: \`angular-mcp-server\` (Angular), \`prisma\` (Prisma ORM), \`context7\` (NestJS/general docs), \`vaadin\` (Vaadin Flow), \`spring-docs\` (Spring Boot)
 
 ## Rules
 - Ask 1-2 focused questions at a time
@@ -83,7 +86,7 @@ These help the user answer faster. Format them on a NEW line at the very end:
 ${SUGGESTIONS_MARKER}["Option A", "Option B", "Option C"]
 
 Examples:
-- After asking about framework: ${SUGGESTIONS_MARKER}["Angular", "React + Next.js", "Vue + Nuxt", "NestJS API only"]
+- After asking about framework: ${SUGGESTIONS_MARKER}["Angular", "React + Next.js", "Vue + Nuxt", "Vaadin + Spring Boot", "NestJS API only"]
 - After asking about features: ${SUGGESTIONS_MARKER}["Authentication", "Dashboard", "REST API", "Real-time updates"]
 - After asking about database: ${SUGGESTIONS_MARKER}["PostgreSQL", "MongoDB", "SQLite", "No database"]
 
@@ -500,6 +503,10 @@ export class InterviewerAgent extends BaseAgent {
       return { port: 3000, devCommand: 'npm run start:dev', buildCommand: 'npm run build' };
     if (framework.includes('express') || framework.includes('fastapi') || framework.includes('flask'))
       return { port: 3000 };
+    if (framework.includes('vaadin') || framework.includes('spring') || framework.includes('quarkus'))
+      return { port: 8080, devCommand: 'mvn spring-boot:run', buildCommand: 'mvn clean package -Pproduction' };
+    if (framework.includes('java'))
+      return { port: 8080, devCommand: 'mvn compile exec:java', buildCommand: 'mvn clean package' };
     return {};
   }
 

@@ -34,17 +34,19 @@ const execFileAsync = promisify(execFile);
 const ALLOWED_BINARIES = new Set([
   'npx', 'npm', 'node', 'git', 'pnpm', 'yarn', 'bun',
   'cargo', 'go', 'python', 'python3', 'pip', 'pip3',
-  'dotnet', 'mvn', 'gradle',
+  'dotnet', 'mvn', 'gradle', 'java', 'javac', 'curl', 'tar',
 ]);
 
 /** Known MCP server definitions — maps name → command + args */
-const MCP_SERVER_REGISTRY: Record<string, { command: string; args: string[] }> = {
+const MCP_SERVER_REGISTRY: Record<string, { command: string; args: string[]; transport?: string; url?: string }> = {
   'angular-mcp-server': { command: 'angular-mcp-server', args: [] },
   'prisma': { command: 'npx', args: ['prisma', 'mcp'] },
   'context7': { command: 'npx', args: ['-y', '@upstash/context7-mcp@latest'] },
   'typescript': { command: 'npx', args: ['-y', 'typescript-mcp-server'] },
   'eslint': { command: 'npx', args: ['-y', 'eslint-mcp-server'] },
   'tailwindcss': { command: 'npx', args: ['-y', '@anthropic/tailwindcss-mcp'] },
+  'vaadin': { command: '', args: [], transport: 'http', url: 'https://mcp.vaadin.com/' },
+  'spring-docs': { command: 'npx', args: ['-y', '@enokdev/springdocs-mcp@latest'] },
 };
 
 /** Timeout constants (milliseconds) */
@@ -645,6 +647,64 @@ build:
 `;
     }
 
+    // Java / Spring Boot / Vaadin / Maven projects
+    if (['java', 'spring', 'spring-boot', 'vaadin', 'quarkus'].includes(framework) ||
+        language === 'java') {
+      return `stages:
+  - build
+  - test
+  - package
+
+variables:
+  MAVEN_OPTS: "-Dmaven.repo.local=.m2/repository"
+
+build:
+  stage: build
+  tags: [docker, vibcode]
+  image: maven:3.9-eclipse-temurin-21-alpine
+  cache:
+    key: \${CI_COMMIT_REF_SLUG}
+    paths:
+      - .m2/repository/
+  script:
+    - mvn clean compile -B
+  artifacts:
+    paths:
+      - target/
+    expire_in: 1 hour
+
+test:
+  stage: test
+  tags: [docker, vibcode]
+  image: maven:3.9-eclipse-temurin-21-alpine
+  needs: [build]
+  cache:
+    key: \${CI_COMMIT_REF_SLUG}
+    paths:
+      - .m2/repository/
+  script:
+    - mvn test -B
+  allow_failure: true
+
+package:
+  stage: package
+  tags: [docker, vibcode]
+  image: maven:3.9-eclipse-temurin-21-alpine
+  needs: [build]
+  cache:
+    key: \${CI_COMMIT_REF_SLUG}
+    paths:
+      - .m2/repository/
+  script:
+    - mvn clean package -DskipTests -B
+  artifacts:
+    paths:
+      - target/*.jar
+      - target/*.war
+    expire_in: 1 week
+`;
+    }
+
     // Generic fallback
     return `stages:
   - build
@@ -685,19 +745,30 @@ build:
 
   /** Build a .gitignore appropriate for the tech stack */
   private buildGitignore(framework: string, language: string): string {
-    const sections: string[] = ['# Dependencies', 'node_modules/', '**/node_modules/', '.pnp/', '.pnp.js', ''];
+    const isJava = language === 'java' || ['java', 'spring', 'spring-boot', 'vaadin', 'quarkus'].includes(framework);
+    const isNode = !isJava || ['typescript', 'javascript'].includes(language) ||
+      ['angular', 'react', 'vue', 'next', 'nuxt', 'svelte', 'nest', 'express'].includes(framework);
 
-    // Build output
-    sections.push('# Build output', 'dist/', 'build/', '.next/', '.nuxt/', '.output/', '.angular/', '');
+    const sections: string[] = [];
+
+    if (isNode) {
+      sections.push('# Dependencies', 'node_modules/', '**/node_modules/', '.pnp/', '.pnp.js', '');
+      sections.push('# Build output', 'dist/', 'build/', '.next/', '.nuxt/', '.output/', '.angular/', '');
+      sections.push('# Logs', 'logs/', '*.log', 'npm-debug.log*', '');
+    }
+
+    if (isJava) {
+      sections.push('# Java/Maven', 'target/', '*.class', '*.jar', '*.war', '*.ear', '');
+      sections.push('# Maven', 'pom.xml.tag', 'pom.xml.releaseBackup', 'pom.xml.versionsBackup', 'pom.xml.next', 'release.properties', '');
+      sections.push('# Gradle', '.gradle/', 'build/', '');
+      sections.push('# Vaadin', 'node_modules/', 'frontend/generated/', 'vite.generated.ts', '');
+    }
 
     // Environment and secrets
-    sections.push('# Environment', '.env', '.env.local', '.env.*.local', '');
+    sections.push('# Environment', '.env', '.env.local', '.env.*.local', 'application-local.properties', 'application-local.yml', '');
 
     // IDE
-    sections.push('# IDE', '.idea/', '.vscode/', '*.swp', '*.swo', '.DS_Store', 'Thumbs.db', '');
-
-    // Logs
-    sections.push('# Logs', 'logs/', '*.log', 'npm-debug.log*', '');
+    sections.push('# IDE', '.idea/', '.vscode/', '*.swp', '*.swo', '.DS_Store', 'Thumbs.db', '*.iml', '');
 
     // Testing
     sections.push('# Testing', 'coverage/', '.nyc_output/', '');
@@ -785,7 +856,9 @@ build:
         '',
         '### Prerequisites',
         '',
-        ts.language === 'TypeScript' || ts.framework ? '- Node.js >= 18' : '- See project documentation',
+        ['java', 'spring', 'spring-boot', 'vaadin', 'quarkus'].includes(ts.framework?.toLowerCase() ?? '') || ts.language?.toLowerCase() === 'java'
+          ? '- JDK >= 17\n- Maven >= 3.9'
+          : ts.language === 'TypeScript' || ts.framework ? '- Node.js >= 18' : '- See project documentation',
         ts.framework === 'Angular' ? '- Angular CLI (`npm install -g @angular/cli`)' : null,
         '',
         '### Installation',

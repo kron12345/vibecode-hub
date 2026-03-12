@@ -5,12 +5,16 @@ import * as path from 'path';
 export interface McpServerConfig {
   /** Unique name for this server (e.g., 'filesystem', 'git') */
   name: string;
-  /** Command to start the server */
+  /** Command to start the server (empty for HTTP transport) */
   command: string;
   /** Arguments for the command */
   args: string[];
   /** Environment variables for the server process */
   env?: Record<string, string>;
+  /** Transport type: 'stdio' (default) or 'http' for remote servers */
+  transport?: 'stdio' | 'http';
+  /** URL for HTTP transport (e.g., 'https://mcp.vaadin.com/') */
+  url?: string;
 }
 
 /** Predefined MCP server configurations */

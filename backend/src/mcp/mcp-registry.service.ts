@@ -263,12 +263,20 @@ export class McpRegistryService implements OnModuleInit {
       resolvedEnv = mergedEnv;
     }
 
-    return {
+    const config: McpServerConfig = {
       name: server.name,
       command: server.command,
       args: resolvedArgs,
       env: resolvedEnv,
     };
+
+    // Convention: empty command + argTemplate starting with "http" = remote HTTP MCP server
+    if (!server.command && server.argTemplate?.startsWith('http')) {
+      config.transport = 'http';
+      config.url = server.argTemplate;
+    }
+
+    return config;
   }
 
   /** Build a PostgreSQL connection string from settings/env for project DBs */
@@ -388,6 +396,27 @@ export class McpRegistryService implements OnModuleInit {
         command: 'npx',
         args: ['@angular/cli', 'mcp'],
         defaultRoles: [AgentRole.CODER],
+      },
+
+      // ─── Java / Vaadin / Spring ─────
+      {
+        name: 'vaadin',
+        displayName: 'Vaadin MCP',
+        description: 'Vaadin Flow documentation, component examples, best practices (official remote server)',
+        category: 'coding',
+        command: '',
+        args: [],
+        argTemplate: 'https://mcp.vaadin.com/',
+        defaultRoles: [AgentRole.CODER, AgentRole.ARCHITECT],
+      },
+      {
+        name: 'spring-docs',
+        displayName: 'Spring Docs MCP',
+        description: 'Spring Boot, Spring Data JPA, Spring Security documentation and guides',
+        category: 'coding',
+        command: 'npx',
+        args: ['-y', '@enokdev/springdocs-mcp@latest'],
+        defaultRoles: [AgentRole.CODER, AgentRole.ARCHITECT],
       },
 
       // ─── Execution ──────────────────
