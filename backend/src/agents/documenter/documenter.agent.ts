@@ -16,6 +16,7 @@ import { MonitorGateway } from '../../monitor/monitor.gateway';
 import { DualTestService } from '../dual-test.service';
 import { postAgentComment, getAgentCommentHistory } from '../agent-comment.utils';
 import { DocumenterResult, DocFile } from './documenter-result.interface';
+import { ScreenshotManifest, ScreenshotEntry } from '../ui-tester/ui-test-result.interface';
 import {
   AgentRole,
   AgentStatus,
@@ -267,6 +268,20 @@ For code-level docs (README, API, JSDoc), keep \`wikiPage: false\` or omit it.`;
         this.logger.warn(`Git commit/push failed: ${err.message}`);
       }
 
+      // ─── Screenshot Wiki Integration ──────────────────────────
+      let screenshotWikiContent = '';
+      const screenshotWikiImages: string[] = [];
+      try {
+        const screenshotResult = await this.processScreenshots(workspace, issueId, gitlabProjectId, issue.title);
+        if (screenshotResult) {
+          screenshotWikiContent = screenshotResult.wikiContent;
+          screenshotWikiImages.push(...screenshotResult.uploadedFiles);
+          this.logger.log(`Screenshots processed: ${screenshotResult.uploadedFiles.length} uploaded`);
+        }
+      } catch (err) {
+        this.logger.warn(`Screenshot processing failed: ${err.message}`);
+      }
+
       // Sync wiki pages
       const wikiFiles = docResult.files.filter(f => f.wikiPage);
       const wikiPages: string[] = [];
@@ -281,10 +296,25 @@ For code-level docs (README, API, JSDoc), keep \`wikiPage: false\` or omit it.`;
         }
       }
 
+      // If we have screenshot content, create a dedicated wiki page
+      if (screenshotWikiContent) {
+        try {
+          const screenshotTitle = `UI-Screenshots-${issue.gitlabIid ?? issueId}`;
+          await this.gitlabService.upsertWikiPage(gitlabProjectId, screenshotTitle, screenshotWikiContent);
+          wikiPages.push(screenshotTitle);
+          this.logger.log(`Screenshot wiki page created: ${screenshotTitle}`);
+        } catch (err) {
+          this.logger.warn(`Screenshot wiki page failed: ${err.message}`);
+        }
+      }
+
       // Post unified comment (same rich markdown for local + GitLab)
       const filesListText = writtenFiles.map(f => `- \`${f}\``).join('\n');
       const wikiNote = wikiPages.length > 0
         ? `\n\n### Wiki Pages Updated:\n${wikiPages.map(p => `- ${p}`).join('\n')}`
+        : '';
+      const screenshotNote = screenshotWikiImages.length > 0
+        ? `\n\n### Screenshots Uploaded:\n${screenshotWikiImages.map(f => `- ${f}`).join('\n')}`
         : '';
 
       const docComment = [
@@ -296,6 +326,7 @@ For code-level docs (README, API, JSDoc), keep \`wikiPage: false\` or omit it.`;
         filesListText,
         commitSha ? `\nCommit: \`${commitSha.substring(0, 8)}\`` : '',
         wikiNote,
+        screenshotNote,
         '',
         '---',
         '_Updated by Documenter Agent_',
@@ -355,6 +386,9 @@ For code-level docs (README, API, JSDoc), keep \`wikiPage: false\` or omit it.`;
       await this.gitlabService.syncStatusLabel(gitlabProjectId, doneIssue.gitlabIid, 'DONE').catch(() => {});
     }
 
+    // Cleanup screenshots — images have been uploaded to GitLab, no longer needed locally
+    await this.cleanupScreenshots(ctx.projectId, issueId, ctx.chatSessionId);
+
     await this.prisma.agentTask.update({
       where: { id: ctx.agentTaskId },
       data: {
@@ -373,6 +407,87 @@ For code-level docs (README, API, JSDoc), keep \`wikiPage: false\` or omit it.`;
       mrIid,
       gitlabProjectId,
     });
+  }
+
+  // ─── Screenshot Processing ──────────────────────────────
+
+  /**
+   * Read the screenshot manifest for an issue, upload PNGs to GitLab,
+   * and build a wiki page with embedded images.
+   * Returns null if no screenshots exist.
+   */
+  private async processScreenshots(
+    workspace: string,
+    issueId: string,
+    gitlabProjectId: number,
+    issueTitle: string,
+  ): Promise<{ wikiContent: string; uploadedFiles: string[] } | null> {
+    const manifestPath = path.join(workspace, '.ui-screenshots', issueId, 'manifest.json');
+
+    try {
+      await fs.access(manifestPath);
+    } catch {
+      return null; // No screenshots for this issue
+    }
+
+    const raw = await fs.readFile(manifestPath, 'utf-8');
+    const manifest: ScreenshotManifest = JSON.parse(raw);
+
+    if (!manifest.screenshots || manifest.screenshots.length === 0) return null;
+
+    const uploadedFiles: string[] = [];
+    const wikiSections: string[] = [
+      `# UI Screenshots — ${issueTitle}`,
+      '',
+      `> Captured: ${manifest.capturedAt}`,
+      '',
+    ];
+
+    for (const entry of manifest.screenshots) {
+      const filePath = path.join(manifest.screenshotDir, entry.file);
+
+      try {
+        const fileBuffer = await fs.readFile(filePath);
+
+        // Upload to GitLab
+        const uploaded = await this.gitlabService.uploadProjectFile(
+          gitlabProjectId,
+          entry.file,
+          fileBuffer,
+          'image/png',
+        );
+
+        uploadedFiles.push(entry.file);
+
+        // Build wiki section for this screenshot
+        wikiSections.push(`## ${entry.route} — ${entry.viewport}`);
+        wikiSections.push('');
+        wikiSections.push(uploaded.markdown);
+        wikiSections.push('');
+
+        if (entry.description) {
+          wikiSections.push(entry.description);
+          wikiSections.push('');
+        }
+
+        if (entry.findings?.length) {
+          wikiSections.push('**Findings:**');
+          for (const finding of entry.findings) {
+            wikiSections.push(`- ${finding}`);
+          }
+          wikiSections.push('');
+        }
+      } catch (err) {
+        this.logger.warn(`Failed to upload screenshot ${entry.file}: ${err.message}`);
+      }
+    }
+
+    if (uploadedFiles.length === 0) return null;
+
+    return {
+      wikiContent: wikiSections.join('\n'),
+      uploadedFiles,
+    };
   }
 
   // ─── File System ──────────────────────────────────────────
@@ -734,6 +849,56 @@ For code-level docs (README, API, JSDoc), keep \`wikiPage: false\` or omit it.`;
       .replace(/[^a-z0-9]+/g, '-')
       .replace(/^-|-$/g, '')
       .substring(0, 40);
+  }
+
+  // ─── Screenshot Cleanup ─────────────────────────────────
+
+  /**
+   * Remove local screenshots for an issue after they've been uploaded to GitLab.
+   * Cleans up `.ui-screenshots/{issueId}/` directory.
+   * Also removes the parent `.ui-screenshots/` if empty.
+   */
+  private async cleanupScreenshots(
+    projectId: string,
+    issueId: string,
+    chatSessionId?: string,
+  ): Promise<void> {
+    try {
+      const project = await this.prisma.project.findUnique({
+        where: { id: projectId },
+        select: { slug: true },
+      });
+      if (!project) return;
+
+      const workspace = chatSessionId
+        ? await this.resolveWorkspace(project.slug, chatSessionId)
+        : path.resolve(this.settings.devopsWorkspacePath, project.slug);
+
+      const screenshotDir = path.join(workspace, '.ui-screenshots', issueId);
+
+      try {
+        await fs.access(screenshotDir);
+      } catch {
+        return; // Directory doesn't exist — nothing to clean
+      }
+
+      await fs.rm(screenshotDir, { recursive: true, force: true });
+      this.logger.log(`Cleaned up screenshots: ${screenshotDir}`);
+
+      // Try removing parent .ui-screenshots/ if empty
+      const parentDir = path.join(workspace, '.ui-screenshots');
+      try {
+        const entries = await fs.readdir(parentDir);
+        if (entries.length === 0) {
+          await fs.rmdir(parentDir);
+          this.logger.log('Removed empty .ui-screenshots/ directory');
+        }
+      } catch {
+        // Parent removal is best-effort
+      }
+    } catch (err) {
+      this.logger.warn(`Screenshot cleanup failed for issue ${issueId}: ${err.message}`);
+    }
   }
 
   // ─── Helpers ──────────────────────────────────────────────

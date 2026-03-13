@@ -5,6 +5,8 @@ import {
   LlmCompletionOptions,
   LlmCompletionResult,
   LlmStreamChunk,
+  LlmContentPart,
+  getTextContent,
 } from '../llm.interfaces';
 
 @Injectable()
@@ -24,13 +26,13 @@ export class AnthropicProvider implements LlmStreamingProvider {
     const systemMessage = options.messages.find((m) => m.role === 'system');
     const conversationMessages = options.messages
       .filter((m) => m.role !== 'system')
-      .map((m) => ({ role: m.role, content: m.content }));
+      .map((m) => ({ role: m.role, content: this.formatContent(m.content) }));
 
     const body: Record<string, unknown> = {
       model: options.model,
       messages: conversationMessages,
       max_tokens: options.maxTokens ?? 4096,
-      ...(systemMessage && { system: systemMessage.content }),
+      ...(systemMessage && { system: getTextContent(systemMessage.content) }),
       ...(options.temperature !== undefined && {
         temperature: options.temperature,
       }),
@@ -91,14 +93,14 @@ export class AnthropicProvider implements LlmStreamingProvider {
     const systemMessage = options.messages.find((m) => m.role === 'system');
     const conversationMessages = options.messages
       .filter((m) => m.role !== 'system')
-      .map((m) => ({ role: m.role, content: m.content }));
+      .map((m) => ({ role: m.role, content: this.formatContent(m.content) }));
 
     const body: Record<string, unknown> = {
       model: options.model,
       messages: conversationMessages,
       max_tokens: options.maxTokens ?? 4096,
       stream: true,
-      ...(systemMessage && { system: systemMessage.content }),
+      ...(systemMessage && { system: getTextContent(systemMessage.content) }),
       ...(options.temperature !== undefined && { temperature: options.temperature }),
     };
 
@@ -125,6 +127,25 @@ export class AnthropicProvider implements LlmStreamingProvider {
       this.logger.error(`Anthropic stream failed: ${err.message}`);
       yield { content: '', done: true };
     }
+  }
+
+  /**
+   * Convert LlmMessage content to Anthropic API format.
+   * String → string, LlmContentPart[] → Anthropic content blocks.
+   */
+  private formatContent(content: string | LlmContentPart[]): unknown {
+    if (typeof content === 'string') return content;
+    return content.map((part) => {
+      if (part.type === 'text') return { type: 'text', text: part.text };
+      return {
+        type: 'image',
+        source: {
+          type: 'base64',
+          media_type: part.mediaType,
+          data: part.base64,
+        },
+      };
+    });
   }
 
   private async *parseSSE(response: Response): AsyncGenerator<LlmStreamChunk> {

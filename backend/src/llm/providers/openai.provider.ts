@@ -5,6 +5,7 @@ import {
   LlmCompletionOptions,
   LlmCompletionResult,
   LlmStreamChunk,
+  LlmContentPart,
 } from '../llm.interfaces';
 
 @Injectable()
@@ -23,7 +24,7 @@ export class OpenAIProvider implements LlmStreamingProvider {
 
     const messages = options.messages.map((m) => ({
       role: m.role,
-      content: m.content,
+      content: this.formatContent(m.content),
     }));
 
     const body: Record<string, unknown> = {
@@ -87,7 +88,7 @@ export class OpenAIProvider implements LlmStreamingProvider {
       return;
     }
 
-    const messages = options.messages.map((m) => ({ role: m.role, content: m.content }));
+    const messages = options.messages.map((m) => ({ role: m.role, content: this.formatContent(m.content) }));
 
     const body: Record<string, unknown> = {
       model: options.model,
@@ -147,5 +148,22 @@ export class OpenAIProvider implements LlmStreamingProvider {
       this.logger.error(`OpenAI stream failed: ${err.message}`);
       yield { content: '', done: true };
     }
+  }
+
+  /**
+   * Convert LlmMessage content to OpenAI API format.
+   * String → string, LlmContentPart[] → OpenAI content array with image_url.
+   */
+  private formatContent(content: string | LlmContentPart[]): unknown {
+    if (typeof content === 'string') return content;
+    return content.map((part) => {
+      if (part.type === 'text') return { type: 'text', text: part.text };
+      return {
+        type: 'image_url',
+        image_url: {
+          url: `data:${part.mediaType};base64,${part.base64}`,
+        },
+      };
+    });
   }
 }

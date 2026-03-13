@@ -7,6 +7,9 @@ import {
   LlmCompletionResult,
   LlmStreamChunk,
   LlmToolCall,
+  LlmContentPart,
+  getTextContent,
+  getImageParts,
 } from '../llm.interfaces';
 
 @Injectable()
@@ -39,7 +42,12 @@ export class OllamaProvider implements LlmStreamingProvider {
     const body: Record<string, unknown> = {
       model: options.model,
       messages: options.messages.map((m) => {
-        const msg: Record<string, unknown> = { role: m.role, content: m.content };
+        const msg: Record<string, unknown> = { role: m.role, content: getTextContent(m.content) };
+        // Ollama multimodal: images as base64 array on the message
+        const images = getImageParts(m.content);
+        if (images.length > 0) {
+          msg.images = images.map((img) => img.base64);
+        }
         // Preserve tool_calls on assistant messages (needed for multi-turn tool conversations)
         if (m.role === 'assistant' && m.toolCalls?.length) {
           msg.tool_calls = m.toolCalls.map((tc) => ({
@@ -181,10 +189,14 @@ export class OllamaProvider implements LlmStreamingProvider {
 
     const body = {
       model: options.model,
-      messages: options.messages.map((m) => ({
-        role: m.role,
-        content: m.content,
-      })),
+      messages: options.messages.map((m) => {
+        const msg: Record<string, unknown> = { role: m.role, content: getTextContent(m.content) };
+        const images = getImageParts(m.content);
+        if (images.length > 0) {
+          msg.images = images.map((img) => img.base64);
+        }
+        return msg;
+      }),
       stream: true,
       think: false,
       keep_alive: keepAlive,

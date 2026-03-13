@@ -670,3 +670,77 @@ Dokumentation aller Prompts/Anforderungen die zur Entwicklung genutzt wurden.
 **Commits:** `8af8799` (Pipeline Improvements Session 10), aktueller Commit (Tester MCP Conversion)
 **Commands:** `npx nest build` (grün), `systemctl --user restart vibcode-api`, DB-Updates via psql
 **Status:** Alle 4 Verbesserungen live, Service stabil
+
+## Session 12 — 2026-03-13 — Multimodal Visual Screenshot Analysis
+
+### Prompt 1: UI Tester Screenshot-Analyse
+> Wir hatten mal besprochen das der UI tester auch das aussehen analysieren und testen soll — ist das eigentlich jetzt so?
+
+**Ergebnis:** Analyse ergab: Playwright macht Screenshots, die wurden aber weggeworfen (nur für DOM-Snapshots genutzt). Keine visuelle Analyse über LLM.
+
+### Prompt 2: Screenshots als PNGs persistieren
+> Ich denke gerade ob man die Images als auch als PNG in einen tmp Ordner legen könnte. Der Grund ist folgender: wenn alles git ist kann ja der Dokumenter diese auch verwenden für das Wiki oder?
+
+**Ergebnis:** Plan entwickelt: PNGs in `{workspace}/.ui-screenshots/{issueId}/` speichern, Manifest-Datei für Documenter, Upload nach GitLab, Cleanup auf DONE.
+
+### Prompt 3: Detailfragen (Documenter-Erkennung, Cleanup, Stale-Detection)
+> Wie erkennt der Dokumenter welches Bild wie beschrieben werden muss? Was passiert bei DONE? Wie merkt der Documenter wenn etwas aktualisiert wird?
+
+**Ergebnis:** 3 Antworten: (1) Manifest mit LLM-Beschreibungen, (2) Cleanup nach Upload, (3) Manifest-Timestamps vs Wiki-Page-Check.
+
+### Prompt 4: Volle Implementierung
+> Ja das klingt alles sinnvoll dann setzte mal das besprochene von a bis z um so das es danach getestet werden kann
+
+**Implementierung (A-Z):**
+
+1. **Multimodal LLM Abstraction** (`llm.interfaces.ts`):
+   - `LlmContentPart`: Text + Image union type
+   - `LlmMessage.content`: `string | LlmContentPart[]`
+   - `getTextContent()`, `getImageParts()` Utilities
+
+2. **Provider-Updates** (alle 5 Provider-Typen):
+   - **Anthropic**: `formatContent()` → ImageBlock mit `source.base64`
+   - **Google**: `formatParts()` → `inlineData` mit mimeType
+   - **OpenAI**: `formatContent()` → `image_url` mit data-URI
+   - **Ollama**: `getTextContent()` + `getImageParts()` → `images[]` Array
+   - **CLI-Base**: `getTextContent()` (Images ignoriert)
+
+3. **PlaywrightRunner** (`playwright-runner.ts`):
+   - `saveScreenshots()`: PNGs speichern in `{workspace}/.ui-screenshots/{issueId}/`
+   - Returns `{ dir, files[] }` mit Route/Viewport-Metadaten
+
+4. **UI Tester** (`ui-tester.agent.ts`):
+   - Screenshot-Collection: max 6 Images (Desktop + Responsive)
+   - Manifest-Erstellung: `manifest.json` mit Metadaten (Route, Viewport, Description)
+   - `analyzeScreenshots()`: Multimodaler LLM-Call mit Provider-Fallback (CLI → Cloud → Ollama)
+   - `updateManifestDescriptions()`: LLM-Analyse parsen, Manifest mit Beschreibungen updaten
+   - Visual Analysis als `## Visual Screenshot Analysis` ins Haupt-Prompt injiziert
+
+5. **GitLab Service** (`gitlab.service.ts`):
+   - `uploadProjectFile()`: Multipart FormData Upload via `/projects/:id/uploads`
+
+6. **Documenter** (`documenter.agent.ts`):
+   - `processScreenshots()`: Manifest lesen → PNGs zu GitLab hochladen → Wiki-Content generieren
+   - Dedizierte Wiki-Page `UI-Screenshots-{issueIid}` mit eingebetteten Screenshots
+   - `cleanupScreenshots()`: Lokale PNGs löschen nach Upload + DONE
+
+7. **Screenshot Result Interface** (`ui-test-result.interface.ts`):
+   - `ScreenshotEntry`: file, route, viewport, description, findings[]
+   - `ScreenshotManifest`: issueId, issueTitle, capturedAt, screenshotDir, screenshots[]
+
+**Geänderte Dateien:**
+- `backend/src/llm/llm.interfaces.ts` — Multimodal types + utilities
+- `backend/src/llm/providers/anthropic.provider.ts` — formatContent()
+- `backend/src/llm/providers/google.provider.ts` — formatParts()
+- `backend/src/llm/providers/openai.provider.ts` — formatContent()
+- `backend/src/llm/providers/ollama.provider.ts` — getTextContent/getImageParts
+- `backend/src/llm/providers/cli-base.provider.ts` — getTextContent
+- `backend/src/agents/ui-tester/ui-tester.agent.ts` — Visual analysis pipeline
+- `backend/src/agents/ui-tester/ui-test-result.interface.ts` — Screenshot types
+- `backend/src/agents/ui-tester/playwright-runner.ts` — saveScreenshots()
+- `backend/src/agents/documenter/documenter.agent.ts` — Screenshot integration + cleanup
+- `backend/src/gitlab/gitlab.service.ts` — uploadProjectFile()
+- `docs/ARCHITECTURE.md` — Multimodal + Screenshot docs
+
+**Commands:** `npx nest build` (grün), `systemctl --user restart vibcode-api`
+**Status:** Komplett implementiert, Build grün, Service live

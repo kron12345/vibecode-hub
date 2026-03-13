@@ -1,4 +1,6 @@
 import { Logger } from '@nestjs/common';
+import * as fs from 'fs/promises';
+import * as path from 'path';
 
 export interface PageCapture {
   route: string;
@@ -197,5 +199,44 @@ export class PlaywrightRunner {
     }
 
     return { route, captures };
+  }
+
+  /**
+   * Save page captures and responsive screenshots as PNG files to disk.
+   * Returns the directory path where files were saved.
+   */
+  async saveScreenshots(
+    workspace: string,
+    issueId: string,
+    pageCaptures: PageCapture[],
+    responsiveResult: ResponsiveResult | null,
+  ): Promise<{ dir: string; files: Array<{ file: string; route: string; viewport: string }> }> {
+    const dir = path.join(workspace, '.ui-screenshots', issueId);
+    await fs.mkdir(dir, { recursive: true });
+
+    const files: Array<{ file: string; route: string; viewport: string }> = [];
+
+    // Save page captures (desktop viewport)
+    for (const capture of pageCaptures) {
+      if (!capture.screenshotBase64) continue;
+      const safeName = capture.route.replace(/[^a-zA-Z0-9]/g, '-').replace(/^-|-$/g, '') || 'root';
+      const fileName = `${safeName}-desktop.png`;
+      await fs.writeFile(path.join(dir, fileName), Buffer.from(capture.screenshotBase64, 'base64'));
+      files.push({ file: fileName, route: capture.route, viewport: 'desktop (1440x900)' });
+    }
+
+    // Save responsive captures
+    if (responsiveResult?.captures) {
+      for (const rc of responsiveResult.captures) {
+        if (!rc.screenshotBase64) continue;
+        const safeName = responsiveResult.route.replace(/[^a-zA-Z0-9]/g, '-').replace(/^-|-$/g, '') || 'root';
+        const fileName = `${safeName}-${rc.viewport}.png`;
+        await fs.writeFile(path.join(dir, fileName), Buffer.from(rc.screenshotBase64, 'base64'));
+        files.push({ file: fileName, route: responsiveResult.route, viewport: `${rc.viewport} (${rc.width}x${rc.height})` });
+      }
+    }
+
+    logger.log(`Saved ${files.length} screenshots to ${dir}`);
+    return { dir, files };
   }
 }

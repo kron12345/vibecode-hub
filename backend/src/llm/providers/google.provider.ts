@@ -5,6 +5,8 @@ import {
   LlmCompletionOptions,
   LlmCompletionResult,
   LlmStreamChunk,
+  LlmContentPart,
+  getTextContent,
 } from '../llm.interfaces';
 
 @Injectable()
@@ -26,13 +28,13 @@ export class GoogleProvider implements LlmStreamingProvider {
       .filter((m) => m.role !== 'system')
       .map((m) => ({
         role: m.role === 'assistant' ? 'model' : 'user',
-        parts: [{ text: m.content }],
+        parts: this.formatParts(m.content),
       }));
 
     const body: Record<string, unknown> = {
       contents: conversationMessages,
       ...(systemMessage && {
-        systemInstruction: { parts: [{ text: systemMessage.content }] },
+        systemInstruction: { parts: [{ text: getTextContent(systemMessage.content) }] },
       }),
       generationConfig: {
         ...(options.temperature !== undefined && {
@@ -101,13 +103,13 @@ export class GoogleProvider implements LlmStreamingProvider {
       .filter((m) => m.role !== 'system')
       .map((m) => ({
         role: m.role === 'assistant' ? 'model' : 'user',
-        parts: [{ text: m.content }],
+        parts: this.formatParts(m.content),
       }));
 
     const body: Record<string, unknown> = {
       contents: conversationMessages,
       ...(systemMessage && {
-        systemInstruction: { parts: [{ text: systemMessage.content }] },
+        systemInstruction: { parts: [{ text: getTextContent(systemMessage.content) }] },
       }),
       generationConfig: {
         ...(options.temperature !== undefined && { temperature: options.temperature }),
@@ -164,5 +166,22 @@ export class GoogleProvider implements LlmStreamingProvider {
       this.logger.error(`Google stream failed: ${err.message}`);
       yield { content: '', done: true };
     }
+  }
+
+  /**
+   * Convert LlmMessage content to Google AI parts format.
+   * String → [{ text }], LlmContentPart[] → mixed text + inlineData parts.
+   */
+  private formatParts(content: string | LlmContentPart[]): unknown[] {
+    if (typeof content === 'string') return [{ text: content }];
+    return content.map((part) => {
+      if (part.type === 'text') return { text: part.text };
+      return {
+        inlineData: {
+          mimeType: part.mediaType,
+          data: part.base64,
+        },
+      };
+    });
   }
 }

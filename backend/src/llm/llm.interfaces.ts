@@ -1,12 +1,43 @@
 /** Shared types for the LLM abstraction layer */
 
+/** A single part of a multimodal message content. */
+export type LlmContentPart =
+  | { type: 'text'; text: string }
+  | { type: 'image'; mediaType: string; base64: string };
+
 export interface LlmMessage {
   role: 'system' | 'user' | 'assistant' | 'tool';
-  content: string;
+  /** Text-only content (string) or multimodal content (array of text/image parts). */
+  content: string | LlmContentPart[];
   /** Tool calls requested by the assistant (only for role='assistant') */
   toolCalls?: LlmToolCall[];
   /** Identifies which tool call this result belongs to (only for role='tool') */
   toolCallId?: string;
+}
+
+/**
+ * Extract the text content from a message, regardless of whether it's
+ * a plain string or a multimodal content array.
+ */
+export function getTextContent(content: string | LlmContentPart[]): string {
+  if (typeof content === 'string') return content;
+  return content
+    .filter((p): p is Extract<LlmContentPart, { type: 'text' }> => p.type === 'text')
+    .map((p) => p.text)
+    .join('\n');
+}
+
+/**
+ * Extract image parts from multimodal content.
+ * Returns empty array for plain string content.
+ */
+export function getImageParts(
+  content: string | LlmContentPart[],
+): Array<Extract<LlmContentPart, { type: 'image' }>> {
+  if (typeof content === 'string') return [];
+  return content.filter(
+    (p): p is Extract<LlmContentPart, { type: 'image' }> => p.type === 'image',
+  );
 }
 
 export interface LlmToolDefinition {

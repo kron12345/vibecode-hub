@@ -6,15 +6,17 @@ import { ChatService } from '../../chat/chat.service';
 import { ChatGateway } from '../../chat/chat.gateway';
 import { LlmService } from '../../llm/llm.service';
 import { GitlabService } from '../../gitlab/gitlab.service';
-import { LlmMessage } from '../../llm/llm.interfaces';
+import { LlmMessage, LlmContentPart } from '../../llm/llm.interfaces';
 import { BaseAgent, AgentContext } from '../agent-base';
 import { MonitorGateway } from '../../monitor/monitor.gateway';
 import { McpAgentLoopService } from '../../mcp/mcp-agent-loop.service';
 import { McpRegistryService } from '../../mcp/mcp-registry.service';
 import { DualTestService } from '../dual-test.service';
 import { postAgentComment, getAgentCommentHistory } from '../agent-comment.utils';
-import { UiTestResult, UiTestFinding } from './ui-test-result.interface';
+import { UiTestResult, UiTestFinding, ScreenshotManifest, ScreenshotEntry } from './ui-test-result.interface';
 import { PlaywrightRunner, PageCapture, A11yResult } from './playwright-runner';
+import * as fs from 'fs/promises';
+import * as path from 'path';
 import {
   AgentRole,
   AgentStatus,
@@ -162,6 +164,8 @@ export class UiTesterAgent extends BaseAgent {
         : null;
 
       let browserData = '';
+      let screenshotImages: Array<{ base64: string; label: string }> = [];
+      let screenshotManifestPath: string | undefined;
 
       if (previewUrl) {
         // Playwright-based testing
@@ -184,10 +188,60 @@ export class UiTesterAgent extends BaseAgent {
           const responsive = await runner.checkResponsive(previewUrl, routes[0]);
 
           browserData = this.formatBrowserData(captures, a11y, responsive);
+
+          // Save screenshots as PNGs + collect base64 for multimodal LLM
+          const resolvedWorkspace = project?.slug
+            ? await this.resolveWorkspace(project.slug, ctx.chatSessionId)
+            : '';
+          if (resolvedWorkspace) {
+            try {
+              const saved = await runner.saveScreenshots(resolvedWorkspace, issueId, captures, responsive);
+
+              // Collect images for multimodal LLM analysis (limit to 6 images to avoid token explosion)
+              for (const capture of captures) {
+                if (capture.screenshotBase64) {
+                  screenshotImages.push({
+                    base64: capture.screenshotBase64,
+                    label: `${capture.route} — desktop (1440x900)`,
+                  });
+                }
+              }
+              if (responsive?.captures) {
+                for (const rc of responsive.captures) {
+                  if (rc.screenshotBase64) {
+                    screenshotImages.push({
+                      base64: rc.screenshotBase64,
+                      label: `${responsive.route} — ${rc.viewport} (${rc.width}x${rc.height})`,
+                    });
+                  }
+                }
+              }
+              screenshotImages = screenshotImages.slice(0, 6);
+
+              // Save initial manifest (descriptions filled in after LLM analysis)
+              screenshotManifestPath = path.join(saved.dir, 'manifest.json');
+              const manifest: ScreenshotManifest = {
+                issueId,
+                issueTitle: issue.title,
+                capturedAt: new Date().toISOString(),
+                screenshotDir: saved.dir,
+                screenshots: saved.files.map((f) => ({
+                  file: f.file,
+                  route: f.route,
+                  viewport: f.viewport,
+                  description: '', // Will be filled by LLM
+                })),
+              };
+              await fs.writeFile(screenshotManifestPath, JSON.stringify(manifest, null, 2));
+              this.logger.log(`Screenshots saved: ${saved.files.length} files, manifest at ${screenshotManifestPath}`);
+            } catch (err) {
+              this.logger.warn(`Failed to save screenshots: ${err.message}`);
+            }
+          }
         }
       }
 
-      if (!browserData) {
+      if (!browserData && screenshotImages.length === 0) {
         await this.sendAgentMessage(ctx, 'No preview available — running code-only UI analysis');
       }
 
@@ -215,6 +269,22 @@ export class UiTesterAgent extends BaseAgent {
         ? `\n## Previous Agent Comments on this Issue\n${commentHistory}\n`
         : '';
 
+      // ─── Visual Analysis: send screenshots to multimodal LLM ──────
+      let visualAnalysis = '';
+      if (screenshotImages.length > 0) {
+        try {
+          await this.sendAgentMessage(ctx, `Analyzing ${screenshotImages.length} screenshots visually...`);
+          visualAnalysis = await this.analyzeScreenshots(config, screenshotImages, issue.title);
+
+          // Update manifest with descriptions from visual analysis
+          if (screenshotManifestPath) {
+            await this.updateManifestDescriptions(screenshotManifestPath, visualAnalysis);
+          }
+        } catch (err) {
+          this.logger.warn(`Visual screenshot analysis failed: ${err.message}`);
+        }
+      }
+
       const userPrompt = `Analyze the UI changes in this merge request:
 
 **Issue:** ${issue.title}
@@ -226,6 +296,7 @@ ${historySection}
 ${diffText || '_No UI-related files changed._'}
 
 ${browserData ? `## Browser Test Results:\n\n${browserData}` : ''}
+${visualAnalysis ? `## Visual Screenshot Analysis:\n\n${visualAnalysis}` : ''}
 
 Analyze the UI changes for layout, responsiveness, accessibility, visual quality, and interactions.
 
@@ -723,6 +794,143 @@ Do NOT omit the JSON block.`;
 
     parts.push('---', '_Tested by UI Tester Agent_');
     return parts.join('\n');
+  }
+
+  // ─── Visual Screenshot Analysis ─────────────────────────
+
+  /**
+   * Send screenshots to a multimodal LLM for visual analysis.
+   * Returns a text description of each screenshot's appearance, layout, and issues.
+   */
+  private async analyzeScreenshots(
+    config: ReturnType<typeof this.getRoleConfig>,
+    images: Array<{ base64: string; label: string }>,
+    issueTitle: string,
+  ): Promise<string> {
+    // Build multimodal content: text prompt + images interleaved
+    const contentParts: LlmContentPart[] = [
+      {
+        type: 'text',
+        text: `You are a UI/UX expert reviewing screenshots of a web application.
+Issue being tested: "${issueTitle}"
+
+Below are ${images.length} screenshot(s) captured from the application. For EACH screenshot:
+
+1. **Describe** the visual appearance: layout, colors, typography, spacing, alignment
+2. **Identify issues**: broken layouts, overlapping elements, poor contrast, inconsistent styling, missing content, visual glitches
+3. **Rate** the overall visual quality (good/acceptable/poor)
+
+Label each description with the screenshot label provided.
+Use this exact format for each:
+
+### [Screenshot Label]
+**Description:** ...
+**Issues:** ... (or "None found")
+**Visual Quality:** good/acceptable/poor
+`,
+      },
+    ];
+
+    for (const img of images) {
+      contentParts.push({ type: 'text', text: `\n--- Screenshot: ${img.label} ---` });
+      contentParts.push({ type: 'image', mediaType: 'image/png', base64: img.base64 });
+    }
+
+    // Use the configured provider — but only if it supports multimodal.
+    // CLI providers (CLAUDE_CODE, CODEX_CLI, etc.) don't support inline images.
+    // Fallback chain: ANTHROPIC > GOOGLE > OPENAI > configured provider
+    let provider = config.provider;
+    const cliProviders = ['CLAUDE_CODE', 'CODEX_CLI', 'GEMINI_CLI', 'QWEN3_CODER'];
+    if (cliProviders.includes(provider)) {
+      // Try cloud providers that support multimodal
+      for (const fallback of ['ANTHROPIC', 'GOOGLE', 'OPENAI']) {
+        const fbConfig = this.settings.get(`llm.${fallback.toLowerCase()}.apiKey`, undefined, '');
+        if (fbConfig) {
+          provider = fallback;
+          this.logger.log(`Visual analysis: CLI provider ${config.provider} doesn't support images, falling back to ${provider}`);
+          break;
+        }
+      }
+      // If no cloud provider available, fall back to Ollama (supports images with multimodal models)
+      if (cliProviders.includes(provider)) {
+        provider = 'OLLAMA';
+        this.logger.log('Visual analysis: falling back to OLLAMA for multimodal');
+      }
+    }
+
+    const result = await this.llmService.complete({
+      provider,
+      model: config.model,
+      messages: [
+        { role: 'user', content: contentParts },
+      ],
+      temperature: 0.2,
+      maxTokens: config.parameters.maxTokens,
+    });
+
+    if (result.finishReason === 'error' || !result.content) {
+      this.logger.warn('Visual screenshot analysis returned no content');
+      return '';
+    }
+
+    this.logger.log(`Visual analysis: ${result.content.length} chars from ${provider}/${config.model}`);
+    return result.content;
+  }
+
+  /**
+   * Parse the LLM visual analysis and update the manifest with per-screenshot descriptions.
+   */
+  private async updateManifestDescriptions(
+    manifestPath: string,
+    visualAnalysis: string,
+  ): Promise<void> {
+    if (!visualAnalysis) return;
+
+    try {
+      const raw = await fs.readFile(manifestPath, 'utf-8');
+      const manifest: ScreenshotManifest = JSON.parse(raw);
+
+      // Parse analysis sections: look for "### [label]" headers
+      const sections = visualAnalysis.split(/^###\s+/m).filter(Boolean);
+
+      for (const section of sections) {
+        const lines = section.trim().split('\n');
+        const headerLine = lines[0]?.trim() ?? '';
+        // Strip markdown formatting from header (brackets, bold, etc.)
+        const sectionLabel = headerLine.replace(/[[\]]/g, '').trim();
+        const sectionBody = lines.slice(1).join('\n').trim();
+
+        // Match section to manifest entry by comparing labels with screenshot metadata
+        for (const entry of manifest.screenshots) {
+          const entryLabel = `${entry.route} — ${entry.viewport}`;
+          // Fuzzy match: check if section header contains route and viewport info
+          if (
+            sectionLabel.includes(entry.route) ||
+            sectionLabel.includes(entry.viewport) ||
+            sectionLabel.toLowerCase().includes(entryLabel.toLowerCase()) ||
+            entryLabel.toLowerCase().includes(sectionLabel.toLowerCase())
+          ) {
+            entry.description = sectionBody.substring(0, 2000);
+
+            // Extract findings from the "Issues:" line
+            const issuesMatch = sectionBody.match(/\*\*Issues?:\*\*\s*(.+?)(?:\n|$)/i);
+            if (issuesMatch) {
+              const issuesText = issuesMatch[1].trim();
+              if (!/^none/i.test(issuesText) && issuesText.length > 3) {
+                entry.findings = entry.findings ?? [];
+                entry.findings.push(issuesText);
+              }
+            }
+            break;
+          }
+        }
+      }
+
+      await fs.writeFile(manifestPath, JSON.stringify(manifest, null, 2));
+      this.logger.log(`Manifest updated with ${sections.length} descriptions`);
+    } catch (err) {
+      this.logger.warn(`Failed to update manifest descriptions: ${err.message}`);
+    }
   }
 
   // ─── Diff Fetching ──────────────────────────────────────

@@ -4,6 +4,7 @@ import {
   LlmProvider,
   LlmCompletionOptions,
   LlmCompletionResult,
+  getTextContent,
 } from '../llm.interfaces';
 
 /**
@@ -27,16 +28,17 @@ export abstract class CliBaseProvider implements LlmProvider {
    */
   protected getSystemPrompt(options: LlmCompletionOptions): string | undefined {
     const systemMsg = options.messages.find((m) => m.role === 'system');
-    return systemMsg?.content;
+    return systemMsg ? getTextContent(systemMsg.content) : undefined;
   }
 
   /**
    * Build the user prompt from non-system messages.
+   * Extracts text content only (CLI tools don't support inline images).
    */
   protected getUserPrompt(options: LlmCompletionOptions): string {
     return options.messages
       .filter((m) => m.role !== 'system')
-      .map((m) => m.content)
+      .map((m) => getTextContent(m.content))
       .join('\n\n');
   }
 

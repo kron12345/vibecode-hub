@@ -162,15 +162,22 @@ Jede Rolle hat ein vollständiges Behavior Profile (System Prompt) mit: Verantwo
 
 ## LLM Provider Types (7)
 
-| Provider | Typ | Beschreibung |
-|---|---|---|
-| OLLAMA | Local | Lokale Inferenz via Ollama API (2x RTX 3090) |
-| CLAUDE_CODE | CLI | Claude Code als Subprocess |
-| CODEX_CLI | CLI | OpenAI Codex CLI als Subprocess |
-| QWEN3_CODER | CLI | Qwen3 Coder CLI als Subprocess |
-| ANTHROPIC | API | Anthropic Claude API |
-| OPENAI | API | OpenAI GPT API |
-| GOOGLE | API | Google Gemini API |
+| Provider | Typ | Multimodal | Beschreibung |
+|---|---|---|---|
+| OLLAMA | Local | ✅ (images array) | Lokale Inferenz via Ollama API (2x RTX 3090) |
+| CLAUDE_CODE | CLI | ❌ | Claude Code als Subprocess |
+| CODEX_CLI | CLI | ❌ | OpenAI Codex CLI als Subprocess |
+| QWEN3_CODER | CLI | ❌ | Qwen3 Coder CLI als Subprocess |
+| ANTHROPIC | API | ✅ (ImageBlock) | Anthropic Claude API |
+| OPENAI | API | ✅ (image_url) | OpenAI GPT API |
+| GOOGLE | API | ✅ (inlineData) | Google Gemini API |
+
+### Multimodal Content
+- `LlmMessage.content` unterstützt `string | LlmContentPart[]` mit Text- und Image-Parts
+- `LlmContentPart`: `{ type: 'text'; text } | { type: 'image'; mediaType; base64 }`
+- Jeder Provider konvertiert in sein eigenes Image-Format (Anthropic `source.base64`, Google `inlineData`, OpenAI `image_url` data-URI, Ollama `images[]`)
+- CLI-Provider nutzen `getTextContent()` — Images werden ignoriert (kein Inline-Support)
+- Utilities: `getTextContent()`, `getImageParts()` in `llm.interfaces.ts`
 
 ## Agent Pipeline Flow
 
@@ -348,6 +355,10 @@ Eigener MCP-Server, der dem Coder Agent sichere Shell-Befehle im Workspace ermö
 - **MCP Agent Loop** — Shell-Zugriff auf Workspace (filesystem, shell, git MCP-Server)
 - Kann Build/Compilation verifizieren und Templates/Styles im vollen Kontext lesen
 - Wenn Preview-URL vorhanden: Optional Playwright (Headless Chromium Screenshots, DOM-Snapshot, Accessibility-Audit)
+- **Visual Screenshot Analysis (Multimodal)**: Screenshots werden als PNG im Workspace gespeichert (`{workspace}/.ui-screenshots/{issueId}/`), dann per multimodaler LLM-Call analysiert (Anthropic/Google/OpenAI/Ollama). Die visuelle Analyse wird ins Haupt-Prompt injiziert.
+  - **Screenshot Manifest**: `manifest.json` mit Metadaten (Route, Viewport, LLM-generierte Beschreibung, gefundene Issues) — wird vom Documenter für Wiki-Pages konsumiert
+  - **Image Limit**: Max 6 Screenshots pro Analyse (Token-Budget), priorisiert Desktop + Responsive Viewports
+  - **Provider-Fallback**: CLI-Provider (Claude Code, Codex, etc.) unterstützen keine Inline-Images → automatischer Fallback auf Cloud-Provider
 - **Fallback**: Dual-LLM-Call wenn kein Workspace/MCP verfügbar (zwei Provider, Findings gemergt)
 - **Kontext-Injection**: Bekommt Kommentare von Coder + Code Reviewer + Functional Tester als LLM-Kontext
 - Prüft: Layout, Responsivität, Accessibility (WCAG 2.1 AA), Visuals, Interaktionen
@@ -406,6 +417,8 @@ Eigener MCP-Server, der dem Coder Agent sichere Shell-Befehle im Workspace ermö
 - **Pflicht-Updates nach jedem Merge**: `PROJECT_KNOWLEDGE.md` + `CHANGELOG.md`
 - Optional: README.md, API-Docs, JSDoc
 - **Wiki-Sync**: Dateien mit `wikiPage: true` werden nach GitLab Wiki gesynct (Upsert)
+- **Screenshot-Integration**: Liest UI Tester Screenshot-Manifest → lädt PNGs per GitLab Uploads API hoch → erstellt dedizierte Wiki-Page `UI-Screenshots-{issueIid}` mit eingebetteten Screenshots, Beschreibungen und Findings
+- **Cleanup**: Nach Upload + Issue DONE werden lokale Screenshots gelöscht (`{workspace}/.ui-screenshots/{issueId}/`), leerer Parent wird aufgeräumt
 - Schreibt Dateien im Workspace, committed auf Feature-Branch
 - Issue → DONE nach Abschluss
 

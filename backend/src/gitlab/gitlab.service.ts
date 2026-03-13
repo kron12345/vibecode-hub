@@ -1,6 +1,7 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { HttpService } from '@nestjs/axios';
 import { firstValueFrom } from 'rxjs';
+import FormData = require('form-data');
 import { SystemSettingsService } from '../settings/system-settings.service';
 
 export interface GitLabProject {
@@ -909,6 +910,42 @@ export class GitlabService {
       }
       throw err;
     }
+  }
+
+  // ─── File Uploads ───────────────────────────────────────────
+
+  /**
+   * Upload a file to a GitLab project. Returns the markdown link and full URL.
+   * Uses POST /projects/:id/uploads (multipart/form-data).
+   */
+  async uploadProjectFile(
+    projectId: number,
+    fileName: string,
+    fileBuffer: Buffer,
+    contentType = 'application/octet-stream',
+  ): Promise<{ markdown: string; url: string; fullPath: string }> {
+    const form = new FormData();
+    form.append('file', fileBuffer, { filename: fileName, contentType });
+
+    const { data } = await firstValueFrom(
+      this.httpService.post(
+        `${this.apiUrl}/projects/${projectId}/uploads`,
+        form,
+        {
+          headers: {
+            ...this.headers,
+            ...form.getHeaders(),
+          },
+        },
+      ),
+    );
+
+    this.logger.log(`Uploaded file "${fileName}" to project ${projectId}: ${data.markdown}`);
+    return {
+      markdown: data.markdown,
+      url: data.url,
+      fullPath: data.full_path,
+    };
   }
 
   // ─── Webhooks ────────────────────────────────────────────────
