@@ -846,6 +846,44 @@ export class GitlabService {
     return data;
   }
 
+  /**
+   * Read a wiki page's content. Returns null if page doesn't exist (404).
+   * This is the null-safe version of getWikiPage() — safe for fallback logic.
+   */
+  async getWikiPageContent(projectId: number, slug: string): Promise<string | null> {
+    try {
+      const page = await this.getWikiPage(projectId, slug);
+      return page.content ?? null;
+    } catch (err: any) {
+      const status = err?.response?.status;
+      if (status === 404) return null;
+      this.logger.warn(`Wiki read failed for "${slug}" in project ${projectId}: ${err.message}`);
+      return null;
+    }
+  }
+
+  /**
+   * List all wiki pages with their full content.
+   * Uses with_content=1 parameter to fetch content in the list call.
+   */
+  async listWikiPagesWithContent(projectId: number): Promise<Array<{ slug: string; title: string; content: string }>> {
+    try {
+      const { data } = await firstValueFrom(
+        this.httpService.get<GitLabWikiPage[]>(
+          `${this.apiUrl}/projects/${projectId}/wikis`,
+          {
+            headers: this.headers,
+            params: { with_content: 1 },
+          },
+        ),
+      );
+      return data.map(p => ({ slug: p.slug, title: p.title, content: p.content }));
+    } catch (err: any) {
+      this.logger.warn(`Wiki list failed for project ${projectId}: ${err.message}`);
+      return [];
+    }
+  }
+
   async createWikiPage(
     projectId: number,
     title: string,
@@ -946,6 +984,42 @@ export class GitlabService {
       url: data.url,
       fullPath: data.full_path,
     };
+  }
+
+  /**
+   * Upload a file as wiki attachment. Returns markdown link and URL.
+   * Uses POST /projects/:id/wikis/attachments (multipart/form-data).
+   * Falls back to regular project upload if wiki attachment endpoint is unavailable.
+   */
+  async uploadWikiAttachment(
+    projectId: number,
+    fileName: string,
+    fileBuffer: Buffer,
+    contentType = 'image/png',
+  ): Promise<{ markdown: string; url: string }> {
+    const form = new FormData();
+    form.append('file', fileBuffer, { filename: fileName, contentType });
+
+    try {
+      const { data } = await firstValueFrom(
+        this.httpService.post(
+          `${this.apiUrl}/projects/${projectId}/wikis/attachments`,
+          form,
+          {
+            headers: {
+              ...this.headers,
+              ...form.getHeaders(),
+            },
+          },
+        ),
+      );
+      this.logger.log(`Uploaded wiki attachment "${fileName}" to project ${projectId}`);
+      return { markdown: data.link?.markdown ?? data.markdown, url: data.link?.url ?? data.url };
+    } catch {
+      // Fallback to regular project upload
+      const result = await this.uploadProjectFile(projectId, fileName, fileBuffer, contentType);
+      return { markdown: result.markdown, url: result.url };
+    }
   }
 
   // ─── Webhooks ────────────────────────────────────────────────

@@ -154,15 +154,17 @@ export class CodeReviewerAgent extends BaseAgent {
         ? `\n\n_Note: ${skippedCount} additional file(s) were omitted (node_modules, lock files, or low-priority). Focus on the shown diffs._`
         : '';
 
-      // Inject project knowledge base for context
+      // Inject project knowledge base for context (Wiki-First)
       const project = await this.prisma.project.findUnique({
         where: { id: ctx.projectId },
-        select: { slug: true },
+        select: { slug: true, gitlabProjectId: true },
       });
       const workspace = project
         ? await this.resolveWorkspace(project.slug, ctx.chatSessionId)
         : '';
-      const knowledgeSection = workspace ? await this.buildKnowledgeSection(workspace) : '';
+      const knowledgeSection = workspace
+        ? await this.buildKnowledgeSectionWiki(this.gitlabService, project?.gitlabProjectId ?? null, workspace)
+        : '';
 
       const userPrompt = `Review the following merge request:
 

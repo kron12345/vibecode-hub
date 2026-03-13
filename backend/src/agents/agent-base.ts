@@ -13,6 +13,11 @@ import { AgentRole, AgentStatus, ChatSessionType, MessageRole } from '@prisma/cl
 export const KNOWLEDGE_BASE_FILE = 'PROJECT_KNOWLEDGE.md';
 export const ENVIRONMENT_FILE = 'ENVIRONMENT.md';
 
+/** Minimal interface for wiki reads — avoids coupling BaseAgent to GitlabService */
+export interface WikiReader {
+  getWikiPageContent(projectId: number, slug: string): Promise<string | null>;
+}
+
 /**
  * Compute the worktree path for a dev session.
  * Convention: {devopsWorkspacePath}/.session-worktrees/{projectSlug}--{sanitizedBranch}/
@@ -277,6 +282,75 @@ export abstract class BaseAgent {
     } catch {
       return '';
     }
+  }
+
+  // ─── Wiki-First Reading Methods ─────────────────────────────
+  // These try the GitLab Wiki first, then fall back to local files.
+  // Agents pass their injected gitlabService + the project's gitlabProjectId.
+
+  /**
+   * Read project knowledge — Wiki-First with file fallback.
+   * Pass wikiReader=null to skip wiki and read from file only.
+   */
+  protected async readKnowledge(
+    wikiReader: WikiReader | null,
+    gitlabProjectId: number | null | undefined,
+    workspace: string,
+    maxChars = 6000,
+  ): Promise<string> {
+    if (wikiReader && gitlabProjectId) {
+      try {
+        const content = await wikiReader.getWikiPageContent(gitlabProjectId, 'PROJECT_KNOWLEDGE');
+        if (content) {
+          this.logger.debug('Knowledge read from wiki');
+          return content.length > maxChars
+            ? content.substring(0, maxChars) + '\n\n... (truncated)'
+            : content;
+        }
+      } catch {
+        // Wiki unavailable — fall through to file
+      }
+    }
+    return this.readProjectKnowledge(workspace, maxChars);
+  }
+
+  /**
+   * Read environment doc — Wiki-First with file fallback.
+   * Pass wikiReader=null to skip wiki and read from file only.
+   */
+  protected async readEnvironment(
+    wikiReader: WikiReader | null,
+    gitlabProjectId: number | null | undefined,
+    workspace: string,
+    maxChars = 8000,
+  ): Promise<string> {
+    if (wikiReader && gitlabProjectId) {
+      try {
+        const content = await wikiReader.getWikiPageContent(gitlabProjectId, 'ENVIRONMENT');
+        if (content) {
+          this.logger.debug('Environment doc read from wiki');
+          return content.length > maxChars
+            ? content.substring(0, maxChars) + '\n\n... (truncated)'
+            : content;
+        }
+      } catch {
+        // Wiki unavailable — fall through to file
+      }
+    }
+    return this.readEnvironmentDoc(workspace, maxChars);
+  }
+
+  /**
+   * Build a prompt section from knowledge base — Wiki-First with file fallback.
+   */
+  protected async buildKnowledgeSectionWiki(
+    wikiReader: WikiReader | null,
+    gitlabProjectId: number | null | undefined,
+    workspace: string,
+  ): Promise<string> {
+    const kb = await this.readKnowledge(wikiReader, gitlabProjectId, workspace);
+    if (!kb) return '';
+    return `\n## Project Knowledge Base\n${kb}\n`;
   }
 
   /**

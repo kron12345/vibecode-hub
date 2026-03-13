@@ -163,15 +163,17 @@ export class FunctionalTesterAgent extends BaseAgent {
         ? `\n## Previous Agent Comments on this Issue\n${commentHistory}\n`
         : '';
 
-      // Inject project knowledge base for context
+      // Inject project knowledge base for context (Wiki-First)
       const project = await this.prisma.project.findUnique({
         where: { id: ctx.projectId },
-        select: { slug: true },
+        select: { slug: true, gitlabProjectId: true },
       });
       const workspace = project
         ? await this.resolveWorkspace(project.slug, ctx.chatSessionId)
         : '';
-      const knowledgeSection = workspace ? await this.buildKnowledgeSection(workspace) : '';
+      const knowledgeSection = workspace
+        ? await this.buildKnowledgeSectionWiki(this.gitlabService, project?.gitlabProjectId ?? null, workspace)
+        : '';
 
       const userPrompt = `Verify the following merge request implements the issue requirements:
 

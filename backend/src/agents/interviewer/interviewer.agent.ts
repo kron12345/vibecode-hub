@@ -6,6 +6,7 @@ import { ChatService } from '../../chat/chat.service';
 import { ChatGateway } from '../../chat/chat.gateway';
 import { LlmService } from '../../llm/llm.service';
 import { LlmMessage } from '../../llm/llm.interfaces';
+import { GitlabService } from '../../gitlab/gitlab.service';
 import { PreviewService } from '../../preview/preview.service';
 import { MonitorGateway } from '../../monitor/monitor.gateway';
 import { BaseAgent, AgentContext } from '../agent-base';
@@ -159,6 +160,7 @@ export class InterviewerAgent extends BaseAgent {
     chatService: ChatService,
     chatGateway: ChatGateway,
     llmService: LlmService,
+    private readonly gitlabService: GitlabService,
     private readonly previewService: PreviewService,
     monitorGateway: MonitorGateway,
     private readonly eventEmitter: EventEmitter2,
@@ -180,12 +182,12 @@ export class InterviewerAgent extends BaseAgent {
     // For existing projects: inject knowledge base so the interviewer knows what's already built
     const project = await this.prisma.project.findUnique({
       where: { id: ctx.projectId },
-      select: { slug: true, status: true },
+      select: { slug: true, status: true, gitlabProjectId: true },
     });
     let projectContext = '';
     if (project?.slug) {
       const workspace = require('path').resolve(this.settings.devopsWorkspacePath, project.slug);
-      const kb = await this.readProjectKnowledge(workspace);
+      const kb = await this.readKnowledge(this.gitlabService, project.gitlabProjectId, workspace);
       if (kb) {
         projectContext = `\n\nIMPORTANT: This is an EXISTING project that already has code and features. Here is the current state:\n\n${kb}\n\nBased on this, help the user add NEW features or improvements. Don't suggest things that are already implemented.`;
       }
@@ -642,15 +644,15 @@ export class InterviewerAgent extends BaseAgent {
     // Load project context
     const project = await this.prisma.project.findUnique({
       where: { id: ctx.projectId },
-      select: { slug: true, name: true, techStack: true, description: true },
+      select: { slug: true, name: true, techStack: true, description: true, gitlabProjectId: true },
     });
 
     let envContext = '';
     let knowledgeContext = '';
     if (project?.slug) {
       const workspace = await this.resolveWorkspace(project.slug, ctx.chatSessionId);
-      const envDoc = await this.readEnvironmentDoc(workspace);
-      const kb = await this.readProjectKnowledge(workspace);
+      const envDoc = await this.readEnvironment(this.gitlabService, project.gitlabProjectId, workspace);
+      const kb = await this.readKnowledge(this.gitlabService, project.gitlabProjectId, workspace);
       if (envDoc) envContext = `\n## Current Project Environment\n\`\`\`\n${envDoc}\n\`\`\`\n`;
       if (kb) knowledgeContext = `\n## Project Knowledge Base\n${kb}\n`;
     }
@@ -714,14 +716,14 @@ export class InterviewerAgent extends BaseAgent {
     // Rebuild prompt with project context
     const project = await this.prisma.project.findUnique({
       where: { id: ctx.projectId },
-      select: { slug: true, techStack: true },
+      select: { slug: true, techStack: true, gitlabProjectId: true },
     });
     let envContext = '';
     let knowledgeContext = '';
     if (project?.slug) {
       const workspace = await this.resolveWorkspace(project.slug, ctx.chatSessionId);
-      const envDoc = await this.readEnvironmentDoc(workspace);
-      const kb = await this.readProjectKnowledge(workspace);
+      const envDoc = await this.readEnvironment(this.gitlabService, project.gitlabProjectId, workspace);
+      const kb = await this.readKnowledge(this.gitlabService, project.gitlabProjectId, workspace);
       if (envDoc) envContext = `\n## Current Project Environment\n\`\`\`\n${envDoc}\n\`\`\`\n`;
       if (kb) knowledgeContext = `\n## Project Knowledge Base\n${kb}\n`;
     }

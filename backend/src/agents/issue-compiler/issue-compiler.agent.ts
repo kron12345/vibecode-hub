@@ -305,9 +305,9 @@ export class IssueCompilerAgent extends BaseAgent {
           features: featureResult.features,
         };
 
-        // Also read ENVIRONMENT.md for tech context
+        // Also read ENVIRONMENT.md for tech context (Wiki-First)
         const workspace = await this.resolveWorkspace(project.slug, ctx.chatSessionId);
-        const envDoc = await this.readEnvironmentDoc(workspace);
+        const envDoc = await this.readEnvironment(this.gitlabService, project.gitlabProjectId, workspace);
         if (envDoc) {
           interviewResult.description =
             `${featureResult.sessionGoal}\n\n## Environment Context\n${envDoc.substring(0, 3000)}`;

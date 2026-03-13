@@ -282,10 +282,8 @@ For code-level docs (README, API, JSDoc), keep \`wikiPage: false\` or omit it.`;
         this.logger.warn(`Screenshot processing failed: ${err.message}`);
       }
 
-      // Sync wiki pages — ALL markdown files are synced to the GitLab wiki.
-      // The LLM's wikiPage flag is unreliable (it almost never sets it), so we
-      // sync every .md file the Documenter writes. This ensures PROJECT_KNOWLEDGE,
-      // CHANGELOG, README, and any other docs are always available in the wiki.
+      // ─── Wiki Sync — Hierarchical Pages ──────────────────────
+      // Sync all markdown files to wiki + create feature subpage + update home/sidebar
       const wikiFiles = docResult.files.filter(f => f.path.endsWith('.md'));
       const wikiPages: string[] = [];
       for (const wf of wikiFiles) {
@@ -299,10 +297,33 @@ For code-level docs (README, API, JSDoc), keep \`wikiPage: false\` or omit it.`;
         }
       }
 
-      // If we have screenshot content, create a dedicated wiki page
+      // Create a feature subpage for this issue
+      const issueIid = issue.gitlabIid ?? 0;
+      const featureSlug = this.slugify(issue.title);
+      if (issueIid > 0) {
+        try {
+          const featureTitle = `Features/Issue-${issueIid}-${featureSlug}`;
+          const featureContent = this.buildFeaturePageContent(
+            issue.title,
+            issueIid,
+            issue.description || '',
+            docResult.summary,
+            writtenFiles,
+            diffs,
+            screenshotWikiContent,
+          );
+          await this.gitlabService.upsertWikiPage(gitlabProjectId, featureTitle, featureContent);
+          wikiPages.push(featureTitle);
+          this.logger.log(`Feature wiki page created: ${featureTitle}`);
+        } catch (err) {
+          this.logger.warn(`Feature wiki page failed: ${err.message}`);
+        }
+      }
+
+      // Screenshot wiki page (under UI-Screenshots/ hierarchy)
       if (screenshotWikiContent) {
         try {
-          const screenshotTitle = `UI-Screenshots-${issue.gitlabIid ?? issueId}`;
+          const screenshotTitle = `UI-Screenshots/Issue-${issueIid || issueId}`;
           await this.gitlabService.upsertWikiPage(gitlabProjectId, screenshotTitle, screenshotWikiContent);
           wikiPages.push(screenshotTitle);
           this.logger.log(`Screenshot wiki page created: ${screenshotTitle}`);
@@ -310,6 +331,12 @@ For code-level docs (README, API, JSDoc), keep \`wikiPage: false\` or omit it.`;
           this.logger.warn(`Screenshot wiki page failed: ${err.message}`);
         }
       }
+
+      // Update home page — add feature link
+      await this.updateWikiHome(gitlabProjectId, project.name, issueIid, issue.title, featureSlug);
+
+      // Regenerate sidebar from all existing wiki pages
+      await this.regenerateWikiSidebar(gitlabProjectId, project.name);
 
       // Post unified comment (same rich markdown for local + GitLab)
       const filesListText = writtenFiles.map(f => `- \`${f}\``).join('\n');
@@ -852,6 +879,170 @@ For code-level docs (README, API, JSDoc), keep \`wikiPage: false\` or omit it.`;
       .replace(/[^a-z0-9]+/g, '-')
       .replace(/^-|-$/g, '')
       .substring(0, 40);
+  }
+
+  // ─── Wiki Structure Methods ────────────────────────────
+
+  /**
+   * Build the content for a feature wiki subpage.
+   */
+  private buildFeaturePageContent(
+    title: string,
+    issueIid: number,
+    description: string,
+    summary: string,
+    changedFiles: string[],
+    diffs: any[],
+    screenshotContent?: string,
+  ): string {
+    const sections: string[] = [
+      `# Issue #${issueIid} — ${title}`,
+      '',
+      `> ${summary}`,
+      '',
+    ];
+
+    if (description) {
+      sections.push('## Description', '', description.substring(0, 2000), '');
+    }
+
+    if (changedFiles.length > 0) {
+      sections.push('## Documentation Files Changed', '');
+      for (const f of changedFiles) {
+        sections.push(`- \`${f}\``);
+      }
+      sections.push('');
+    }
+
+    if (diffs.length > 0) {
+      sections.push('## Code Changes', '');
+      const codeFiles = diffs.slice(0, 30).map((d: any) => {
+        const prefix = d.new_file ? 'NEW' : d.deleted_file ? 'DEL' : 'MOD';
+        return `- [${prefix}] \`${d.new_path}\``;
+      });
+      sections.push(...codeFiles, '');
+      if (diffs.length > 30) {
+        sections.push(`_...and ${diffs.length - 30} more file(s)_`, '');
+      }
+    }
+
+    if (screenshotContent) {
+      sections.push('## Screenshots', '', `See [UI Screenshots](../UI-Screenshots/Issue-${issueIid})`, '');
+    }
+
+    sections.push('---', `_Documented by VibCode Hub — ${new Date().toISOString().split('T')[0]}_`);
+    return sections.join('\n');
+  }
+
+  /**
+   * Update the wiki home page — add a link to the new feature.
+   */
+  private async updateWikiHome(
+    gitlabProjectId: number,
+    projectName: string,
+    issueIid: number,
+    issueTitle: string,
+    featureSlug: string,
+  ): Promise<void> {
+    if (!issueIid) return;
+
+    try {
+      const existing = await this.gitlabService.getWikiPageContent(gitlabProjectId, 'home');
+      if (!existing) return; // No home page to update
+
+      const featureLink = `- [#${issueIid} ${issueTitle}](Features/Issue-${issueIid}-${featureSlug})`;
+
+      // Check if this feature is already linked
+      if (existing.includes(`Issue-${issueIid}-`)) {
+        this.logger.debug(`Feature #${issueIid} already linked in home page`);
+        return;
+      }
+
+      // Find the Features section and append
+      let updated: string;
+      if (existing.includes('_No features implemented yet._')) {
+        // Replace placeholder with first feature
+        updated = existing.replace('_No features implemented yet._', featureLink);
+      } else if (existing.includes('## Features')) {
+        // Append after the last feature link in the Features section
+        const featuresIdx = existing.indexOf('## Features');
+        const afterFeatures = existing.substring(featuresIdx);
+        // Find the next section header or end of content
+        const nextSectionMatch = afterFeatures.substring(14).match(/\n## /);
+        const insertPos = nextSectionMatch
+          ? featuresIdx + 14 + nextSectionMatch.index!
+          : existing.length;
+
+        updated = existing.substring(0, insertPos).trimEnd() + '\n' + featureLink + '\n' + existing.substring(insertPos);
+      } else {
+        // No Features section — append at end
+        updated = existing + '\n\n## Features\n\n' + featureLink + '\n';
+      }
+
+      await this.gitlabService.upsertWikiPage(gitlabProjectId, 'home', updated);
+      this.logger.log(`Wiki home updated with feature #${issueIid}`);
+    } catch (err) {
+      this.logger.warn(`Wiki home update failed (non-fatal): ${err.message}`);
+    }
+  }
+
+  /**
+   * Regenerate the _sidebar wiki page from all existing wiki pages.
+   * Derives hierarchy from slugs (slashes = directories).
+   */
+  private async regenerateWikiSidebar(
+    gitlabProjectId: number,
+    projectName: string,
+  ): Promise<void> {
+    try {
+      const pages = await this.gitlabService.listWikiPages(gitlabProjectId);
+      if (!pages || pages.length === 0) return;
+
+      // Group pages by top-level directory
+      const topLevel: string[] = [];
+      const grouped: Record<string, Array<{ slug: string; title: string }>> = {};
+
+      for (const page of pages) {
+        if (page.slug === '_sidebar') continue; // Skip sidebar itself
+
+        const parts = page.slug.split('/');
+        if (parts.length === 1) {
+          topLevel.push(page.slug);
+        } else {
+          const dir = parts[0];
+          if (!grouped[dir]) grouped[dir] = [];
+          grouped[dir].push({ slug: page.slug, title: parts.slice(1).join('/') });
+        }
+      }
+
+      const lines: string[] = [
+        `**${projectName}**`,
+        '',
+      ];
+
+      // Top-level pages
+      for (const slug of topLevel) {
+        const displayName = slug === 'home' ? 'Home' : slug.replace(/-/g, ' ');
+        lines.push(`- [${displayName}](${slug})`);
+      }
+
+      // Grouped sections
+      for (const [dir, subpages] of Object.entries(grouped)) {
+        lines.push('', `**${dir}**`, '');
+        for (const sub of subpages.slice(0, 30)) { // Limit to 30 per section
+          const displayName = sub.title.replace(/-/g, ' ');
+          lines.push(`- [${displayName}](${sub.slug})`);
+        }
+        if (subpages.length > 30) {
+          lines.push(`- _...and ${subpages.length - 30} more_`);
+        }
+      }
+
+      await this.gitlabService.upsertWikiPage(gitlabProjectId, '_sidebar', lines.join('\n'));
+      this.logger.log('Wiki sidebar regenerated');
+    } catch (err) {
+      this.logger.warn(`Wiki sidebar regeneration failed (non-fatal): ${err.message}`);
+    }
   }
 
   // ─── Screenshot Cleanup ─────────────────────────────────

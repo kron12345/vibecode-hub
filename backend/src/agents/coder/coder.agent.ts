@@ -695,8 +695,16 @@ export class CoderAgent extends BaseAgent {
       { workspace, allowedPaths: [workspace], projectId },
     );
 
-    // Read project knowledge base for context
-    const knowledgeSection = await this.buildKnowledgeSection(workspace);
+    // Read project knowledge base for context (Wiki-First)
+    let gitlabProjectId: number | null = null;
+    if (projectId) {
+      const proj = await this.prisma.project.findUnique({
+        where: { id: projectId },
+        select: { gitlabProjectId: true },
+      });
+      gitlabProjectId = proj?.gitlabProjectId ?? null;
+    }
+    const knowledgeSection = await this.buildKnowledgeSectionWiki(this.gitlabService, gitlabProjectId, workspace);
 
     const systemPrompt = [
       'You are a skilled software developer. Your task is to implement features by reading and modifying files in the project.',

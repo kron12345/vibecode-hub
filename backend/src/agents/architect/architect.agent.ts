@@ -160,8 +160,8 @@ export class ArchitectAgent extends BaseAgent {
             ].join('\n');
           }
 
-          // Also read ENVIRONMENT.md for tech context
-          const envDoc = await this.readEnvironmentDoc(workspace);
+          // Also read ENVIRONMENT.md for tech context (Wiki-First)
+          const envDoc = await this.readEnvironment(this.gitlabService, project.gitlabProjectId, workspace);
           if (envDoc) {
             sessionFeaturesSection += `\n\n## Environment\n${envDoc.substring(0, 4000)}`;
           }
@@ -422,8 +422,8 @@ export class ArchitectAgent extends BaseAgent {
     const config = this.getRoleConfig();
     const systemPrompt = config.systemPrompt || DEFAULT_GROUNDING_PROMPT;
 
-    // Read project knowledge base for context
-    const knowledgeSection = await this.buildKnowledgeSection(workspace);
+    // Read project knowledge base for context (Wiki-First)
+    const knowledgeSection = await this.buildKnowledgeSectionWiki(this.gitlabService, project.gitlabProjectId, workspace);
 
     // Build issue context
     const issueContext = [
