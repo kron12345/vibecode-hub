@@ -266,6 +266,7 @@
     "listening": "Écoute...",
     "speaking": "Parle...",
     "processing": "Traitement...",
+    "vadHint": "Parlez simplement — le silence est détecté automatiquement",
     "voiceMode": "Mode vocal",
     "micPermission": "Accès au microphone requis",
     "micDenied": "Accès au microphone refusé",

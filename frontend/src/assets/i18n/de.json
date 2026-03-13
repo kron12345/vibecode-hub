@@ -266,6 +266,7 @@
     "listening": "Höre zu...",
     "speaking": "Spricht...",
     "processing": "Wird verarbeitet...",
+    "vadHint": "Sprich einfach — Stille wird automatisch erkannt",
     "voiceMode": "Sprachmodus",
     "micPermission": "Mikrofonzugriff wird benötigt",
     "micDenied": "Mikrofonzugriff verweigert",

@@ -266,6 +266,7 @@
     "listening": "Listening...",
     "speaking": "Speaking...",
     "processing": "Processing...",
+    "vadHint": "Just speak — silence is detected automatically",
     "voiceMode": "Voice mode",
     "micPermission": "Microphone access required",
     "micDenied": "Microphone access denied",

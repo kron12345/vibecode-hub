@@ -441,26 +441,30 @@ type Tab = 'overview' | 'settings';
                     <app-icon name="x" [size]="20" />
                   </button>
 
-                  <!-- State: LISTENING -->
+                  <!-- State: LISTENING (hands-free with VAD) -->
                   @if (voice.voiceState() === 'LISTENING') {
-                    <div class="relative">
-                      <div class="w-24 h-24 rounded-full bg-sky-500/20 border-2 border-sky-500/40 flex items-center justify-center animate-pulse">
+                    <div class="relative flex items-center justify-center">
+                      <!-- Reactive audio ring — scales with mic volume -->
+                      <div
+                        class="absolute rounded-full bg-sky-400/10 transition-transform duration-100"
+                        [style.width.px]="96 + voice.audioLevel() * 60"
+                        [style.height.px]="96 + voice.audioLevel() * 60"
+                      ></div>
+                      <div
+                        class="absolute rounded-full border border-sky-400/20 transition-transform duration-100"
+                        [style.width.px]="96 + voice.audioLevel() * 100"
+                        [style.height.px]="96 + voice.audioLevel() * 100"
+                      ></div>
+                      <!-- Mic icon circle -->
+                      <div class="w-24 h-24 rounded-full bg-sky-500/20 border-2 border-sky-500/40 flex items-center justify-center z-10">
                         <app-icon name="mic" [size]="36" class="text-sky-400" />
                       </div>
-                      <!-- Ripple rings -->
-                      <div class="absolute inset-0 w-24 h-24 rounded-full border-2 border-sky-400/20 animate-ping"></div>
                     </div>
                     <span class="text-sky-400 text-sm font-medium tracking-wide">{{ 'voice.listening' | translate }}</span>
-                    <button
-                      (click)="voice.stopRecording()"
-                      class="px-6 py-2.5 rounded-xl bg-sky-600/20 text-sky-400 text-sm font-medium border border-sky-500/30 hover:bg-sky-600/30 transition-all"
-                    >
-                      <app-icon name="send-horizontal" [size]="14" class="inline mr-2" />
-                      {{ 'voice.stopRecording' | translate }}
-                    </button>
+                    <p class="text-slate-600 text-xs">{{ 'voice.vadHint' | translate }}</p>
                   }
 
-                  <!-- State: PROCESSING (STT running) -->
+                  <!-- State: PROCESSING (STT + Agent thinking) -->
                   @if (voice.voiceState() === 'PROCESSING') {
                     <div class="w-24 h-24 rounded-full bg-amber-500/20 border-2 border-amber-500/40 flex items-center justify-center">
                       <app-icon name="loader-2" [size]="36" class="text-amber-400 animate-spin" />
