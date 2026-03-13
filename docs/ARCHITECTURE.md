@@ -416,8 +416,9 @@ Eigener MCP-Server, der dem Coder Agent sichere Shell-Befehle im Workspace ermö
 - **Kontext-Injection**: Bekommt alle bisherigen Agent-Kommentare als LLM-Kontext
 - **Pflicht-Updates nach jedem Merge**: `PROJECT_KNOWLEDGE.md` + `CHANGELOG.md`
 - Optional: README.md, API-Docs, JSDoc
-- **Wiki-Sync**: Dateien mit `wikiPage: true` werden nach GitLab Wiki gesynct (Upsert)
-- **Screenshot-Integration**: Liest UI Tester Screenshot-Manifest → lädt PNGs per GitLab Uploads API hoch → erstellt dedizierte Wiki-Page `UI-Screenshots-{issueIid}` mit eingebetteten Screenshots, Beschreibungen und Findings
+- **Hierarchical Wiki Structure**: Creates feature subpages `Features/Issue-{iid}-{slug}`, auto-updates `home` page with feature links, auto-regenerates `_sidebar` navigation from all wiki pages
+- **Wiki-Sync**: ALL markdown files synced to GitLab Wiki (not just flagged ones)
+- **Screenshot-Integration**: Liest UI Tester Screenshot-Manifest → lädt PNGs per GitLab Uploads API hoch → erstellt Wiki-Page `UI-Screenshots/Issue-{issueIid}` mit eingebetteten Screenshots, Beschreibungen und Findings
 - **Cleanup**: Nach Upload + Issue DONE werden lokale Screenshots gelöscht (`{workspace}/.ui-screenshots/{issueId}/`), leerer Parent wird aufgeräumt
 - Schreibt Dateien im Workspace, committed auf Feature-Branch
 - Issue → DONE nach Abschluss
@@ -427,12 +428,23 @@ Eigener MCP-Server, der dem Coder Agent sichere Shell-Befehle im Workspace ermö
 - Templates: Node/Angular/React (4 Stages), Python, Rust, Go, Java/Maven/Spring Boot/Vaadin (3 Stages), Generic
 - Runner-Tags: `docker`, `vibcode`
 - **Initiale Projekt-Dokumentation**: README.md, CHANGELOG.md, CONTRIBUTING.md, PROJECT_KNOWLEDGE.md
-- **ENVIRONMENT.md**: Generated during project setup in the workspace root — contains environment details, installed dependencies, tech stack summary, and workspace paths. Used as context by other agents.
-- **YOLO Mode** (`handleInfraCommand()`): After initial setup, the DevOps agent stays available in the Infrastructure Chat. User messages are treated as infrastructure commands and executed via MCP agent loop (filesystem, shell, git tools). Task type: `INFRA_COMMAND`. No LLM interview — direct execution with tool access.
+- **Wiki Scaffolding**: Creates `home`, `_sidebar`, `PROJECT_KNOWLEDGE`, `ENVIRONMENT`, `Architecture/Overview` wiki pages during project setup
+- **ENVIRONMENT.md**: Generated during project setup in the workspace root — contains environment details, installed dependencies, tech stack summary, and workspace paths. Synced to GitLab Wiki. Used as context by other agents.
+- **YOLO Mode** (`handleInfraCommand()`): After initial setup, the DevOps agent stays available in the Infrastructure Chat. User messages are treated as infrastructure commands and executed via MCP agent loop (filesystem, shell, git tools). Task type: `INFRA_COMMAND`. After each command, ENVIRONMENT.md is synced back to wiki.
 
-### Project Knowledge Base (`PROJECT_KNOWLEDGE.md`)
-- **Automatisch gepflegt** — wird vom DevOps Agent initial erstellt, vom Documenter nach jedem Merge aktualisiert
-- Enthält: Tech Stack, implementierte Features, Architektur-Patterns, Key Files, bekannte Constraints
+### Project Knowledge Base — Wiki-First Architecture
+- **Zentrales Gedächtnis**: GitLab Wiki ist die primäre Wissensquelle, lokale Workspace-Dateien sind Fallback
+- **Wiki-First Pattern**: Alle Agents lesen Knowledge und Environment via Wiki API (mit File-Fallback bei 404/Timeout)
+- **Schreiben**: DevOps + Documenter schreiben in Wiki UND lokale Dateien (Git-Tracking)
+- **Wiki-Struktur**:
+  - `home` — Projekt-Startseite mit Quick Links und Feature-Liste
+  - `_sidebar` — Auto-generierte Navigation aus allen Wiki-Seiten
+  - `PROJECT_KNOWLEDGE` — Akkumulatives Wissen (Tech Stack, Features, Patterns)
+  - `ENVIRONMENT` — Tech Stack, Dependencies, Ports, MCP-Server
+  - `Architecture/Overview` — System-Architektur
+  - `Features/Issue-{iid}-{slug}` — Pro-Feature Dokumentation
+  - `UI-Screenshots/Issue-{iid}` — Screenshots mit Beschreibungen
+- **BaseAgent Methods**: `readKnowledge()`, `readEnvironment()`, `buildKnowledgeSectionWiki()` — Wiki-First mit File-Fallback
 - **Injiziert in alle Agenten**:
   - Interviewer: Weiß was schon existiert → schlägt nur neue Features vor
   - Architect: Konsistente Architektur-Entscheidungen
