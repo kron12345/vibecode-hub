@@ -59,6 +59,8 @@ cd backend && npx prisma studio                       # DB GUI
 | Keycloak | sso.example.com | :8081 |
 | GitLab | git.example.com | :8929 |
 | Ollama | localhost | :11434 |
+| Voice STT (Faster-Whisper) | localhost | :8300 |
+| Voice TTS (Qwen3-TTS) | localhost | :8301 |
 | PostgreSQL | localhost | :5432 (DB: vibcodehub) |
 
 ## Keycloak
