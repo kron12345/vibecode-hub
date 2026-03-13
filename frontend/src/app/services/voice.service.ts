@@ -221,10 +221,15 @@ export class VoiceService implements OnDestroy {
 
   // ─── Voice Activity Detection ──────────────────────────────
 
-  private startVad(): void {
+  private async startVad(): Promise<void> {
     if (!this.mediaStream) return;
 
     this.vadContext = new AudioContext();
+    // Chrome/Firefox require explicit resume after creation
+    if (this.vadContext.state === 'suspended') {
+      await this.vadContext.resume();
+    }
+
     const source = this.vadContext.createMediaStreamSource(this.mediaStream);
     this.vadAnalyser = this.vadContext.createAnalyser();
     this.vadAnalyser.fftSize = 512;
@@ -299,9 +304,20 @@ export class VoiceService implements OnDestroy {
 
   private onTtsFinished(): void {
     if (this.isVoiceMode()) {
+      // Close playback context to free audio resources before re-acquiring mic
+      if (this.playbackContext) {
+        this.playbackContext.close().catch(() => {});
+        this.playbackContext = null;
+      }
+
+      // Small delay to let browser release audio resources, then auto-listen
       this.voiceState.set('LISTENING');
       this.transcript.set('');
-      this.startRecordingInternal();
+      setTimeout(() => {
+        if (this.isVoiceMode() && this.voiceState() === 'LISTENING') {
+          this.startRecordingInternal();
+        }
+      }, 300);
     } else {
       this.voiceState.set('IDLE');
     }

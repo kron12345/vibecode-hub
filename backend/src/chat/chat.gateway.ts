@@ -181,16 +181,17 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
     this.server.to(`session:${chatSessionId}`).emit(event, data);
 
     // Auto-TTS: When an agent message arrives and voice clients are active
-    if (
-      event === 'newMessage' &&
-      data?.role &&
-      data.role !== 'USER' &&
-      data.content &&
-      this.hasVoiceClients(chatSessionId)
-    ) {
-      this.streamTtsToSession(chatSessionId, data.content).catch((err) => {
-        this.logger.error(`Auto-TTS failed: ${err.message}`);
-      });
+    if (event === 'newMessage' && data?.role && data.role !== 'USER' && data.content) {
+      const hasVoice = this.hasVoiceClients(chatSessionId);
+      this.logger.debug(
+        `Auto-TTS check: session=${chatSessionId.slice(-8)} role=${data.role} hasVoice=${hasVoice} contentLen=${data.content?.length}`,
+      );
+      if (hasVoice) {
+        this.logger.log(`Auto-TTS triggering for session ${chatSessionId.slice(-8)}`);
+        this.streamTtsToSession(chatSessionId, data.content).catch((err) => {
+          this.logger.error(`Auto-TTS failed: ${err.message}`);
+        });
+      }
     }
   }
 
