@@ -219,7 +219,7 @@ export class SystemSettingsService implements OnModuleInit {
   }
 
   get ttsVoice(): string {
-    return this.get('voice.tts.voice', undefined, 'default');
+    return this.get('voice.tts.voice', undefined, 'serena');
   }
 
   get ttsSpeed(): number {

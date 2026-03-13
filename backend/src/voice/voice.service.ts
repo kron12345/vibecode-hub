@@ -96,45 +96,17 @@ export class VoiceService {
     return Buffer.from(arrayBuffer);
   }
 
-  /** Synthesize text to audio as streaming chunks */
+  /**
+   * Synthesize text to audio as streaming chunks.
+   * v1: Full-buffer TTS → yields complete WAV as single chunk.
+   * v2 (future): Sentence-based pipelining with true streaming.
+   */
   async *synthesizeStream(
     text: string,
     options?: Partial<TtsRequest>,
   ): AsyncGenerator<Buffer> {
-    const config = this.getConfig();
-    const url = `${config.ttsUrl}/v1/tts`;
-
-    const response = await fetch(url, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        text,
-        voice: options?.voice ?? config.ttsVoice,
-        language: options?.language,
-        speed: options?.speed ?? config.ttsSpeed,
-        stream: true,
-      }),
-    });
-
-    if (!response.ok) {
-      const errorText = await response.text();
-      throw new Error(`TTS stream failed (${response.status}): ${errorText}`);
-    }
-
-    if (!response.body) {
-      throw new Error('TTS response has no body');
-    }
-
-    const reader = response.body.getReader();
-    try {
-      while (true) {
-        const { done, value } = await reader.read();
-        if (done) break;
-        yield Buffer.from(value);
-      }
-    } finally {
-      reader.releaseLock();
-    }
+    const buffer = await this.synthesize(text, options);
+    yield buffer;
   }
 
   /** Check health of both STT and TTS services */
