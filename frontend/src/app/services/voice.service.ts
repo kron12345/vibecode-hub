@@ -138,20 +138,7 @@ export class VoiceService implements OnDestroy {
   }
 
   cancelRecording(): void {
-    this.stopVad();
-    if (this.mediaRecorder) {
-      this.mediaRecorder.ondataavailable = null;
-      this.mediaRecorder.onstop = null;
-      try {
-        if (this.mediaRecorder.state !== 'inactive') {
-          this.mediaRecorder.stop();
-        }
-      } catch {
-        // already stopped
-      }
-      this.stopMediaStream();
-      this.audioChunks = [];
-    }
+    this.cleanupRecordingResources();
   }
 
   stopPlayback(): void {
@@ -169,7 +156,11 @@ export class VoiceService implements OnDestroy {
   private async startRecordingInternal(): Promise<void> {
     if (!this.voiceSupported()) return;
 
+    // Clean up any leftover resources from previous round
+    this.cleanupRecordingResources();
+
     try {
+      console.debug('[Voice] Requesting mic access...');
       this.mediaStream = await navigator.mediaDevices.getUserMedia({
         audio: {
           channelCount: 1,
@@ -179,6 +170,7 @@ export class VoiceService implements OnDestroy {
           autoGainControl: true,
         },
       });
+      console.debug('[Voice] Mic acquired, tracks:', this.mediaStream.getAudioTracks().length);
 
       const mimeType = MediaRecorder.isTypeSupported('audio/webm;codecs=opus')
         ? 'audio/webm;codecs=opus'
@@ -196,6 +188,7 @@ export class VoiceService implements OnDestroy {
       };
 
       this.mediaRecorder.onstop = () => {
+        console.debug('[Voice] MediaRecorder stopped, chunks:', this.audioChunks.length, 'state:', this.voiceState());
         if (this.audioChunks.length > 0 && this.voiceState() === 'PROCESSING') {
           const blob = new Blob(this.audioChunks, { type: mimeType });
           this.sendAudioToServer(blob, mimeType);
@@ -207,16 +200,38 @@ export class VoiceService implements OnDestroy {
       this.mediaRecorder.start(250);
       this.transcript.set('');
 
-      // Start Voice Activity Detection
-      this.startVad();
+      // Start Voice Activity Detection (must await for AudioContext.resume)
+      await this.startVad();
+      console.debug('[Voice] Recording + VAD started successfully');
     } catch (error) {
-      console.error('Failed to start recording:', error);
+      console.error('[Voice] Failed to start recording:', error);
       if (this.isVoiceMode()) {
         this.voiceState.set('LISTENING');
       } else {
         this.voiceState.set('IDLE');
       }
     }
+  }
+
+  /** Clean up old MediaRecorder, MediaStream, and VAD before starting a new round */
+  private cleanupRecordingResources(): void {
+    this.stopVad();
+
+    if (this.mediaRecorder) {
+      this.mediaRecorder.ondataavailable = null;
+      this.mediaRecorder.onstop = null;
+      try {
+        if (this.mediaRecorder.state !== 'inactive') {
+          this.mediaRecorder.stop();
+        }
+      } catch {
+        // already stopped
+      }
+      this.mediaRecorder = null;
+    }
+
+    this.stopMediaStream();
+    this.audioChunks = [];
   }
 
   // ─── Voice Activity Detection ──────────────────────────────
@@ -304,6 +319,8 @@ export class VoiceService implements OnDestroy {
 
   private onTtsFinished(): void {
     if (this.isVoiceMode()) {
+      console.debug('[Voice] TTS finished, preparing next listen cycle');
+
       // Close playback context to free audio resources before re-acquiring mic
       if (this.playbackContext) {
         this.playbackContext.close().catch(() => {});
@@ -315,7 +332,10 @@ export class VoiceService implements OnDestroy {
       this.transcript.set('');
       setTimeout(() => {
         if (this.isVoiceMode() && this.voiceState() === 'LISTENING') {
-          this.startRecordingInternal();
+          console.debug('[Voice] Starting next recording round...');
+          this.startRecordingInternal().catch((err) => {
+            console.error('[Voice] Auto-cycle recording failed:', err);
+          });
         }
       }, 300);
     } else {

@@ -34,10 +34,9 @@ export class OllamaProvider implements LlmStreamingProvider {
     const baseUrl = this.settings.ollamaUrl;
     const url = `${baseUrl}/api/chat`;
 
-    // Keep model loaded for 2 min between requests (agents often make multiple calls).
-    // When maxParallelOllamaModels > 1, keep longer (5m) for concurrent usage.
-    const pipelineCfg = this.settings.getPipelineConfig();
-    const keepAlive = pipelineCfg.maxParallelOllamaModels <= 1 ? '2m' : '5m';
+    // Keep models permanently in VRAM — avoids loading delays between requests.
+    // With 2×RTX 3090 (48GB) there's enough room for concurrent models.
+    const keepAlive = '-1';
 
     const body: Record<string, unknown> = {
       model: options.model,
@@ -182,10 +181,8 @@ export class OllamaProvider implements LlmStreamingProvider {
     const baseUrl = this.settings.ollamaUrl;
     const url = `${baseUrl}/api/chat`;
 
-    // Keep model loaded for 2 min between requests (agents often make multiple calls).
-    // When maxParallelOllamaModels > 1, keep longer (5m) for concurrent usage.
-    const pipelineCfg = this.settings.getPipelineConfig();
-    const keepAlive = pipelineCfg.maxParallelOllamaModels <= 1 ? '2m' : '5m';
+    // Keep models permanently in VRAM — avoids loading delays between requests.
+    const keepAlive = '-1';
 
     const body = {
       model: options.model,
