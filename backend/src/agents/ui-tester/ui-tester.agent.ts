@@ -27,19 +27,29 @@ const DEFAULT_SYSTEM_PROMPT = `You are the UI Tester Agent for VibCode Hub — a
 
 ## Your Role
 You verify the visual quality, responsiveness, accessibility, and user interaction patterns of web applications.
-You perform **static code analysis only** — you analyze MR diffs, NOT run a browser or take screenshots.
+You have access to MCP tools including filesystem access and a shell to inspect the codebase and run builds.
 
-## Testing Areas (evaluate by reading the code)
-- **Layout**: CSS/HTML structure suggests correct positioning, no conflicting styles
+## Testing Approach
+1. **Read the MR diffs** to understand what UI elements were changed
+2. **Use filesystem tools** to read the full source files (diffs are often truncated)
+3. **Run the build** to verify compilation: \`npm run build\`, \`npx ng build\`, \`mvn compile\`, etc.
+4. **Inspect templates, styles, and components** for correctness
+5. **Evaluate each UI aspect** against the code AND build results
+
+## Shell Commands You Should Try
+- **Node/Angular**: \`npm install\`, \`npx ng build\`, \`npm run build\`
+- **Java/Vaadin**: \`mvn compile\`, \`mvn package -DskipTests\`
+- **General**: \`ls\`, \`cat\`, \`find\` to explore the project structure and templates
+
+## Testing Areas
+- **Layout**: CSS/HTML structure, correct positioning, no conflicting styles
 - **Responsive**: Media queries or responsive framework classes present
 - **Accessibility**: ARIA attributes, semantic HTML, alt texts in code
 - **Visual**: Consistent CSS classes, correct color/font references
 - **Interaction**: Event handlers attached, form validation logic present
 
-## IMPORTANT: Static Analysis Only
-You do NOT have access to a browser or runtime. Do NOT claim you need to "run the app" or "take screenshots."
-Evaluate UI quality by reading the code: HTML structure, CSS classes, Vaadin/Angular/React component usage, accessibility attributes, responsive breakpoints.
-Mark criteria as PASSED if the code correctly implements them — do NOT mark FAILED just because you cannot visually verify.
+## IMPORTANT: Read-Only — Do NOT Modify Code
+You may READ files and RUN commands, but do NOT edit or create source files. Your job is to TEST, not to fix.
 
 ## Severity Levels
 - **critical**: Broken layout code, inaccessible patterns in code, missing event handlers for core interactions
@@ -188,7 +198,7 @@ export class UiTesterAgent extends BaseAgent {
       const MAX_DIFFS = 20;
       const MAX_DIFF_CHARS = 2000;
       const reviewDiffs = diffs
-        .filter(d => /\.(html|css|scss|tsx|jsx|ts|js|vue|svelte)$/.test(d.new_path))
+        .filter(d => /\.(html|css|scss|tsx|jsx|ts|js|vue|svelte|java)$/.test(d.new_path))
         .slice(0, MAX_DIFFS);
 
       const diffText = reviewDiffs.map(d => {
@@ -226,55 +236,121 @@ ${COMPLETION_MARKER}
 \`\`\`
 Do NOT omit the JSON block.`;
 
-      const messages: LlmMessage[] = [
-        { role: 'system', content: systemPrompt },
-        { role: 'user', content: userPrompt },
-      ];
+      // Resolve workspace for MCP agent loop
+      const workspace = project?.slug
+        ? await this.resolveWorkspace(project.slug, ctx.chatSessionId)
+        : '';
 
-      // Call primary (and optional secondary for dual-testing)
-      const dualResult = await this.dualTestService.callDual(config, messages);
+      // Try MCP agent loop (with shell access) if workspace exists, else fallback to dual LLM
+      let resultContent: string;
 
-      if (dualResult.primary.finishReason === 'error') {
-        await this.sendAgentMessage(ctx, 'UI Tester LLM call failed');
-        await this.markFailed(ctx, 'LLM call failed');
-        return;
-      }
+      const mcpServers = workspace
+        ? await this.mcpRegistry.resolveServersForRole(
+            AgentRole.UI_TESTER,
+            { workspace, allowedPaths: [workspace], projectId: ctx.projectId },
+          )
+        : [];
 
-      // Parse primary result
-      let testResult = this.parseTestResult(dualResult.primary.content, issueId);
+      if (mcpServers.length > 0 && workspace) {
+        this.logger.log(`Using MCP agent loop with ${mcpServers.length} servers (workspace: ${workspace})`);
+        await this.sendAgentMessage(ctx, `Running UI tests with shell access (${mcpServers.length} MCP tools)...`);
 
-      // Dual-testing: parse secondary and merge findings
-      if (testResult && dualResult.secondary && dualResult.secondary.finishReason !== 'error') {
-        const secondaryResult = this.parseTestResult(dualResult.secondary.content, issueId);
-        if (secondaryResult) {
-          const strategy = config.dualStrategy ?? 'merge';
-          const { merged, stats } = this.dualTestService.mergeFindings(
-            testResult.findings,
-            secondaryResult.findings,
-            strategy,
-            (f: UiTestFinding) => `${f.type}:${f.page}:${f.description.substring(0, 40).toLowerCase()}`,
-          );
+        const mcpResult = await this.mcpAgentLoop.run({
+          provider: config.provider,
+          model: config.model,
+          systemPrompt,
+          userPrompt,
+          mcpServers,
+          maxIterations: 20,
+          temperature: config.parameters.temperature,
+          maxTokens: config.parameters.maxTokens,
+          agentTaskId: ctx.agentTaskId,
+          cwd: workspace,
+        });
 
-          const passed = this.dualTestService.determineApproval(merged, 3);
-          testResult = {
-            ...testResult,
-            findings: merged,
-            passed,
-            pagesChecked: Math.max(testResult.pagesChecked, secondaryResult.pagesChecked),
-          };
+        if (mcpResult.finishReason === 'error') {
+          await this.sendAgentMessage(ctx, 'UI Tester MCP loop failed');
+          await this.markFailed(ctx, 'MCP agent loop failed');
+          return;
+        }
 
-          await this.sendAgentMessage(
-            ctx,
-            `🔀 **Dual-test** (${strategy}): ${stats.primaryCount} + ${stats.secondaryCount} → ${stats.mergedCount} findings [${dualResult.providers.primary} + ${dualResult.providers.secondary}]`,
-          );
+        resultContent = mcpResult.content;
+        this.logger.log(`MCP loop: ${mcpResult.iterations} iterations, ${mcpResult.toolCallsExecuted} tool calls`);
+      } else {
+        // Fallback: dual LLM call (no shell access)
+        const messages: LlmMessage[] = [
+          { role: 'system', content: systemPrompt },
+          { role: 'user', content: userPrompt },
+        ];
+
+        const dualResult = await this.dualTestService.callDual(config, messages);
+
+        if (dualResult.primary.finishReason === 'error') {
+          await this.sendAgentMessage(ctx, 'UI Tester LLM call failed');
+          await this.markFailed(ctx, 'LLM call failed');
+          return;
+        }
+
+        resultContent = dualResult.primary.content;
+
+        // Dual-testing: parse secondary and merge findings
+        if (dualResult.secondary && dualResult.secondary.finishReason !== 'error') {
+          const primaryResult = this.parseTestResult(dualResult.primary.content, issueId);
+          const secondaryResult = this.parseTestResult(dualResult.secondary.content, issueId);
+          if (primaryResult && secondaryResult) {
+            const strategy = config.dualStrategy ?? 'merge';
+            const { merged, stats } = this.dualTestService.mergeFindings(
+              primaryResult.findings,
+              secondaryResult.findings,
+              strategy,
+              (f: UiTestFinding) => `${f.type}:${f.page}:${f.description.substring(0, 40).toLowerCase()}`,
+            );
+
+            const passed = this.dualTestService.determineApproval(merged, 3);
+            // Use merged result directly
+            const mergedTestResult: UiTestResult = {
+              ...primaryResult,
+              findings: merged,
+              passed,
+              pagesChecked: Math.max(primaryResult.pagesChecked, secondaryResult.pagesChecked),
+            };
+
+            await this.sendAgentMessage(
+              ctx,
+              `🔀 **Dual-test** (${strategy}): ${stats.primaryCount} + ${stats.secondaryCount} → ${stats.mergedCount} findings [${dualResult.providers.primary} + ${dualResult.providers.secondary}]`,
+            );
+
+            // Skip normal parsing, go straight to result handling
+            const testMarkdown = this.buildTestMarkdown(mergedTestResult);
+            await postAgentComment({
+              prisma: this.prisma,
+              gitlabService: this.gitlabService,
+              issueId,
+              gitlabProjectId,
+              issueIid: issue.gitlabIid!,
+              agentTaskId: ctx.agentTaskId,
+              authorName: 'UI Tester',
+              markdownContent: testMarkdown,
+            });
+
+            if (mergedTestResult.passed) {
+              await this.handlePassed(ctx, issueId, mrIid, gitlabProjectId, mergedTestResult);
+            } else {
+              await this.handleFailed(ctx, issueId, mrIid, gitlabProjectId, mergedTestResult);
+            }
+            return;
+          }
         }
       }
 
+      // Parse result (MCP path or single-LLM fallback)
+      let testResult = this.parseTestResult(resultContent, issueId);
+
       // Retry JSON extraction if parsing returned 0 findings but response was substantial
-      if (testResult && testResult.findings.length === 0 && dualResult.primary.content.length > 500) {
+      if (testResult && testResult.findings.length === 0 && resultContent.length > 500) {
         const retryJson = await this.dualTestService.retryJsonExtraction(
           config,
-          dualResult.primary.content,
+          resultContent,
           '{"passed": true/false, "summary": "...", "pagesChecked": 0, "findings": [{"type": "accessibility|responsive|ux|consistency|missing", "page": "...", "description": "...", "severity": "info|warning|critical"}]}',
         );
         if (retryJson) {
@@ -287,10 +363,10 @@ Do NOT omit the JSON block.`;
       }
 
       // Retry full parse failure with JSON extraction
-      if (!testResult && dualResult.primary.content.length > 500) {
+      if (!testResult && resultContent.length > 500) {
         const retryJson = await this.dualTestService.retryJsonExtraction(
           config,
-          dualResult.primary.content,
+          resultContent,
           '{"passed": true/false, "summary": "...", "pagesChecked": 0, "findings": [{"type": "accessibility|responsive|ux|consistency|missing", "page": "...", "description": "...", "severity": "info|warning|critical"}]}',
         );
         if (retryJson) {

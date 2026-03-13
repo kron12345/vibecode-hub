@@ -46,6 +46,27 @@ const DEFAULT_SYSTEM_PROMPT = `You are the Pen Tester Agent for VibCode Hub — 
 
 ## Your Role
 You perform security analysis on merge request code changes, focusing on OWASP Top 10 vulnerabilities.
+You have access to MCP tools including filesystem access and a shell to run real security scanning tools.
+
+## Testing Approach
+1. **Read the MR diffs** to understand what was changed
+2. **Use filesystem tools** to read the full source files for context
+3. **Run security scanning tools** to find real vulnerabilities:
+   - \`semgrep --config auto --json <path>\` — SAST pattern-based code analysis
+   - \`trivy fs --scanners vuln,secret,misconfig --format json <path>\` — Filesystem vulnerability + secret scanning
+   - \`npm audit --omit=dev --json\` — Dependency vulnerability audit (Node.js projects)
+   - \`nuclei -t cves/ -t exposures/ -t misconfiguration/ -target <url>\` — Template-based vuln scanning (if preview URL available)
+   - \`gitleaks detect --source <path> --report-format json\` — Secret detection in git history
+   - \`nmap -sV -sC -p- <host>\` — Port/service scanning (if preview URL available)
+4. **Analyze findings** from tools + code review combined
+5. **Produce the final verdict** with all findings
+
+## Shell Commands You Should Try
+- **SAST**: \`semgrep --config auto --json .\` (run from workspace root)
+- **Dependencies**: \`npm audit --omit=dev --json\` or \`mvn dependency:tree\`
+- **Secrets**: \`trivy fs --scanners secret --format json .\`
+- **Misconfig**: \`trivy fs --scanners misconfig --format json .\`
+- **General**: \`ls\`, \`cat\`, \`find\`, \`grep -r "password\\|secret\\|token\\|api.key" --include="*.ts" --include="*.js"\`
 
 ## Testing Areas (OWASP Top 10 2021)
 - **A01** Broken Access Control — missing auth checks, IDOR, privilege escalation
@@ -53,25 +74,21 @@ You perform security analysis on merge request code changes, focusing on OWASP T
 - **A03** Injection — SQL/NoSQL injection, command injection, XSS, template injection
 - **A04** Insecure Design — missing rate limiting, business logic flaws
 - **A05** Security Misconfiguration — verbose errors, default credentials, open CORS
-- **A06** Vulnerable Components — known CVEs in dependencies (see npm audit results)
+- **A06** Vulnerable Components — known CVEs in dependencies (use npm audit / trivy)
 - **A07** Auth Failures — weak passwords, missing MFA, session fixation
 - **A08** Data Integrity — unsafe deserialization, unsigned data
 - **A09** Logging Failures — missing audit logs, sensitive data in logs
 - **A10** SSRF — unvalidated URLs, internal network access
 
-## Input
-You will receive:
-1. **Project context** (tech stack, framework, type of project)
-2. MR code diffs
-3. npm audit results (production dependencies only — if available)
-4. HTTP security header check results (if available)
+## IMPORTANT: Read-Only — Do NOT Modify Code
+You may READ files and RUN security tools, but do NOT edit or create source files. Your job is to TEST, not to fix.
 
 ## Important: Context-Aware Analysis
 - Consider the project's tech stack and type when evaluating findings
 - A missing CSP header on a local dev server or static site is LOW priority (info, not warning)
-- npm audit results only include production dependencies — dev-only vulns are excluded
-- Focus on ACTUAL exploitable issues in the code diffs, not theoretical concerns
-- Frontend-only changes rarely have backend security implications (no injection, no auth bypass)
+- Focus on ACTUAL exploitable issues, not theoretical concerns
+- Frontend-only changes rarely have backend security implications
+- Verify findings from automated tools — filter out false positives before reporting
 
 ## Severity Levels
 - **critical**: Exploitable vulnerability with direct impact (injection, auth bypass, RCE, data exposure)
@@ -251,28 +268,121 @@ ${COMPLETION_MARKER}
 \`\`\`
 Do NOT omit the JSON block.`;
 
-      const messages: LlmMessage[] = [
-        { role: 'system', content: systemPrompt },
-        { role: 'user', content: userPrompt },
-      ];
+      // Resolve workspace for MCP agent loop
+      const workspace = project?.slug
+        ? await this.resolveWorkspace(project.slug, ctx.chatSessionId)
+        : '';
 
-      // Call primary (and optional secondary for dual-testing)
-      const dualResult = await this.dualTestService.callDual(config, messages);
+      // Try MCP agent loop (with shell + security tools) if workspace exists
+      let resultContent: string;
 
-      if (dualResult.primary.finishReason === 'error') {
-        await this.sendAgentMessage(ctx, 'Pen Tester LLM call failed');
-        await this.markFailed(ctx, 'LLM call failed');
-        return;
+      const mcpServers = workspace
+        ? await this.mcpRegistry.resolveServersForRole(
+            AgentRole.PEN_TESTER,
+            { workspace, allowedPaths: [workspace], projectId: ctx.projectId },
+          )
+        : [];
+
+      if (mcpServers.length > 0 && workspace) {
+        this.logger.log(`Using MCP agent loop with ${mcpServers.length} servers (workspace: ${workspace})`);
+        await this.sendAgentMessage(ctx, `Running security analysis with shell access (${mcpServers.length} MCP tools — semgrep, trivy, etc.)...`);
+
+        const mcpResult = await this.mcpAgentLoop.run({
+          provider: config.provider,
+          model: config.model,
+          systemPrompt,
+          userPrompt,
+          mcpServers,
+          maxIterations: 25,
+          temperature: config.parameters.temperature,
+          maxTokens: config.parameters.maxTokens,
+          agentTaskId: ctx.agentTaskId,
+          cwd: workspace,
+        });
+
+        if (mcpResult.finishReason === 'error') {
+          await this.sendAgentMessage(ctx, 'Pen Tester MCP loop failed');
+          await this.markFailed(ctx, 'MCP agent loop failed');
+          return;
+        }
+
+        resultContent = mcpResult.content;
+        this.logger.log(`MCP loop: ${mcpResult.iterations} iterations, ${mcpResult.toolCallsExecuted} tool calls`);
+      } else {
+        // Fallback: dual LLM call (no shell access)
+        const messages: LlmMessage[] = [
+          { role: 'system', content: systemPrompt },
+          { role: 'user', content: userPrompt },
+        ];
+
+        const dualResult = await this.dualTestService.callDual(config, messages);
+
+        if (dualResult.primary.finishReason === 'error') {
+          await this.sendAgentMessage(ctx, 'Pen Tester LLM call failed');
+          await this.markFailed(ctx, 'LLM call failed');
+          return;
+        }
+
+        resultContent = dualResult.primary.content;
+
+        // Dual-testing: parse secondary and merge/consensus findings
+        if (dualResult.secondary && dualResult.secondary.finishReason !== 'error') {
+          const primaryResult = this.parseTestResult(dualResult.primary.content, issueId, auditResult);
+          const secondaryResult = this.parseTestResult(dualResult.secondary.content, issueId, auditResult);
+          if (primaryResult && secondaryResult) {
+            const strategy = config.dualStrategy ?? 'merge';
+            const { merged, stats } = this.dualTestService.mergeFindings(
+              primaryResult.findings,
+              secondaryResult.findings,
+              strategy,
+              (f: SecurityFinding) => `${f.category}:${f.file ?? ''}:${f.severity}:${f.description.substring(0, 40).toLowerCase()}`,
+            );
+
+            const passed = this.dualTestService.determineApproval(merged, maxWarnings);
+            const mergedTestResult: PenTestResult = { ...primaryResult, findings: merged, passed };
+
+            await this.sendAgentMessage(
+              ctx,
+              `🔀 **Dual-test** (${strategy}): ${stats.primaryCount} + ${stats.secondaryCount} → ${stats.mergedCount} findings [${dualResult.providers.primary} + ${dualResult.providers.secondary}]`,
+            );
+
+            // Rule-based override: critical findings → always fail
+            const critCount = merged.filter(f => f.severity === 'critical').length;
+            if (mergedTestResult.passed && critCount > 0) {
+              mergedTestResult.passed = false;
+              mergedTestResult.summary = `[OVERRIDE] ${critCount} critical finding(s) — auto-failed. ${mergedTestResult.summary}`;
+            }
+
+            const testMarkdown = this.buildTestMarkdown(mergedTestResult);
+            await postAgentComment({
+              prisma: this.prisma,
+              gitlabService: this.gitlabService,
+              issueId,
+              gitlabProjectId,
+              issueIid: issue.gitlabIid!,
+              agentTaskId: ctx.agentTaskId,
+              authorName: 'Pen Tester',
+              markdownContent: testMarkdown,
+            });
+
+            if (mergedTestResult.passed) {
+              await this.handlePassed(ctx, issueId, mrIid, gitlabProjectId, mergedTestResult);
+            } else {
+              await this.handleFailed(ctx, issueId, mrIid, gitlabProjectId, mergedTestResult);
+            }
+            return;
+          }
+        }
       }
 
-      // Parse primary result
-      let testResult = this.parseTestResult(dualResult.primary.content, issueId, auditResult);
+      // Parse result (MCP path or single-LLM fallback)
+      let testResult = this.parseTestResult(resultContent, issueId, auditResult);
 
       // If parsing returned 0 findings but the response was substantial, retry JSON extraction
-      if (testResult && testResult.findings.length === 0 && dualResult.primary.content.length > 500) {
+      if (testResult && testResult.findings.length === 0 && resultContent.length > 500) {
         const retryJson = await this.dualTestService.retryJsonExtraction(
           config,
-          dualResult.primary.content,
+          resultContent,
           '{"passed": true/false, "summary": "1-2 sentences", "findings": [{"category": "A01:2021", "severity": "critical|warning|info", "description": "...", "file": "path", "recommendation": "fix"}], "auditResult": {"vulnerabilities": 0, "critical": 0, "high": 0}}',
         );
         if (retryJson) {
@@ -284,26 +394,18 @@ Do NOT omit the JSON block.`;
         }
       }
 
-      // Dual-testing: parse secondary and merge/consensus findings
-      if (testResult && dualResult.secondary && dualResult.secondary.finishReason !== 'error') {
-        const secondaryResult = this.parseTestResult(dualResult.secondary.content, issueId, auditResult);
-        if (secondaryResult) {
-          // Security testing uses merge (union) by default — we want ALL findings, not just consensus
-          const strategy = config.dualStrategy ?? 'merge';
-          const { merged, stats } = this.dualTestService.mergeFindings(
-            testResult.findings,
-            secondaryResult.findings,
-            strategy,
-            (f: SecurityFinding) => `${f.category}:${f.file ?? ''}:${f.severity}:${f.description.substring(0, 40).toLowerCase()}`,
-          );
-
-          const passed = this.dualTestService.determineApproval(merged, maxWarnings);
-          testResult = { ...testResult, findings: merged, passed };
-
-          await this.sendAgentMessage(
-            ctx,
-            `🔀 **Dual-test** (${strategy}): ${stats.primaryCount} + ${stats.secondaryCount} → ${stats.mergedCount} findings [${dualResult.providers.primary} + ${dualResult.providers.secondary}]`,
-          );
+      // Retry full parse failure
+      if (!testResult && resultContent.length > 500) {
+        const retryJson = await this.dualTestService.retryJsonExtraction(
+          config,
+          resultContent,
+          '{"passed": true/false, "summary": "1-2 sentences", "findings": [{"category": "A01:2021", "severity": "critical|warning|info", "description": "...", "file": "path", "recommendation": "fix"}], "auditResult": {"vulnerabilities": 0, "critical": 0, "high": 0}}',
+        );
+        if (retryJson) {
+          testResult = this.parseTestResult(retryJson, issueId, auditResult);
+          if (testResult) {
+            this.logger.log(`JSON retry recovered full security result (${testResult.findings.length} findings)`);
+          }
         }
       }
 

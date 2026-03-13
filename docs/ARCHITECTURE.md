@@ -334,30 +334,42 @@ Eigener MCP-Server, der dem Coder Agent sichere Shell-Befehle im Workspace ermö
 - Postet Review als unified Agent-Kommentar (lokal + GitLab)
 
 ### Functional Tester Agent
-- **LLM-basiert** — nutzt BaseAgent.callLlm()
+- **MCP Agent Loop** — Shell-Zugriff auf Workspace (filesystem, shell, git MCP-Server)
 - Holt Issue-Description + Acceptance Criteria (Sub-Issues) + MR-Diffs
 - **Kontext-Injection**: Bekommt Kommentare von Coder + Code Reviewer als LLM-Kontext
-- LLM prüft ob Code die Criteria erfüllt
+- Kann Build/Tests selbst ausführen (`npm run build`, `npm test`, `mvn compile`, `mvn test`)
+- LLM prüft ob Code die Criteria erfüllt — verifiziert durch echte Build/Test-Ergebnisse
+- **Fallback**: Plain LLM-Call wenn kein Workspace/MCP verfügbar
+- **retryJsonExtraction**: Zweistufig — bei leeren Findings ODER komplettem Parse-Failure
 - PASS: Alle Criteria adressiert, keine Critical Findings → UI Tester
 - FAIL: → Coder fixIssue() mit Test-Feedback
 
 ### UI Tester Agent
-- **Zweistufig**: Playwright (optional) + LLM
-- Wenn Preview-URL vorhanden: Headless Chromium Screenshots, DOM-Snapshot, Accessibility-Audit (axe-core), Responsive-Check
-- Wenn kein Preview: Nur Code-Analyse per LLM (Fallback)
+- **MCP Agent Loop** — Shell-Zugriff auf Workspace (filesystem, shell, git MCP-Server)
+- Kann Build/Compilation verifizieren und Templates/Styles im vollen Kontext lesen
+- Wenn Preview-URL vorhanden: Optional Playwright (Headless Chromium Screenshots, DOM-Snapshot, Accessibility-Audit)
+- **Fallback**: Dual-LLM-Call wenn kein Workspace/MCP verfügbar (zwei Provider, Findings gemergt)
 - **Kontext-Injection**: Bekommt Kommentare von Coder + Code Reviewer + Functional Tester als LLM-Kontext
 - Prüft: Layout, Responsivität, Accessibility (WCAG 2.1 AA), Visuals, Interaktionen
+- **retryJsonExtraction**: Zweistufig — bei leeren Findings ODER komplettem Parse-Failure
 - PASS: Keine Critical Findings, ≤3 Warnings → Pen Tester
 - FAIL: → Coder fixIssue() mit UI-Feedback
 
 ### Pen Tester Agent
-- **Dreistufig**: npm audit + HTTP-Header-Check + LLM-Analyse
-- `npm audit --omit=dev --json` — nur Production-Dependencies (Dev-Deps gefiltert, reduziert false positives)
+- **MCP Agent Loop** — Shell-Zugriff mit echten Security-Tools:
+  - `semgrep --config auto --json .` — SAST Pattern-basierte Code-Analyse
+  - `trivy fs --scanners vuln,secret,misconfig --format json .` — Filesystem Vulnerability + Secret Scanning
+  - `nuclei` — Template-basiertes Vulnerability Scanning (wenn Preview-URL vorhanden)
+  - `nmap` — Port/Service Scanning (wenn Preview-URL vorhanden)
+  - `npm audit --omit=dev --json` — Dependency Vulnerability Audit
+- **Pre-Checks**: npm audit + HTTP-Header-Check laufen vor dem MCP-Loop und werden als Kontext mitgegeben
 - Security-Header-Check (CSP, HSTS, X-Frame-Options, etc.) gegen Preview-URL — abschaltbar via `pentester.skipHeaderCheck`
 - **Tech-Stack-Kontext**: Project techStack (Framework, Backend, Projekttyp) wird ins LLM-Prompt injiziert → kontextbewusste Analyse
 - **Kontext-Injection**: Bekommt alle bisherigen Agent-Kommentare als LLM-Kontext
-- LLM analysiert MR-Diffs auf OWASP Top 10
+- **Fallback**: Dual-LLM-Call wenn kein Workspace/MCP verfügbar
 - **Konfigurierbare Schwellen**: `pentester.maxWarnings` (default: 3) — PASS/FAIL wird server-seitig anhand der Findings berechnet, nicht blind dem LLM vertraut
+- **Rule-based Override**: Critical Findings → immer FAIL, unabhängig vom LLM-Urteil
+- **retryJsonExtraction**: Zweistufig — bei leeren Findings ODER komplettem Parse-Failure
 - PASS: Keine Critical Findings, Warnings ≤ maxWarnings → Documenter
 - FAIL: → Coder fixIssue() mit Security-Feedback
 

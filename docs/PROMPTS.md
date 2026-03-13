@@ -614,4 +614,59 @@ Dokumentation aller Prompts/Anforderungen die zur Entwicklung genutzt wurden.
 
 **Commits:** `de946ff` (Vaadin Support), `c09648a` (E2E Test), `3257629` (Normalisierung Fix)
 **Commands:** `sudo apt install maven`, `npx nest build` (grün), `systemctl --user restart vibcode-api`
-**Status:** Pipeline läuft, E2E Test aktiv 🔄
+**Status:** Pipeline läuft, E2E Test aktiv
+
+---
+
+## Session 11 — 2026-03-13 — Pipeline Quality + Tester Shell Access
+
+### Prompt 1: E2E Analyse + Verbesserungen
+> Brich den Test ab und berichte was du alles gefunden hast. [Danach 4 konkrete Verbesserungen gewünscht:]
+> 1. Fix-Cycle Race Condition — nur 1 FIX_CODE Task gleichzeitig pro Issue
+> 2. retryJsonExtraction als Best Practice für alle Tester
+> 3. MCP Server Filtering — nur relevante Server pro Projekt-Tech-Stack
+> 4. Shell-Zugriff für Tester — "Können wir den Testern Shell-Zugriff geben? Gerade der Pentester sollte echte Tools nutzen."
+
+**Ergebnis (Session 10 + 11 kombiniert):**
+
+**1. Fix-Cycle Race Condition (agent-orchestrator.service.ts):**
+- In-memory `fixingIssues` Set als synchroner Lock (Set<string> mit `projectId:issueId` Key)
+- DB-Guard: Prüft ob bereits ein RUNNING FIX_CODE Task existiert
+- Lock wird in `.finally()` released nach Coder-Abschluss
+- Verhindert dass 3 Tester gleichzeitig `retriggerCoder()` aufrufen → 3 parallele FIX_CODE Tasks
+
+**2. retryJsonExtraction für alle Tester:**
+- Zweistufig: (1) Leere Findings bei langer Response → Retry, (2) Komplett fehlgeschlagenes Parsing → Retry
+- Pattern aus `DualTestService.retryJsonExtraction()` — ruft LLM nochmal fokussiert auf JSON-Extraktion auf
+- Eingebaut in: Functional Tester, UI Tester, Pen Tester (Code Reviewer hatte es schon)
+
+**3. MCP Server Tech-Stack Filtering (mcp-registry.service.ts):**
+- `UNIVERSAL_SERVERS` Set: filesystem, git, gitlab, shell, memory, sequentialthinking, searxng
+- `filterByTechStack()`: Lädt `project.techStack.mcpServers` Whitelist aus DB
+- Universelle Server passieren immer, projekt-spezifische werden gefiltert
+- Effekt: Angular-Projekt bekommt nicht Vaadin/Spring MCP-Server (72 Tools weniger)
+
+**4. Alle 3 Tester auf MCP Agent Loop mit Shell-Zugriff:**
+- **Functional Tester**: Nutzt `mcpAgentLoop.run()` mit filesystem+shell+git MCP-Server
+  - Kann `npm run build`, `npm test`, `mvn compile`, `mvn test` selbst ausführen
+  - Fallback: Plain LLM-Call wenn kein Workspace
+- **UI Tester**: Nutzt `mcpAgentLoop.run()` für Build-Verifikation + Code-Inspektion
+  - Kann Templates, Styles, Components lesen und Build verifizieren
+  - Fallback: Dual-LLM-Call mit Findings-Merge
+- **Pen Tester**: Nutzt `mcpAgentLoop.run()` mit echten Security-Tools:
+  - `semgrep` (v1.150.0) — SAST Code Analysis
+  - `trivy` (v0.69.1) — Vulnerability + Secret + Misconfig Scanning
+  - `nuclei` (v3.7.0) — Template-basiertes Vuln Scanning
+  - `nmap` (v7.95) — Port/Service Scanning
+  - `nikto` (v2.1.5) — Web Server Scanner
+  - `sqlmap` — SQL Injection Testing
+  - Fallback: Dual-LLM-Call mit Findings-Merge
+
+**DB-Updates:**
+- `agents.roles.UI_TESTER` systemPrompt mit Shell-Access + Build-Verifikation
+- `agents.roles.PEN_TESTER` systemPrompt mit Security-Tools (semgrep, trivy, nuclei, nmap)
+- `mcp_server_on_role`: filesystem+shell+git für FUNCTIONAL_TESTER, UI_TESTER, PEN_TESTER
+
+**Commits:** `8af8799` (Pipeline Improvements Session 10), aktueller Commit (Tester MCP Conversion)
+**Commands:** `npx nest build` (grün), `systemctl --user restart vibcode-api`, DB-Updates via psql
+**Status:** Alle 4 Verbesserungen live, Service stabil
