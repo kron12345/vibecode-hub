@@ -97,16 +97,74 @@ export class VoiceService {
   }
 
   /**
-   * Synthesize text to audio as streaming chunks.
-   * v1: Full-buffer TTS → yields complete WAV as single chunk.
-   * v2 (future): Sentence-based pipelining with true streaming.
+   * Synthesize text to audio as streaming chunks via sentence-based pipelining.
+   * Splits text into sentences, renders each independently, and yields audio
+   * as soon as each sentence is done — first sentence plays while rest renders.
    */
   async *synthesizeStream(
     text: string,
     options?: Partial<TtsRequest>,
   ): AsyncGenerator<Buffer> {
-    const buffer = await this.synthesize(text, options);
-    yield buffer;
+    const sentences = this.splitIntoSentences(text);
+
+    if (sentences.length === 0) return;
+
+    // For very short text (1 sentence), just render and yield
+    if (sentences.length === 1) {
+      yield await this.synthesize(sentences[0], options);
+      return;
+    }
+
+    // Pipeline: start rendering next sentence while yielding current one.
+    // This overlaps TTS generation with audio playback on the client.
+    let nextPromise: Promise<Buffer> | null = this.synthesize(sentences[0], options);
+
+    for (let i = 0; i < sentences.length; i++) {
+      // Wait for current sentence's audio
+      const currentBuffer = await nextPromise!;
+
+      // Pre-fetch next sentence (overlaps with client playback)
+      if (i + 1 < sentences.length) {
+        nextPromise = this.synthesize(sentences[i + 1], options);
+      } else {
+        nextPromise = null;
+      }
+
+      // Yield current audio immediately
+      yield currentBuffer;
+    }
+  }
+
+  /**
+   * Split text into sentence-sized chunks for incremental TTS.
+   * Balances between small chunks (low latency) and reasonable size (natural speech).
+   */
+  private splitIntoSentences(text: string): string[] {
+    // Split on sentence-ending punctuation, keeping the punctuation
+    const raw = text.split(/(?<=[.!?;])\s+/);
+
+    const sentences: string[] = [];
+    let current = '';
+
+    for (const part of raw) {
+      const trimmed = part.trim();
+      if (!trimmed) continue;
+
+      current += (current ? ' ' : '') + trimmed;
+
+      // Yield chunk if it's long enough (>40 chars) or ends with sentence punctuation
+      if (current.length > 40 || /[.!?]$/.test(current)) {
+        sentences.push(current);
+        current = '';
+      }
+    }
+
+    // Don't forget remainder
+    if (current.trim()) {
+      sentences.push(current.trim());
+    }
+
+    return sentences;
   }
 
   /** Check health of both STT and TTS services */
