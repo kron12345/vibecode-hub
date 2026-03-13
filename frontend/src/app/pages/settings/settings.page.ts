@@ -371,8 +371,137 @@ const PERMISSION_KEYS: { key: keyof AgentRoleConfig['permissions']; labelKey: st
           </div>
         </div>
 
-        <!-- CORS / Security -->
+        <!-- Voice (STT/TTS) -->
         <div class="glass card-glow rounded-3xl p-6 animate-in stagger-6">
+          <h2 class="text-lg font-semibold text-white mb-6 flex items-center gap-2">
+            <app-icon name="mic" [size]="20" class="text-pink-400" />
+            {{ 'settings.voice' | translate }}
+          </h2>
+          <div class="space-y-4">
+            <!-- Enable toggle -->
+            <div class="flex items-center justify-between">
+              <div>
+                <span class="text-sm font-medium text-slate-300">{{ 'settings.voiceEnabled' | translate }}</span>
+                <p class="text-xs text-slate-500">{{ 'settings.voiceEnabledHint' | translate }}</p>
+              </div>
+              <label class="relative inline-flex items-center cursor-pointer">
+                <input
+                  type="checkbox"
+                  [checked]="sysValues['voice.enabled'] === 'true'"
+                  (change)="sysValues['voice.enabled'] = sysValues['voice.enabled'] === 'true' ? 'false' : 'true'"
+                  class="sr-only peer"
+                />
+                <div class="w-11 h-6 bg-slate-700 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-pink-500"></div>
+              </label>
+            </div>
+            <!-- STT Settings -->
+            <div class="border-t border-white/5 pt-4">
+              <h3 class="text-sm font-semibold text-slate-400 mb-3">{{ 'settings.voiceStt' | translate }}</h3>
+              <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div>
+                  <label class="block text-xs font-medium text-slate-500 mb-1">{{ 'settings.voiceSttUrl' | translate }}</label>
+                  <input
+                    type="text"
+                    [(ngModel)]="sysValues['voice.stt.url']"
+                    class="w-full bg-slate-900/50 border border-white/10 rounded-xl px-4 py-2.5 text-white text-sm focus:outline-none focus:border-pink-500/50 transition-colors"
+                    placeholder="http://localhost:8300"
+                  />
+                </div>
+                <div>
+                  <label class="block text-xs font-medium text-slate-500 mb-1">{{ 'settings.voiceSttModel' | translate }}</label>
+                  <input
+                    type="text"
+                    [(ngModel)]="sysValues['voice.stt.model']"
+                    class="w-full bg-slate-900/50 border border-white/10 rounded-xl px-4 py-2.5 text-white text-sm focus:outline-none focus:border-pink-500/50 transition-colors"
+                    placeholder="large-v3-turbo"
+                  />
+                </div>
+                <div>
+                  <label class="block text-xs font-medium text-slate-500 mb-1">{{ 'settings.voiceSttLanguage' | translate }}</label>
+                  <select
+                    [(ngModel)]="sysValues['voice.stt.language']"
+                    class="w-full bg-slate-900/50 border border-white/10 rounded-xl px-4 py-2.5 text-white text-sm focus:outline-none focus:border-pink-500/50 transition-colors"
+                  >
+                    <option value="auto">Auto-detect</option>
+                    <option value="de">Deutsch</option>
+                    <option value="en">English</option>
+                    <option value="it">Italiano</option>
+                    <option value="fr">Français</option>
+                  </select>
+                </div>
+              </div>
+            </div>
+            <!-- TTS Settings -->
+            <div class="border-t border-white/5 pt-4">
+              <h3 class="text-sm font-semibold text-slate-400 mb-3">{{ 'settings.voiceTts' | translate }}</h3>
+              <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div>
+                  <label class="block text-xs font-medium text-slate-500 mb-1">{{ 'settings.voiceTtsUrl' | translate }}</label>
+                  <input
+                    type="text"
+                    [(ngModel)]="sysValues['voice.tts.url']"
+                    class="w-full bg-slate-900/50 border border-white/10 rounded-xl px-4 py-2.5 text-white text-sm focus:outline-none focus:border-pink-500/50 transition-colors"
+                    placeholder="http://localhost:8301"
+                  />
+                </div>
+                <div>
+                  <label class="block text-xs font-medium text-slate-500 mb-1">{{ 'settings.voiceTtsVoice' | translate }}</label>
+                  <input
+                    type="text"
+                    [(ngModel)]="sysValues['voice.tts.voice']"
+                    class="w-full bg-slate-900/50 border border-white/10 rounded-xl px-4 py-2.5 text-white text-sm focus:outline-none focus:border-pink-500/50 transition-colors"
+                    placeholder="default"
+                  />
+                </div>
+                <div>
+                  <label class="block text-xs font-medium text-slate-500 mb-1">
+                    {{ 'settings.voiceTtsSpeed' | translate }}: {{ sysValues['voice.tts.speed'] || '1.0' }}x
+                  </label>
+                  <input
+                    type="range"
+                    min="0.5"
+                    max="2.0"
+                    step="0.1"
+                    [ngModel]="sysValues['voice.tts.speed'] || '1.0'"
+                    (ngModelChange)="sysValues['voice.tts.speed'] = $event"
+                    class="w-full accent-pink-500"
+                  />
+                  <div class="flex justify-between text-[10px] text-slate-600 mt-1">
+                    <span>0.5x</span>
+                    <span>1.0x</span>
+                    <span>2.0x</span>
+                  </div>
+                </div>
+              </div>
+            </div>
+            <!-- Health Check -->
+            <div class="border-t border-white/5 pt-4">
+              <button
+                (click)="checkVoiceHealth()"
+                [disabled]="voiceHealthLoading()"
+                class="bg-pink-600/20 hover:bg-pink-600/30 border border-pink-500/20 text-pink-400 px-4 py-2 rounded-xl text-sm font-medium transition-all flex items-center gap-2"
+              >
+                <app-icon name="activity" [size]="14" />
+                {{ 'settings.voiceHealthCheck' | translate }}
+              </button>
+              @if (voiceHealth()) {
+                <div class="flex items-center gap-4 mt-3">
+                  <div class="flex items-center gap-2">
+                    <span class="w-2 h-2 rounded-full" [class]="voiceHealth()!.stt ? 'bg-emerald-400' : 'bg-red-400'"></span>
+                    <span class="text-xs text-slate-400">STT</span>
+                  </div>
+                  <div class="flex items-center gap-2">
+                    <span class="w-2 h-2 rounded-full" [class]="voiceHealth()!.tts ? 'bg-emerald-400' : 'bg-red-400'"></span>
+                    <span class="text-xs text-slate-400">TTS</span>
+                  </div>
+                </div>
+              }
+            </div>
+          </div>
+        </div>
+
+        <!-- CORS / Security -->
+        <div class="glass card-glow rounded-3xl p-6 animate-in stagger-7">
           <h2 class="text-lg font-semibold text-white mb-6 flex items-center gap-2">
             <app-icon name="shield" [size]="20" class="text-amber-400" />
             {{ 'settings.cors' | translate }}
@@ -394,7 +523,7 @@ const PERMISSION_KEYS: { key: keyof AgentRoleConfig['permissions']; labelKey: st
         </div>
 
         <!-- App -->
-        <div class="glass card-glow rounded-3xl p-6 animate-in stagger-7">
+        <div class="glass card-glow rounded-3xl p-6 animate-in stagger-8">
           <h2 class="text-lg font-semibold text-white mb-6 flex items-center gap-2">
             <app-icon name="layout-dashboard" [size]="20" class="text-indigo-400" />
             {{ 'settings.app' | translate }}
@@ -413,7 +542,7 @@ const PERMISSION_KEYS: { key: keyof AgentRoleConfig['permissions']; labelKey: st
         </div>
 
         <!-- Save Button -->
-        <div class="flex justify-end animate-in stagger-8">
+        <div class="flex justify-end animate-in stagger-9">
           <button
             (click)="saveSystemSettings()"
             [disabled]="saving()"
@@ -1089,6 +1218,10 @@ export class SettingsPage implements OnInit {
   newMcpServer: Partial<McpServerDefinition> = {};
   newMcpServerArgsText = '';
 
+  // Voice health check
+  voiceHealth = signal<{ stt: boolean; tts: boolean } | null>(null);
+  voiceHealthLoading = signal(false);
+
   // Provider discovery
   providerResults = signal<Record<string, ProviderModelsResult>>({});
   modelsLoading = signal(false);
@@ -1262,6 +1395,21 @@ export class SettingsPage implements OnInit {
       });
   }
 
+  checkVoiceHealth() {
+    this.voiceHealthLoading.set(true);
+    this.voiceHealth.set(null);
+    this.api.getVoiceHealth().subscribe({
+      next: (health) => {
+        this.voiceHealth.set(health);
+        this.voiceHealthLoading.set(false);
+      },
+      error: () => {
+        this.voiceHealth.set({ stt: false, tts: false });
+        this.voiceHealthLoading.set(false);
+      },
+    });
+  }
+
   saveSystemSettings() {
     this.saving.set(true);
 
@@ -1294,6 +1442,22 @@ export class SettingsPage implements OnInit {
       value: this.sysValues['search.searxng_url'] ?? '',
       category: 'search',
     });
+
+    // Voice settings
+    const voiceKeys = [
+      'voice.enabled',
+      'voice.stt.url',
+      'voice.stt.model',
+      'voice.stt.language',
+      'voice.tts.url',
+      'voice.tts.voice',
+      'voice.tts.speed',
+    ];
+    for (const key of voiceKeys) {
+      if (this.sysValues[key] !== undefined && this.sysValues[key] !== '') {
+        settings.push({ key, value: this.sysValues[key], category: 'voice' });
+      }
+    }
 
     const origins = this.corsOriginsText
       .split('\n')

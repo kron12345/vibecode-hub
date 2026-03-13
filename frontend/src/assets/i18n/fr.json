@@ -246,7 +246,31 @@
     "mcpNoServers": "Aucun serveur MCP configuré",
     "mcpServerSaved": "Serveur MCP sauvegardé",
     "mcpServerDeleted": "Serveur MCP supprimé",
-    "mcpServerCreated": "Serveur MCP créé"
+    "mcpServerCreated": "Serveur MCP créé",
+    "voice": "Voix (STT/TTS)",
+    "voiceEnabled": "Chat vocal activé",
+    "voiceEnabledHint": "Activer l'entrée et la sortie vocales dans le chat",
+    "voiceStt": "Reconnaissance Vocale (STT)",
+    "voiceSttUrl": "URL Serveur",
+    "voiceSttModel": "Modèle",
+    "voiceSttLanguage": "Langue",
+    "voiceTts": "Synthèse Vocale (TTS)",
+    "voiceTtsUrl": "URL Serveur",
+    "voiceTtsVoice": "Voix",
+    "voiceTtsSpeed": "Vitesse",
+    "voiceHealthCheck": "Vérifier les services"
+  },
+  "voice": {
+    "startRecording": "Démarrer l'enregistrement vocal",
+    "stopRecording": "Arrêter l'enregistrement",
+    "listening": "Écoute...",
+    "speaking": "Parle...",
+    "voiceMode": "Mode vocal",
+    "micPermission": "Accès au microphone requis",
+    "micDenied": "Accès au microphone refusé",
+    "sttError": "Reconnaissance vocale échouée",
+    "ttsError": "Synthèse vocale échouée",
+    "notSupported": "Non supporté"
   },
   "monitor": {
     "cpu": "CPU",

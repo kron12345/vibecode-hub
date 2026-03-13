@@ -2,6 +2,7 @@ import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { PrismaService } from '../prisma/prisma.service';
 import { decrypt } from './crypto.util';
+import { VoiceConfig } from '../voice/voice.interfaces';
 
 export interface AgentRoleConfig {
   provider: string;
@@ -193,6 +194,48 @@ export class SystemSettingsService implements OnModuleInit {
       undefined,
       '/etc/nginx/conf.d/hub-project-map.conf',
     );
+  }
+
+  // ─── Voice Getters ──────────────────────────────────────
+
+  get voiceEnabled(): boolean {
+    return this.get('voice.enabled', undefined, 'false') === 'true';
+  }
+
+  get sttUrl(): string {
+    return this.get('voice.stt.url', undefined, 'http://localhost:8300');
+  }
+
+  get sttModel(): string {
+    return this.get('voice.stt.model', undefined, 'large-v3-turbo');
+  }
+
+  get sttLanguage(): string {
+    return this.get('voice.stt.language', undefined, 'auto');
+  }
+
+  get ttsUrl(): string {
+    return this.get('voice.tts.url', undefined, 'http://localhost:8301');
+  }
+
+  get ttsVoice(): string {
+    return this.get('voice.tts.voice', undefined, 'default');
+  }
+
+  get ttsSpeed(): number {
+    return parseFloat(this.get('voice.tts.speed', undefined, '1.0')) || 1.0;
+  }
+
+  getVoiceConfig(): VoiceConfig {
+    return {
+      enabled: this.voiceEnabled,
+      sttUrl: this.sttUrl,
+      ttsUrl: this.ttsUrl,
+      sttModel: this.sttModel,
+      sttLanguage: this.sttLanguage,
+      ttsVoice: this.ttsVoice,
+      ttsSpeed: this.ttsSpeed,
+    };
   }
 
   /** Get full agent role config (provider, model, systemPrompt, parameters, permissions, etc.) */

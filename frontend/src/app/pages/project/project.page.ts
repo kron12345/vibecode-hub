@@ -27,6 +27,7 @@ import {
   McpProjectOverride,
 } from '../../services/api.service';
 import { ChatSocketService } from '../../services/chat-socket.service';
+import { VoiceService } from '../../services/voice.service';
 import { IconComponent } from '../../components/icon.component';
 import { TranslatePipe } from '../../pipes/translate.pipe';
 import { TranslateService } from '../../services/translate.service';
@@ -429,6 +430,47 @@ type Tab = 'overview' | 'settings';
                 </div>
               }
 
+              <!-- TTS Speaking Indicator -->
+              @if (voice.isSpeaking()) {
+                <div class="px-5 py-1.5 border-t border-white/5 flex items-center gap-2">
+                  <div class="flex items-center gap-1 h-4">
+                    <span class="w-0.5 h-2 bg-sky-400 rounded-full animate-pulse"></span>
+                    <span class="w-0.5 h-3 bg-sky-400 rounded-full animate-pulse" style="animation-delay: 0.15s"></span>
+                    <span class="w-0.5 h-2 bg-sky-400 rounded-full animate-pulse" style="animation-delay: 0.3s"></span>
+                  </div>
+                  <span class="text-sky-400 text-xs font-mono">{{ 'voice.speaking' | translate }}</span>
+                  <button
+                    (click)="voice.stopPlayback()"
+                    class="text-slate-600 hover:text-red-400 transition-colors ml-auto"
+                  >
+                    <app-icon name="square" [size]="12" />
+                  </button>
+                </div>
+              }
+
+              <!-- Recording Overlay -->
+              @if (voice.isRecording()) {
+                <div class="px-5 py-2 border-t border-white/5 flex items-center gap-3 bg-red-500/5">
+                  <span class="w-3 h-3 rounded-full bg-red-500 animate-pulse shrink-0"></span>
+                  <span class="text-red-400 text-xs font-mono flex-1 truncate">
+                    {{ voice.transcript() || ('voice.listening' | translate) }}
+                  </span>
+                  <button
+                    (click)="voice.stopRecording()"
+                    class="text-emerald-400 hover:text-emerald-300 transition-colors shrink-0"
+                    [title]="'voice.stopRecording' | translate"
+                  >
+                    <app-icon name="send-horizontal" [size]="16" />
+                  </button>
+                  <button
+                    (click)="voice.cancelRecording()"
+                    class="text-slate-600 hover:text-red-400 transition-colors shrink-0"
+                  >
+                    <app-icon name="x" [size]="14" />
+                  </button>
+                </div>
+              }
+
               <!-- Input -->
               <div class="px-5 py-3 border-t border-white/5">
                 <div class="flex items-center gap-2 bg-black/40 rounded-xl px-4 py-2.5">
@@ -454,6 +496,16 @@ type Tab = 'overview' | 'settings';
                   >
                     <app-icon name="paperclip" [size]="16" />
                   </button>
+                  @if (voice.voiceSupported()) {
+                    <button
+                      (click)="onMicClick()"
+                      class="transition-colors shrink-0"
+                      [class]="voice.isVoiceMode() ? 'text-red-400 hover:text-red-300' : 'text-slate-600 hover:text-sky-400'"
+                      [title]="(voice.isVoiceMode() ? 'voice.stopRecording' : 'voice.startRecording') | translate"
+                    >
+                      <app-icon [name]="voice.isVoiceMode() ? 'mic-off' : 'mic'" [size]="16" />
+                    </button>
+                  }
                   <button
                     (click)="sendMessage()"
                     class="text-slate-600 hover:text-indigo-400 transition-colors shrink-0"
@@ -1111,6 +1163,7 @@ export class ProjectPage implements OnInit, OnDestroy {
   private route = inject(ActivatedRoute);
   private api = inject(ApiService);
   private chatSocket = inject(ChatSocketService);
+  voice = inject(VoiceService);
   i18n = inject(TranslateService);
 
   project = signal<Project | null>(null);
@@ -1370,6 +1423,7 @@ export class ProjectPage implements OnInit, OnDestroy {
 
   ngOnDestroy() {
     this.chatSocket.leaveSession();
+    this.voice.teardownSocketListeners();
     this.socketSub?.unsubscribe();
     this.agentStatusSub?.unsubscribe();
     this.projectUpdatedSub?.unsubscribe();
@@ -1561,6 +1615,7 @@ export class ProjectPage implements OnInit, OnDestroy {
   openSession(session: ChatSession) {
     this.activeSession.set(session);
     this.chatSocket.joinSession(session.id);
+    this.voice.setupSocketListeners();
     this.api.getChatMessages(session.id).subscribe((msgs) => {
       this.messages.set(msgs);
     });
@@ -1680,6 +1735,20 @@ export class ProjectPage implements OnInit, OnDestroy {
   useSuggestion(text: string) {
     this.messageInput = text;
     this.sendMessage();
+  }
+
+  onMicClick() {
+    if (!this.voice.isVoiceMode()) {
+      // Enable voice mode and start recording
+      this.voice.toggleVoiceMode();
+      this.voice.startRecording();
+    } else if (this.voice.isRecording()) {
+      // Stop current recording
+      this.voice.stopRecording();
+    } else {
+      // Voice mode active but not recording — start new recording
+      this.voice.startRecording();
+    }
   }
 
   onFileSelected(event: Event) {

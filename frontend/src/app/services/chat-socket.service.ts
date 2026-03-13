@@ -48,6 +48,35 @@ export interface InterviewProgressEvent {
   };
 }
 
+// ─── Voice Event Interfaces ─────────────────────────────────
+
+export interface VoiceTranscriptEvent {
+  chatSessionId: string;
+  text: string;
+  language?: string;
+  isFinal: boolean;
+}
+
+export interface VoiceAudioStartEvent {
+  chatSessionId: string;
+  format: string;
+}
+
+export interface VoiceAudioChunkEvent {
+  chatSessionId: string;
+  audio: string; // base64
+  chunkIndex: number;
+}
+
+export interface VoiceAudioEndEvent {
+  chatSessionId: string;
+}
+
+export interface VoiceErrorEvent {
+  chatSessionId: string;
+  error: string;
+}
+
 @Injectable({ providedIn: 'root' })
 export class ChatSocketService implements OnDestroy {
   private socket: Socket | null = null;
@@ -66,6 +95,13 @@ export class ChatSocketService implements OnDestroy {
   /** Interview-specific events */
   readonly chatSuggestions$ = new Subject<ChatSuggestionsEvent>();
   readonly interviewProgress$ = new Subject<InterviewProgressEvent>();
+
+  // ─── Voice Events ──────────────────────────────────────────
+  readonly voiceTranscript$ = new Subject<VoiceTranscriptEvent>();
+  readonly voiceAudioStart$ = new Subject<VoiceAudioStartEvent>();
+  readonly voiceAudioChunk$ = new Subject<VoiceAudioChunkEvent>();
+  readonly voiceAudioEnd$ = new Subject<VoiceAudioEndEvent>();
+  readonly voiceError$ = new Subject<VoiceErrorEvent>();
 
   private connect() {
     if (this.socket) return;
@@ -107,6 +143,27 @@ export class ChatSocketService implements OnDestroy {
     this.socket.on('interviewProgress', (event: InterviewProgressEvent) => {
       this.interviewProgress$.next(event);
     });
+
+    // ─── Voice Socket Listeners ────────────────────────────
+    this.socket.on('voiceTranscript', (event: VoiceTranscriptEvent) => {
+      this.voiceTranscript$.next(event);
+    });
+
+    this.socket.on('voiceAudioStart', (event: VoiceAudioStartEvent) => {
+      this.voiceAudioStart$.next(event);
+    });
+
+    this.socket.on('voiceAudioChunk', (event: VoiceAudioChunkEvent) => {
+      this.voiceAudioChunk$.next(event);
+    });
+
+    this.socket.on('voiceAudioEnd', (event: VoiceAudioEndEvent) => {
+      this.voiceAudioEnd$.next(event);
+    });
+
+    this.socket.on('voiceError', (event: VoiceErrorEvent) => {
+      this.voiceError$.next(event);
+    });
   }
 
   joinSession(chatSessionId: string) {
@@ -132,6 +189,29 @@ export class ChatSocketService implements OnDestroy {
       this.socket.emit('sendMessage', {
         chatSessionId: this.currentSessionId,
         content,
+      });
+    }
+  }
+
+  // ─── Voice Emitters ────────────────────────────────────────
+
+  /** Send recorded audio to server for transcription */
+  emitVoiceMessage(audio: string, mimeType: string) {
+    if (this.socket && this.currentSessionId) {
+      this.socket.emit('voiceMessage', {
+        chatSessionId: this.currentSessionId,
+        audio,
+        mimeType,
+      });
+    }
+  }
+
+  /** Toggle voice mode for the current session */
+  emitVoiceModeToggle(enabled: boolean) {
+    if (this.socket && this.currentSessionId) {
+      this.socket.emit('voiceModeToggle', {
+        chatSessionId: this.currentSessionId,
+        enabled,
       });
     }
   }

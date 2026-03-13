@@ -507,6 +507,26 @@ export class ApiService {
     );
   }
 
+  // ─── Voice ───────────────────────────────────────────────
+
+  getVoiceHealth() {
+    return this.http.get<{ stt: boolean; tts: boolean }>(
+      `${this.baseUrl}/voice/health`,
+    );
+  }
+
+  getVoiceConfig() {
+    return this.http.get<{
+      enabled: boolean;
+      sttUrl: string;
+      ttsUrl: string;
+      sttModel: string;
+      sttLanguage: string;
+      ttsVoice: string;
+      ttsSpeed: number;
+    }>(`${this.baseUrl}/voice/config`);
+  }
+
   // ─── Monitor ──────────────────────────────────────────────
 
   getHardwareStats() {
