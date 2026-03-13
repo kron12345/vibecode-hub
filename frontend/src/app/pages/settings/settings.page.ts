@@ -434,56 +434,99 @@ const PERMISSION_KEYS: { key: keyof AgentRoleConfig['permissions']; labelKey: st
             <!-- TTS Settings -->
             <div class="border-t border-white/5 pt-4">
               <h3 class="text-sm font-semibold text-slate-400 mb-3">{{ 'settings.voiceTts' | translate }}</h3>
-              <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div class="space-y-4">
+                <!-- Engine selector -->
                 <div>
-                  <label class="block text-xs font-medium text-slate-500 mb-1">{{ 'settings.voiceTtsUrl' | translate }}</label>
-                  <input
-                    type="text"
-                    [(ngModel)]="sysValues['voice.tts.url']"
-                    class="w-full bg-slate-900/50 border border-white/10 rounded-xl px-4 py-2.5 text-white text-sm focus:outline-none focus:border-pink-500/50 transition-colors"
-                    placeholder="http://localhost:8301"
-                  />
+                  <label class="block text-xs font-medium text-slate-500 mb-2">{{ 'settings.voiceTtsEngine' | translate }}</label>
+                  <div class="flex gap-2">
+                    @for (eng of ttsEngines; track eng.id) {
+                      <button
+                        (click)="selectTtsEngine(eng.id)"
+                        class="flex-1 px-4 py-3 rounded-xl border text-sm font-medium transition-all"
+                        [class]="
+                          (sysValues['voice.tts.engine'] || 'piper') === eng.id
+                            ? 'border-pink-500/40 bg-pink-500/10 text-pink-400'
+                            : 'border-white/10 bg-slate-900/50 text-slate-500 hover:text-slate-300 hover:border-white/20'
+                        "
+                      >
+                        <div class="font-semibold">{{ eng.name }}</div>
+                        <div class="text-[10px] mt-0.5 opacity-60">{{ eng.hint }}</div>
+                      </button>
+                    }
+                  </div>
                 </div>
-                <div>
-                  <label class="block text-xs font-medium text-slate-500 mb-1">{{ 'settings.voiceTtsVoice' | translate }}</label>
-                  <input
-                    type="text"
-                    [(ngModel)]="sysValues['voice.tts.voice']"
-                    class="w-full bg-slate-900/50 border border-white/10 rounded-xl px-4 py-2.5 text-white text-sm focus:outline-none focus:border-pink-500/50 transition-colors"
-                    placeholder="default"
-                  />
-                </div>
-                <div>
-                  <label class="block text-xs font-medium text-slate-500 mb-1">
-                    {{ 'settings.voiceTtsSpeed' | translate }}: {{ sysValues['voice.tts.speed'] || '1.0' }}x
-                  </label>
-                  <input
-                    type="range"
-                    min="0.5"
-                    max="2.0"
-                    step="0.1"
-                    [ngModel]="sysValues['voice.tts.speed'] || '1.0'"
-                    (ngModelChange)="sysValues['voice.tts.speed'] = $event"
-                    class="w-full accent-pink-500"
-                  />
-                  <div class="flex justify-between text-[10px] text-slate-600 mt-1">
-                    <span>0.5x</span>
-                    <span>1.0x</span>
-                    <span>2.0x</span>
+                <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <div>
+                    <label class="block text-xs font-medium text-slate-500 mb-1">{{ 'settings.voiceTtsUrl' | translate }}</label>
+                    <input
+                      type="text"
+                      [(ngModel)]="sysValues['voice.tts.url']"
+                      class="w-full bg-slate-900/50 border border-white/10 rounded-xl px-4 py-2.5 text-white text-sm focus:outline-none focus:border-pink-500/50 transition-colors"
+                      [placeholder]="getTtsDefaultUrl()"
+                    />
+                  </div>
+                  <div>
+                    <label class="block text-xs font-medium text-slate-500 mb-1">{{ 'settings.voiceTtsVoice' | translate }}</label>
+                    @if (ttsVoicesList().length > 0) {
+                      <select
+                        [(ngModel)]="sysValues['voice.tts.voice']"
+                        class="w-full bg-slate-900/50 border border-white/10 rounded-xl px-4 py-2.5 text-white text-sm focus:outline-none focus:border-pink-500/50 transition-colors"
+                      >
+                        @for (v of ttsVoicesList(); track v.id) {
+                          <option [value]="v.id">{{ v.name }} @if (v.locale) { ({{ v.locale }}) } @if (v.quality) { [{{ v.quality }}] }</option>
+                        }
+                      </select>
+                    } @else {
+                      <input
+                        type="text"
+                        [(ngModel)]="sysValues['voice.tts.voice']"
+                        class="w-full bg-slate-900/50 border border-white/10 rounded-xl px-4 py-2.5 text-white text-sm focus:outline-none focus:border-pink-500/50 transition-colors"
+                        [placeholder]="getTtsDefaultVoice()"
+                      />
+                    }
+                  </div>
+                  <div>
+                    <label class="block text-xs font-medium text-slate-500 mb-1">
+                      {{ 'settings.voiceTtsSpeed' | translate }}: {{ sysValues['voice.tts.speed'] || '1.0' }}x
+                    </label>
+                    <input
+                      type="range"
+                      min="0.5"
+                      max="2.0"
+                      step="0.1"
+                      [ngModel]="sysValues['voice.tts.speed'] || '1.0'"
+                      (ngModelChange)="sysValues['voice.tts.speed'] = $event"
+                      class="w-full accent-pink-500"
+                    />
+                    <div class="flex justify-between text-[10px] text-slate-600 mt-1">
+                      <span>0.5x</span>
+                      <span>1.0x</span>
+                      <span>2.0x</span>
+                    </div>
                   </div>
                 </div>
               </div>
             </div>
             <!-- Health Check -->
             <div class="border-t border-white/5 pt-4">
-              <button
-                (click)="checkVoiceHealth()"
-                [disabled]="voiceHealthLoading()"
-                class="bg-pink-600/20 hover:bg-pink-600/30 border border-pink-500/20 text-pink-400 px-4 py-2 rounded-xl text-sm font-medium transition-all flex items-center gap-2"
-              >
-                <app-icon name="activity" [size]="14" />
-                {{ 'settings.voiceHealthCheck' | translate }}
-              </button>
+              <div class="flex items-center gap-3">
+                <button
+                  (click)="checkVoiceHealth()"
+                  [disabled]="voiceHealthLoading()"
+                  class="bg-pink-600/20 hover:bg-pink-600/30 border border-pink-500/20 text-pink-400 px-4 py-2 rounded-xl text-sm font-medium transition-all flex items-center gap-2"
+                >
+                  <app-icon name="activity" [size]="14" />
+                  {{ 'settings.voiceHealthCheck' | translate }}
+                </button>
+                <button
+                  (click)="loadTtsVoices()"
+                  [disabled]="ttsVoicesLoading()"
+                  class="bg-slate-700/50 hover:bg-slate-700 border border-white/10 text-slate-400 px-4 py-2 rounded-xl text-sm font-medium transition-all flex items-center gap-2"
+                >
+                  <app-icon name="list" [size]="14" [class]="ttsVoicesLoading() ? 'animate-spin' : ''" />
+                  {{ 'settings.voiceLoadVoices' | translate }}
+                </button>
+              </div>
               @if (voiceHealth()) {
                 <div class="flex items-center gap-4 mt-3">
                   <div class="flex items-center gap-2">
@@ -492,8 +535,15 @@ const PERMISSION_KEYS: { key: keyof AgentRoleConfig['permissions']; labelKey: st
                   </div>
                   <div class="flex items-center gap-2">
                     <span class="w-2 h-2 rounded-full" [class]="voiceHealth()!.tts ? 'bg-emerald-400' : 'bg-red-400'"></span>
-                    <span class="text-xs text-slate-400">TTS</span>
+                    <span class="text-xs text-slate-400">TTS
+                      @if (voiceHealth()!.ttsEngine) {
+                        <span class="text-slate-600">({{ voiceHealth()!.ttsEngine }})</span>
+                      }
+                    </span>
                   </div>
+                  @if (voiceHealth()!.ttsVoices) {
+                    <span class="text-xs text-slate-600">{{ voiceHealth()!.ttsVoices }} {{ 'settings.voiceTtsVoicesCount' | translate }}</span>
+                  }
                 </div>
               }
             </div>
@@ -1219,8 +1269,17 @@ export class SettingsPage implements OnInit {
   newMcpServerArgsText = '';
 
   // Voice health check
-  voiceHealth = signal<{ stt: boolean; tts: boolean } | null>(null);
+  voiceHealth = signal<{ stt: boolean; tts: boolean; ttsEngine?: string; ttsVoices?: number } | null>(null);
   voiceHealthLoading = signal(false);
+  ttsVoicesList = signal<{ id: string; name: string; locale?: string; quality?: string }[]>([]);
+  ttsVoicesLoading = signal(false);
+
+  // TTS engine definitions
+  ttsEngines = [
+    { id: 'piper', name: 'Piper', hint: 'CPU, schnell, ~0.07s', url: 'http://localhost:8302', voice: 'de_DE-thorsten_emotional-medium' },
+    { id: 'qwen3', name: 'Qwen3-TTS', hint: 'GPU, natuerlich, ~3s', url: 'http://localhost:8301', voice: 'serena' },
+    { id: 'f5-tts', name: 'F5-TTS', hint: 'GPU, Voice Cloning', url: 'http://localhost:8303', voice: 'default' },
+  ];
 
   // Provider discovery
   providerResults = signal<Record<string, ProviderModelsResult>>({});
@@ -1395,6 +1454,41 @@ export class SettingsPage implements OnInit {
       });
   }
 
+  selectTtsEngine(engineId: string) {
+    this.sysValues['voice.tts.engine'] = engineId;
+    const engine = this.ttsEngines.find(e => e.id === engineId);
+    if (engine) {
+      this.sysValues['voice.tts.url'] = engine.url;
+      this.sysValues['voice.tts.voice'] = engine.voice;
+    }
+    // Clear cached voices list when engine changes
+    this.ttsVoicesList.set([]);
+  }
+
+  getTtsDefaultUrl(): string {
+    const engine = this.ttsEngines.find(e => e.id === (this.sysValues['voice.tts.engine'] || 'piper'));
+    return engine?.url ?? 'http://localhost:8302';
+  }
+
+  getTtsDefaultVoice(): string {
+    const engine = this.ttsEngines.find(e => e.id === (this.sysValues['voice.tts.engine'] || 'piper'));
+    return engine?.voice ?? 'default';
+  }
+
+  loadTtsVoices() {
+    this.ttsVoicesLoading.set(true);
+    this.api.getVoiceVoices().subscribe({
+      next: (result) => {
+        this.ttsVoicesList.set(result.voices);
+        this.ttsVoicesLoading.set(false);
+      },
+      error: () => {
+        this.ttsVoicesList.set([]);
+        this.ttsVoicesLoading.set(false);
+      },
+    });
+  }
+
   checkVoiceHealth() {
     this.voiceHealthLoading.set(true);
     this.voiceHealth.set(null);
@@ -1449,6 +1543,7 @@ export class SettingsPage implements OnInit {
       'voice.stt.url',
       'voice.stt.model',
       'voice.stt.language',
+      'voice.tts.engine',
       'voice.tts.url',
       'voice.tts.voice',
       'voice.tts.speed',

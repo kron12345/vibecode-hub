@@ -510,7 +510,7 @@ export class ApiService {
   // ─── Voice ───────────────────────────────────────────────
 
   getVoiceHealth() {
-    return this.http.get<{ stt: boolean; tts: boolean }>(
+    return this.http.get<{ stt: boolean; tts: boolean; ttsEngine?: string; ttsVoices?: number }>(
       `${this.baseUrl}/voice/health`,
     );
   }
@@ -522,9 +522,16 @@ export class ApiService {
       ttsUrl: string;
       sttModel: string;
       sttLanguage: string;
+      ttsEngine: string;
       ttsVoice: string;
       ttsSpeed: number;
     }>(`${this.baseUrl}/voice/config`);
+  }
+
+  getVoiceVoices() {
+    return this.http.get<{ engine: string; voices: { id: string; name: string; locale?: string; quality?: string }[] }>(
+      `${this.baseUrl}/voice/voices`,
+    );
   }
 
   // ─── Monitor ──────────────────────────────────────────────

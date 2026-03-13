@@ -25,4 +25,12 @@ export class VoiceController {
   getConfig() {
     return this.voiceService.getConfig();
   }
+
+  @Get('voices')
+  @UseGuards(RolesGuard)
+  @Roles('admin')
+  @ApiOperation({ summary: 'List available TTS voices from the active engine' })
+  async getVoices() {
+    return this.voiceService.listVoices();
+  }
 }

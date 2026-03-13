@@ -3,6 +3,7 @@ import { SystemSettingsService } from '../settings/system-settings.service';
 import {
   TranscriptionResult,
   TtsRequest,
+  TtsVoiceInfo,
   VoiceConfig,
   VoiceHealthStatus,
 } from './voice.interfaces';
@@ -167,14 +168,38 @@ export class VoiceService {
     return sentences;
   }
 
+  /** List available voices from the active TTS engine */
+  async listVoices(): Promise<{ engine: string; voices: TtsVoiceInfo[] }> {
+    const config = this.getConfig();
+    try {
+      const controller = new AbortController();
+      const timeout = setTimeout(() => controller.abort(), 5000);
+      const response = await fetch(`${config.ttsUrl}/voices`, {
+        signal: controller.signal,
+      });
+      clearTimeout(timeout);
+      if (response.ok) {
+        return await response.json();
+      }
+      return { engine: config.ttsEngine, voices: [] };
+    } catch {
+      return { engine: config.ttsEngine, voices: [] };
+    }
+  }
+
   /** Check health of both STT and TTS services */
   async checkHealth(): Promise<VoiceHealthStatus> {
     const config = this.getConfig();
-    const [stt, tts] = await Promise.all([
+    const [stt, ttsHealth] = await Promise.all([
       this.pingService(config.sttUrl),
-      this.pingService(config.ttsUrl),
+      this.pingServiceJson(config.ttsUrl),
     ]);
-    return { stt, tts };
+    return {
+      stt,
+      tts: ttsHealth.ok,
+      ttsEngine: ttsHealth.engine,
+      ttsVoices: ttsHealth.voices,
+    };
   }
 
   /** Get current voice configuration from settings */
@@ -193,6 +218,24 @@ export class VoiceService {
       return response.ok;
     } catch {
       return false;
+    }
+  }
+
+  private async pingServiceJson(baseUrl: string): Promise<{ ok: boolean; engine?: string; voices?: number }> {
+    try {
+      const controller = new AbortController();
+      const timeout = setTimeout(() => controller.abort(), 5000);
+      const response = await fetch(`${baseUrl}/health`, {
+        signal: controller.signal,
+      });
+      clearTimeout(timeout);
+      if (response.ok) {
+        const data = await response.json();
+        return { ok: true, engine: data.engine, voices: data.voices };
+      }
+      return { ok: false };
+    } catch {
+      return { ok: false };
     }
   }
 }

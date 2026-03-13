@@ -257,7 +257,10 @@
     "voiceTts": "Sprachsynthese (TTS)",
     "voiceTtsUrl": "Server-URL",
     "voiceTtsVoice": "Stimme",
+    "voiceTtsEngine": "TTS-Engine",
     "voiceTtsSpeed": "Geschwindigkeit",
+    "voiceTtsVoicesCount": "Stimmen",
+    "voiceLoadVoices": "Stimmen laden",
     "voiceHealthCheck": "Services prüfen"
   },
   "voice": {

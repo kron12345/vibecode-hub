@@ -2,7 +2,7 @@ import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { PrismaService } from '../prisma/prisma.service';
 import { decrypt } from './crypto.util';
-import { VoiceConfig } from '../voice/voice.interfaces';
+import { TtsEngine, VoiceConfig } from '../voice/voice.interfaces';
 
 export interface AgentRoleConfig {
   provider: string;
@@ -214,12 +214,28 @@ export class SystemSettingsService implements OnModuleInit {
     return this.get('voice.stt.language', undefined, 'auto');
   }
 
+  /** TTS engine defaults: engine → { url, defaultVoice } */
+  private static readonly TTS_ENGINE_DEFAULTS: Record<TtsEngine, { url: string; voice: string }> = {
+    'piper': { url: 'http://localhost:8302', voice: 'de_DE-thorsten_emotional-medium' },
+    'qwen3': { url: 'http://localhost:8301', voice: 'serena' },
+    'f5-tts': { url: 'http://localhost:8303', voice: 'default' },
+  };
+
+  get ttsEngine(): TtsEngine {
+    const val = this.get('voice.tts.engine', undefined, 'piper');
+    return val as TtsEngine;
+  }
+
   get ttsUrl(): string {
-    return this.get('voice.tts.url', undefined, 'http://localhost:8301');
+    const customUrl = this.get('voice.tts.url', undefined, '');
+    if (customUrl) return customUrl;
+    return SystemSettingsService.TTS_ENGINE_DEFAULTS[this.ttsEngine]?.url ?? 'http://localhost:8302';
   }
 
   get ttsVoice(): string {
-    return this.get('voice.tts.voice', undefined, 'serena');
+    const customVoice = this.get('voice.tts.voice', undefined, '');
+    if (customVoice) return customVoice;
+    return SystemSettingsService.TTS_ENGINE_DEFAULTS[this.ttsEngine]?.voice ?? 'default';
   }
 
   get ttsSpeed(): number {
@@ -233,6 +249,7 @@ export class SystemSettingsService implements OnModuleInit {
       ttsUrl: this.ttsUrl,
       sttModel: this.sttModel,
       sttLanguage: this.sttLanguage,
+      ttsEngine: this.ttsEngine,
       ttsVoice: this.ttsVoice,
       ttsSpeed: this.ttsSpeed,
     };
