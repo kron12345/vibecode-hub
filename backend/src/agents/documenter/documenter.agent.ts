@@ -282,8 +282,11 @@ For code-level docs (README, API, JSDoc), keep \`wikiPage: false\` or omit it.`;
         this.logger.warn(`Screenshot processing failed: ${err.message}`);
       }
 
-      // Sync wiki pages
-      const wikiFiles = docResult.files.filter(f => f.wikiPage);
+      // Sync wiki pages — ALL markdown files are synced to the GitLab wiki.
+      // The LLM's wikiPage flag is unreliable (it almost never sets it), so we
+      // sync every .md file the Documenter writes. This ensures PROJECT_KNOWLEDGE,
+      // CHANGELOG, README, and any other docs are always available in the wiki.
+      const wikiFiles = docResult.files.filter(f => f.path.endsWith('.md'));
       const wikiPages: string[] = [];
       for (const wf of wikiFiles) {
         try {
