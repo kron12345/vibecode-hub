@@ -581,6 +581,44 @@ Agent → LlmService.completeStream() → Provider.streamComplete()
 - **Fallback**: CLI-Provider (Claude Code, Codex) → Single-Chunk nach Completion
 - **Frontend**: Token-Akkumulation mit Live-Cursor (▊) im Terminal-Chat
 
+## Voice Chat Pipeline
+
+Voice ist ein Wrapper um den bestehenden Text-Chat: Audio wird transkribiert, geht als normale Text-Message durch den Agent-Flow, und die Agent-Antwort wird zu Audio synthetisiert.
+
+```
+🎤 Mic → Faster-Whisper large-v3-turbo (STT) → Chat-Flow (LLM) → TTS → 🔊 Audio
+```
+
+### VRAM Layout
+
+| GPU | Service | VRAM |
+|---|---|---|
+| GPU 0 | Ollama (LLM) | ~22 GB |
+| GPU 1 | Faster-Whisper (STT) | ~2-3 GB |
+| GPU 1 | TTS | ~6-8 GB |
+| GPU 1 | Reserve | ~14 GB frei |
+
+### Backend
+
+- **VoiceModule** (`backend/src/voice/`) — VoiceService (STT/TTS HTTP Client), VoiceController (health + config)
+- **ChatGateway** — Voice WebSocket Events (voiceMessage, voiceModeToggle, voiceTranscript, voiceAudioStart/Chunk/End)
+- **Auto-TTS**: Agent-Messages werden automatisch an Voice-Mode-Clients als Audio gestreamt
+- **SystemSettings**: 7 neue Keys (`voice.*`)
+
+### Frontend
+
+- **VoiceService** — Push-to-Talk Recording (MediaRecorder API), Web Audio API Playback, AudioContext Queue
+- **ChatSocketService** — 5 Voice-Event Subjects + 2 Emitter
+- **ProjectPage** — Mic-Button, Recording-Overlay, Speaking-Indicator
+- **SettingsPage** — Voice-Sektion (STT/TTS Config, Health-Check)
+
+### Services (systemd)
+
+| Service | Port | Modell |
+|---|---|---|
+| `vibcode-stt` | :8300 | Faster-Whisper large-v3-turbo |
+| `vibcode-tts` | :8301 | TTS (Qwen3-TTS / Piper) |
+
 ## MCP-Server (Entwicklungs-Tooling)
 
 Konfiguriert in `.claude/settings.local.json`:

@@ -827,6 +827,51 @@ map $hub_project $hub_upstream {
 
 ---
 
+## Voice
+
+| Method | Endpoint | Auth | Beschreibung |
+|---|---|---|---|
+| `GET` | `/api/voice/health` | Admin | STT + TTS Service Health-Check |
+| `GET` | `/api/voice/config` | Admin | Aktuelle Voice-Konfiguration |
+
+### WebSocket Events (Namespace `/chat`)
+
+| Event | Richtung | Payload | Beschreibung |
+|---|---|---|---|
+| `voiceMessage` | Client → Server | `{ chatSessionId, audio: base64, mimeType }` | Audio senden (Push-to-Talk) |
+| `voiceModeToggle` | Client → Server | `{ chatSessionId, enabled }` | Voice-Mode an/aus |
+| `voiceTranscript` | Server → Client | `{ chatSessionId, text, language?, isFinal }` | STT-Transkription |
+| `voiceAudioStart` | Server → Client | `{ chatSessionId, format }` | TTS-Audio beginnt |
+| `voiceAudioChunk` | Server → Client | `{ chatSessionId, audio: base64, chunkIndex }` | TTS-Audio-Chunk |
+| `voiceAudioEnd` | Server → Client | `{ chatSessionId }` | TTS-Audio fertig |
+| `voiceError` | Server → Client | `{ chatSessionId, error }` | Voice-Fehler |
+
+### Voice Flow (Push-to-Talk)
+
+```
+1. Client: voiceMessage (Audio als base64)
+2. Server: VoiceService.transcribe() → STT
+3. Server: voiceTranscript → Client (Transkript anzeigen)
+4. Server: addMessage(USER, text) + newMessage → normaler Chat-Flow
+5. Agent antwortet → newMessage Event
+6. Wenn Voice-Mode aktiv: VoiceService.synthesizeStream()
+7. Server: voiceAudioStart → voiceAudioChunk[] → voiceAudioEnd
+```
+
+### SystemSettings Keys
+
+| Key | Default | Beschreibung |
+|---|---|---|
+| `voice.enabled` | `false` | Voice-Feature aktiviert |
+| `voice.stt.url` | `http://localhost:8300` | Faster-Whisper Server URL |
+| `voice.stt.model` | `large-v3-turbo` | Whisper-Modell |
+| `voice.stt.language` | `auto` | Sprache (auto/de/en/...) |
+| `voice.tts.url` | `http://localhost:8301` | TTS Server URL |
+| `voice.tts.voice` | `default` | Stimmen-Preset |
+| `voice.tts.speed` | `1.0` | Sprechgeschwindigkeit (0.5–2.0) |
+
+---
+
 ## Monitor
 
 | Method | Endpoint | Auth | Beschreibung |
@@ -889,6 +934,7 @@ map $hub_project $hub_upstream {
 
 | Datum | Änderung |
 |---|---|
+| 2026-03-13 | Voice Chat Pipeline: VoiceModule (STT/TTS), 2 REST Endpoints (/voice/health, /voice/config), 7 WebSocket Events (voiceMessage, voiceModeToggle, voiceTranscript, voiceAudioStart/Chunk/End, voiceError), 7 SystemSettings Keys (voice.*), Auto-TTS on agent messages. Frontend: VoiceService (Push-to-Talk + Web Audio playback), Settings Voice section with health check. i18n: 4 Sprachen. |
 | 2026-03-11 | Session-Scoped Pipeline with Workspace Isolation: Git worktrees for dev sessions (`.session-worktrees/{slug}--{branch}/`), all session agents use `resolveWorkspace()`. Issue Compiler reads features from FeatureInterviewResult in sessions. Architect Phase A includes session features + ENVIRONMENT.md. Architect Phase B + Coder filter issues by chatSessionId. Coder does direct commits in session (no MR). CreateIssueDto gains `chatSessionId` field. Session pipeline: Interview → Architect A → Issue Compiler → Architect B → Coder → DONE. Worktrees removed on session archive. |
 | 2026-03-11 | Pipeline Split: Infrastructure Chat (Interview → DevOps → STOP + YOLO mode for infra commands) vs Dev Session Chat (Feature Interview → Architect → Issue Compiler → full pipeline). New task types: FEATURE_INTERVIEW, INFRA_COMMAND. DevOps generates ENVIRONMENT.md. New events: session.devSessionCreated, agent.featureInterviewComplete. agent.devopsComplete no longer triggers Architect. Interviewer has startFeatureInterview/continueFeatureInterview. DevOps has handleInfraCommand() YOLO mode. No new REST endpoints (uses existing + events). |
 | 2026-03-11 | Session-Based Branching: ChatSession erweitert um type/status/branch/archivedAt/parentId. 6 neue Endpoints (POST dev, archive, resolve, continue; PATCH :id; GET archived). SessionBranchService: create/archive/continue/resolve Lifecycle. Coder Option A: direkte Commits auf Session-Branch. 3-Tier Frontend UI (Infrastructure/Dev Sessions/Archive). |
