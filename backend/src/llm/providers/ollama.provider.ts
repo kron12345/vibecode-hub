@@ -36,7 +36,8 @@ export class OllamaProvider implements LlmStreamingProvider {
 
     // Keep models permanently in VRAM — avoids loading delays between requests.
     // With 2×RTX 3090 (48GB) there's enough room for concurrent models.
-    const keepAlive = '-1';
+    // Ollama requires -1 as a number (string "-1" fails: "missing unit in duration")
+    const keepAlive = -1;
 
     const body: Record<string, unknown> = {
       model: options.model,
@@ -181,8 +182,8 @@ export class OllamaProvider implements LlmStreamingProvider {
     const baseUrl = this.settings.ollamaUrl;
     const url = `${baseUrl}/api/chat`;
 
-    // Keep models permanently in VRAM — avoids loading delays between requests.
-    const keepAlive = '-1';
+    // Keep models permanently in VRAM (numeric -1, not string)
+    const keepAlive = -1;
 
     const body = {
       model: options.model,
