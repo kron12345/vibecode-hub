@@ -265,6 +265,7 @@
     "stopRecording": "Aufnahme stoppen",
     "listening": "Höre zu...",
     "speaking": "Spricht...",
+    "processing": "Wird verarbeitet...",
     "voiceMode": "Sprachmodus",
     "micPermission": "Mikrofonzugriff wird benötigt",
     "micDenied": "Mikrofonzugriff verweigert",

@@ -265,6 +265,7 @@
     "stopRecording": "Stop recording",
     "listening": "Listening...",
     "speaking": "Speaking...",
+    "processing": "Processing...",
     "voiceMode": "Voice mode",
     "micPermission": "Microphone access required",
     "micDenied": "Microphone access denied",

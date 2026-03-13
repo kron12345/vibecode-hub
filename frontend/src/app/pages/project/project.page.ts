@@ -290,7 +290,7 @@ type Tab = 'overview' | 'settings';
           </div>
 
           <!-- Right: Chat Terminal -->
-          <div class="glass card-glow rounded-3xl flex flex-col max-h-[65vh] animate-in stagger-6">
+          <div class="glass card-glow rounded-3xl flex flex-col max-h-[65vh] animate-in stagger-6 relative">
             <!-- Session bar -->
             <div class="flex items-center justify-between px-5 py-3 border-b border-white/5">
               <div class="flex items-center gap-3 min-w-0">
@@ -430,44 +430,67 @@ type Tab = 'overview' | 'settings';
                 </div>
               }
 
-              <!-- TTS Speaking Indicator -->
-              @if (voice.isSpeaking()) {
-                <div class="px-5 py-1.5 border-t border-white/5 flex items-center gap-2">
-                  <div class="flex items-center gap-1 h-4">
-                    <span class="w-0.5 h-2 bg-sky-400 rounded-full animate-pulse"></span>
-                    <span class="w-0.5 h-3 bg-sky-400 rounded-full animate-pulse" style="animation-delay: 0.15s"></span>
-                    <span class="w-0.5 h-2 bg-sky-400 rounded-full animate-pulse" style="animation-delay: 0.3s"></span>
-                  </div>
-                  <span class="text-sky-400 text-xs font-mono">{{ 'voice.speaking' | translate }}</span>
+              <!-- Voice Conversation Overlay -->
+              @if (voice.isVoiceMode()) {
+                <div class="absolute inset-0 z-20 bg-slate-900/85 backdrop-blur-xl flex flex-col items-center justify-center gap-6 rounded-3xl">
+                  <!-- Close button -->
                   <button
-                    (click)="voice.stopPlayback()"
-                    class="text-slate-600 hover:text-red-400 transition-colors ml-auto"
+                    (click)="voice.exitVoiceMode()"
+                    class="absolute top-4 right-4 text-slate-500 hover:text-white transition-colors p-2"
                   >
-                    <app-icon name="square" [size]="12" />
+                    <app-icon name="x" [size]="20" />
                   </button>
-                </div>
-              }
 
-              <!-- Recording Overlay -->
-              @if (voice.isRecording()) {
-                <div class="px-5 py-2 border-t border-white/5 flex items-center gap-3 bg-red-500/5">
-                  <span class="w-3 h-3 rounded-full bg-red-500 animate-pulse shrink-0"></span>
-                  <span class="text-red-400 text-xs font-mono flex-1 truncate">
-                    {{ voice.transcript() || ('voice.listening' | translate) }}
-                  </span>
-                  <button
-                    (click)="voice.stopRecording()"
-                    class="text-emerald-400 hover:text-emerald-300 transition-colors shrink-0"
-                    [title]="'voice.stopRecording' | translate"
-                  >
-                    <app-icon name="send-horizontal" [size]="16" />
-                  </button>
-                  <button
-                    (click)="voice.cancelRecording()"
-                    class="text-slate-600 hover:text-red-400 transition-colors shrink-0"
-                  >
-                    <app-icon name="x" [size]="14" />
-                  </button>
+                  <!-- State: LISTENING -->
+                  @if (voice.voiceState() === 'LISTENING') {
+                    <div class="relative">
+                      <div class="w-24 h-24 rounded-full bg-sky-500/20 border-2 border-sky-500/40 flex items-center justify-center animate-pulse">
+                        <app-icon name="mic" [size]="36" class="text-sky-400" />
+                      </div>
+                      <!-- Ripple rings -->
+                      <div class="absolute inset-0 w-24 h-24 rounded-full border-2 border-sky-400/20 animate-ping"></div>
+                    </div>
+                    <span class="text-sky-400 text-sm font-medium tracking-wide">{{ 'voice.listening' | translate }}</span>
+                    <button
+                      (click)="voice.stopRecording()"
+                      class="px-6 py-2.5 rounded-xl bg-sky-600/20 text-sky-400 text-sm font-medium border border-sky-500/30 hover:bg-sky-600/30 transition-all"
+                    >
+                      <app-icon name="send-horizontal" [size]="14" class="inline mr-2" />
+                      {{ 'voice.stopRecording' | translate }}
+                    </button>
+                  }
+
+                  <!-- State: PROCESSING (STT running) -->
+                  @if (voice.voiceState() === 'PROCESSING') {
+                    <div class="w-24 h-24 rounded-full bg-amber-500/20 border-2 border-amber-500/40 flex items-center justify-center">
+                      <app-icon name="loader-2" [size]="36" class="text-amber-400 animate-spin" />
+                    </div>
+                    <span class="text-amber-400 text-sm font-medium tracking-wide">{{ 'voice.processing' | translate }}</span>
+                    @if (voice.transcript()) {
+                      <p class="text-slate-400 text-sm max-w-md text-center italic">"{{ voice.transcript() }}"</p>
+                    }
+                  }
+
+                  <!-- State: SPEAKING (TTS playing) -->
+                  @if (voice.voiceState() === 'SPEAKING') {
+                    <div class="w-24 h-24 rounded-full bg-emerald-500/20 border-2 border-emerald-500/40 flex items-center justify-center">
+                      <div class="flex items-end gap-1 h-8">
+                        <span class="w-1 bg-emerald-400 rounded-full animate-bounce" style="height: 8px; animation-delay: 0ms; animation-duration: 0.6s"></span>
+                        <span class="w-1 bg-emerald-400 rounded-full animate-bounce" style="height: 16px; animation-delay: 0.1s; animation-duration: 0.6s"></span>
+                        <span class="w-1 bg-emerald-400 rounded-full animate-bounce" style="height: 24px; animation-delay: 0.2s; animation-duration: 0.6s"></span>
+                        <span class="w-1 bg-emerald-400 rounded-full animate-bounce" style="height: 16px; animation-delay: 0.3s; animation-duration: 0.6s"></span>
+                        <span class="w-1 bg-emerald-400 rounded-full animate-bounce" style="height: 8px; animation-delay: 0.4s; animation-duration: 0.6s"></span>
+                      </div>
+                    </div>
+                    <span class="text-emerald-400 text-sm font-medium tracking-wide">{{ 'voice.speaking' | translate }}</span>
+                    <button
+                      (click)="voice.stopPlayback(); voice.exitVoiceMode()"
+                      class="px-5 py-2 rounded-xl bg-slate-700/50 text-slate-400 text-xs border border-white/10 hover:bg-slate-700 transition-all"
+                    >
+                      <app-icon name="square" [size]="12" class="inline mr-1.5" />
+                      Stop
+                    </button>
+                  }
                 </div>
               }
 
@@ -498,7 +521,7 @@ type Tab = 'overview' | 'settings';
                   </button>
                   @if (voice.voiceSupported()) {
                     <button
-                      (click)="onMicClick()"
+                      (click)="voice.toggleVoiceMode()"
                       class="transition-colors shrink-0"
                       [class]="voice.isVoiceMode() ? 'text-red-400 hover:text-red-300' : 'text-slate-600 hover:text-sky-400'"
                       [title]="(voice.isVoiceMode() ? 'voice.stopRecording' : 'voice.startRecording') | translate"
@@ -1735,20 +1758,6 @@ export class ProjectPage implements OnInit, OnDestroy {
   useSuggestion(text: string) {
     this.messageInput = text;
     this.sendMessage();
-  }
-
-  onMicClick() {
-    if (!this.voice.isVoiceMode()) {
-      // Enable voice mode and start recording
-      this.voice.toggleVoiceMode();
-      this.voice.startRecording();
-    } else if (this.voice.isRecording()) {
-      // Stop current recording
-      this.voice.stopRecording();
-    } else {
-      // Voice mode active but not recording — start new recording
-      this.voice.startRecording();
-    }
   }
 
   onFileSelected(event: Event) {

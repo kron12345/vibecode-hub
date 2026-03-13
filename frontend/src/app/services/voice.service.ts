@@ -2,18 +2,26 @@ import { Injectable, OnDestroy, signal } from '@angular/core';
 import { ChatSocketService } from './chat-socket.service';
 import { Subscription } from 'rxjs';
 
+export type VoiceState = 'IDLE' | 'LISTENING' | 'PROCESSING' | 'SPEAKING';
+
 @Injectable({ providedIn: 'root' })
 export class VoiceService implements OnDestroy {
-  /** Whether the user is currently recording audio */
-  readonly isRecording = signal(false);
-  /** Whether voice mode is active for the current session */
+  /** Current voice conversation state */
+  readonly voiceState = signal<VoiceState>('IDLE');
+  /** Whether voice mode overlay is active */
   readonly isVoiceMode = signal(false);
-  /** Whether TTS audio is currently playing */
-  readonly isSpeaking = signal(false);
   /** Latest transcript from STT */
   readonly transcript = signal('');
   /** Whether the browser supports audio recording */
   readonly voiceSupported = signal(false);
+
+  // Convenience computed-like getters
+  get isRecording(): boolean {
+    return this.voiceState() === 'LISTENING';
+  }
+  get isSpeaking(): boolean {
+    return this.voiceState() === 'SPEAKING';
+  }
 
   private mediaRecorder: MediaRecorder | null = null;
   private mediaStream: MediaStream | null = null;
@@ -23,6 +31,7 @@ export class VoiceService implements OnDestroy {
   private audioContext: AudioContext | null = null;
   private audioQueue: ArrayBuffer[] = [];
   private isProcessingQueue = false;
+  private ttsComplete = false;
 
   // Socket subscriptions
   private subs: Subscription[] = [];
@@ -45,11 +54,14 @@ export class VoiceService implements OnDestroy {
       this.chatSocket.voiceTranscript$.subscribe((event) => {
         if (event.isFinal) {
           this.transcript.set(event.text);
+          // Backend saves message + triggers agent — we just show processing state
+          // (the newMessage event will show it in the chat)
         }
       }),
       this.chatSocket.voiceAudioStart$.subscribe(() => {
-        this.isSpeaking.set(true);
+        this.voiceState.set('SPEAKING');
         this.audioQueue = [];
+        this.ttsComplete = false;
       }),
       this.chatSocket.voiceAudioChunk$.subscribe((event) => {
         // Decode base64 to ArrayBuffer and queue
@@ -62,12 +74,21 @@ export class VoiceService implements OnDestroy {
         this.processAudioQueue();
       }),
       this.chatSocket.voiceAudioEnd$.subscribe(() => {
-        // Mark end — audio will finish playing from queue
+        this.ttsComplete = true;
+        // If queue is already empty, cycle back to listening
+        if (this.audioQueue.length === 0 && !this.isProcessingQueue) {
+          this.onTtsFinished();
+        }
       }),
       this.chatSocket.voiceError$.subscribe((event) => {
         console.error('Voice error:', event.error);
-        this.isRecording.set(false);
-        this.isSpeaking.set(false);
+        // On error, go back to listening if voice mode is active
+        if (this.isVoiceMode()) {
+          this.voiceState.set('LISTENING');
+          this.startRecordingInternal();
+        } else {
+          this.voiceState.set('IDLE');
+        }
       }),
     );
   }
@@ -78,9 +99,72 @@ export class VoiceService implements OnDestroy {
     this.subs = [];
   }
 
-  /** Start recording audio (Push-to-Talk) */
-  async startRecording(): Promise<void> {
-    if (!this.voiceSupported() || this.isRecording()) return;
+  /** Toggle voice mode overlay on/off */
+  toggleVoiceMode(): void {
+    if (this.isVoiceMode()) {
+      this.exitVoiceMode();
+    } else {
+      this.enterVoiceMode();
+    }
+  }
+
+  /** Enter voice mode — show overlay, start listening */
+  enterVoiceMode(): void {
+    this.isVoiceMode.set(true);
+    this.transcript.set('');
+    this.chatSocket.emitVoiceModeToggle(true);
+    this.voiceState.set('LISTENING');
+    this.startRecordingInternal();
+  }
+
+  /** Exit voice mode — stop everything, hide overlay */
+  exitVoiceMode(): void {
+    this.isVoiceMode.set(false);
+    this.chatSocket.emitVoiceModeToggle(false);
+    this.cancelRecording();
+    this.stopPlayback();
+    this.voiceState.set('IDLE');
+  }
+
+  /** Stop recording and send audio to server */
+  stopRecording(): void {
+    if (this.mediaRecorder && this.voiceState() === 'LISTENING') {
+      this.voiceState.set('PROCESSING');
+      this.mediaRecorder.stop();
+    }
+  }
+
+  /** Cancel recording without sending */
+  cancelRecording(): void {
+    if (this.mediaRecorder) {
+      this.mediaRecorder.ondataavailable = null;
+      this.mediaRecorder.onstop = null;
+      try {
+        if (this.mediaRecorder.state !== 'inactive') {
+          this.mediaRecorder.stop();
+        }
+      } catch {
+        // already stopped
+      }
+      this.stopMediaStream();
+      this.audioChunks = [];
+    }
+  }
+
+  /** Stop TTS playback */
+  stopPlayback(): void {
+    this.audioQueue = [];
+    this.isProcessingQueue = false;
+    this.ttsComplete = false;
+    if (this.audioContext) {
+      this.audioContext.close().catch(() => {});
+      this.audioContext = null;
+    }
+  }
+
+  /** Start recording audio internally */
+  private async startRecordingInternal(): Promise<void> {
+    if (!this.voiceSupported()) return;
 
     try {
       this.mediaStream = await navigator.mediaDevices.getUserMedia({
@@ -110,60 +194,34 @@ export class VoiceService implements OnDestroy {
       };
 
       this.mediaRecorder.onstop = () => {
-        const blob = new Blob(this.audioChunks, { type: mimeType });
-        this.sendAudioToServer(blob, mimeType);
+        if (this.audioChunks.length > 0 && this.voiceState() === 'PROCESSING') {
+          const blob = new Blob(this.audioChunks, { type: mimeType });
+          this.sendAudioToServer(blob, mimeType);
+        }
         this.stopMediaStream();
       };
 
       this.mediaRecorder.start();
-      this.isRecording.set(true);
       this.transcript.set('');
     } catch (error) {
       console.error('Failed to start recording:', error);
-      this.isRecording.set(false);
+      if (this.isVoiceMode()) {
+        this.voiceState.set('LISTENING');
+      } else {
+        this.voiceState.set('IDLE');
+      }
     }
   }
 
-  /** Stop recording and send audio to server */
-  stopRecording(): void {
-    if (this.mediaRecorder && this.isRecording()) {
-      this.mediaRecorder.stop();
-      this.isRecording.set(false);
-    }
-  }
-
-  /** Cancel recording without sending */
-  cancelRecording(): void {
-    if (this.mediaRecorder && this.isRecording()) {
-      this.mediaRecorder.ondataavailable = null;
-      this.mediaRecorder.onstop = null;
-      this.mediaRecorder.stop();
-      this.stopMediaStream();
-      this.isRecording.set(false);
-      this.audioChunks = [];
-    }
-  }
-
-  /** Toggle voice mode on/off */
-  toggleVoiceMode(): void {
-    const newState = !this.isVoiceMode();
-    this.isVoiceMode.set(newState);
-    this.chatSocket.emitVoiceModeToggle(newState);
-
-    if (!newState) {
-      this.cancelRecording();
-      this.stopPlayback();
-    }
-  }
-
-  /** Stop TTS playback */
-  stopPlayback(): void {
-    this.audioQueue = [];
-    this.isProcessingQueue = false;
-    this.isSpeaking.set(false);
-    if (this.audioContext) {
-      this.audioContext.close();
-      this.audioContext = null;
+  /** Called when TTS playback is fully done — auto-cycle to listening */
+  private onTtsFinished(): void {
+    if (this.isVoiceMode()) {
+      // Auto-cycle: start listening again for the next turn
+      this.voiceState.set('LISTENING');
+      this.transcript.set('');
+      this.startRecordingInternal();
+    } else {
+      this.voiceState.set('IDLE');
     }
   }
 
@@ -194,15 +252,23 @@ export class VoiceService implements OnDestroy {
     }
 
     this.isProcessingQueue = false;
-    this.isSpeaking.set(false);
+
+    // If TTS stream has ended and queue is drained, cycle back
+    if (this.ttsComplete) {
+      this.onTtsFinished();
+    }
   }
 
   /** Play a single AudioBuffer and wait for completion */
   private playAudioBuffer(audioBuffer: AudioBuffer): Promise<void> {
     return new Promise((resolve) => {
-      const source = this.audioContext!.createBufferSource();
+      if (!this.audioContext) {
+        resolve();
+        return;
+      }
+      const source = this.audioContext.createBufferSource();
       source.buffer = audioBuffer;
-      source.connect(this.audioContext!.destination);
+      source.connect(this.audioContext.destination);
       source.onended = () => resolve();
       source.start(0);
     });
@@ -225,8 +291,7 @@ export class VoiceService implements OnDestroy {
   }
 
   ngOnDestroy(): void {
-    this.cancelRecording();
-    this.stopPlayback();
+    this.exitVoiceMode();
     this.teardownSocketListeners();
   }
 }
