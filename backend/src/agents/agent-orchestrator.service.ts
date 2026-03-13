@@ -237,12 +237,12 @@ export class AgentOrchestratorService implements OnModuleInit, OnModuleDestroy {
         return;
       }
 
-      // Route to active feature interviewer if exists
+      // Route to active feature interviewer if exists (include ERROR for recovery)
       const activeFeatureInterviewer = await this.prisma.agentInstance.findFirst({
         where: {
           projectId: chatSession.projectId,
           role: AgentRole.INTERVIEWER,
-          status: { in: [AgentStatus.WAITING, AgentStatus.WORKING] },
+          status: { in: [AgentStatus.WAITING, AgentStatus.WORKING, AgentStatus.ERROR] },
         },
         include: {
           tasks: {
@@ -256,6 +256,13 @@ export class AgentOrchestratorService implements OnModuleInit, OnModuleDestroy {
       });
 
       if (activeFeatureInterviewer && activeFeatureInterviewer.tasks.length > 0) {
+        if (activeFeatureInterviewer.status === AgentStatus.ERROR) {
+          await this.prisma.agentInstance.update({
+            where: { id: activeFeatureInterviewer.id },
+            data: { status: AgentStatus.WAITING },
+          });
+          this.logger.log(`Recovered feature INTERVIEWER from ERROR state`);
+        }
         const ctx = {
           projectId: chatSession.projectId,
           agentInstanceId: activeFeatureInterviewer.id,
@@ -272,11 +279,13 @@ export class AgentOrchestratorService implements OnModuleInit, OnModuleDestroy {
     }
 
     // INFRASTRUCTURE chat: check for active project interviewer first
+    // Include ERROR status — a transient LLM failure shouldn't kill the interview,
+    // the next user message should recover it.
     const activeInterviewer = await this.prisma.agentInstance.findFirst({
       where: {
         projectId: chatSession.projectId,
         role: AgentRole.INTERVIEWER,
-        status: { in: [AgentStatus.WAITING, AgentStatus.WORKING] },
+        status: { in: [AgentStatus.WAITING, AgentStatus.WORKING, AgentStatus.ERROR] },
       },
       include: {
         tasks: {
@@ -290,6 +299,14 @@ export class AgentOrchestratorService implements OnModuleInit, OnModuleDestroy {
     });
 
     if (activeInterviewer && activeInterviewer.tasks.length > 0) {
+      // Recover from ERROR state
+      if (activeInterviewer.status === AgentStatus.ERROR) {
+        await this.prisma.agentInstance.update({
+          where: { id: activeInterviewer.id },
+          data: { status: AgentStatus.WAITING },
+        });
+        this.logger.log(`Recovered INTERVIEWER from ERROR state`);
+      }
       const ctx = {
         projectId: chatSession.projectId,
         agentInstanceId: activeInterviewer.id,

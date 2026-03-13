@@ -43,6 +43,9 @@ export class VoiceService implements OnDestroy {
   private speechStart: number | null = null;
   private silenceStart: number | null = null;
 
+  // Processing timeout (auto-recover if stuck)
+  private processingTimeout: ReturnType<typeof setTimeout> | null = null;
+
   // Socket subscriptions
   private subs: Subscription[] = [];
 
@@ -66,6 +69,7 @@ export class VoiceService implements OnDestroy {
         }
       }),
       this.chatSocket.voiceAudioStart$.subscribe(() => {
+        this.clearProcessingTimeout();
         this.voiceState.set('SPEAKING');
         this.audioQueue = [];
         this.ttsComplete = false;
@@ -134,6 +138,23 @@ export class VoiceService implements OnDestroy {
       this.stopVad();
       this.voiceState.set('PROCESSING');
       this.mediaRecorder.stop();
+
+      // Safety timeout: if stuck in PROCESSING for 30s, auto-recover to LISTENING
+      this.clearProcessingTimeout();
+      this.processingTimeout = setTimeout(() => {
+        if (this.voiceState() === 'PROCESSING' && this.isVoiceMode()) {
+          console.warn('[Voice] Processing timeout — recovering to LISTENING');
+          this.voiceState.set('LISTENING');
+          this.startRecordingInternal().catch(() => {});
+        }
+      }, 30_000);
+    }
+  }
+
+  private clearProcessingTimeout(): void {
+    if (this.processingTimeout) {
+      clearTimeout(this.processingTimeout);
+      this.processingTimeout = null;
     }
   }
 

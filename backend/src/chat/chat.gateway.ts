@@ -132,6 +132,7 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
     try {
       // 1. Decode base64 audio
       const audioBuffer = Buffer.from(audio, 'base64');
+      this.logger.debug(`Voice: received ${audioBuffer.length} bytes from client ${client.id}`);
 
       // 2. Transcribe via STT
       const transcription = await this.voiceService.transcribe(audioBuffer, mimeType);
@@ -144,6 +145,11 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
         return;
       }
 
+      // Check room membership
+      const roomName = `session:${chatSessionId}`;
+      const roomSockets = await this.server.in(roomName).fetchSockets();
+      this.logger.debug(`Voice: room ${chatSessionId.slice(-8)} has ${roomSockets.length} clients`);
+
       // 3. Send transcript to client
       this.server.to(`session:${chatSessionId}`).emit('voiceTranscript', {
         chatSessionId,
@@ -153,25 +159,28 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
       });
 
       // 4. Save as normal text message
+      this.logger.debug(`Voice: saving message to DB...`);
       const message = await this.chatService.addMessage({
         chatSessionId,
         role: MessageRole.USER,
         content: transcription.text,
       });
+      this.logger.debug(`Voice: message saved (id=${message.id})`);
 
       // 5. Broadcast message
       this.server.to(`session:${chatSessionId}`).emit('newMessage', message);
 
       // 6. Trigger agent flow
+      this.logger.debug(`Voice: triggering agent flow`);
       this.eventEmitter.emit('chat.userMessage', {
         chatSessionId,
         content: transcription.text,
       });
     } catch (error) {
-      this.logger.error(`Voice message failed: ${error.message}`, error.stack);
+      this.logger.error(`Voice message failed: ${error?.message ?? error}`, error?.stack);
       this.server.to(`session:${chatSessionId}`).emit('voiceError', {
         chatSessionId,
-        error: error.message,
+        error: error?.message ?? 'Unknown voice error',
       });
     }
   }

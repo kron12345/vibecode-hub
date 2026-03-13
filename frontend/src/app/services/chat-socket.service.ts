@@ -112,6 +112,14 @@ export class ChatSocketService implements OnDestroy {
       withCredentials: true,
     });
 
+    // Re-join session room after reconnection (server lost room state on restart)
+    this.socket.on('connect', () => {
+      if (this.currentSessionId) {
+        console.debug('[ChatSocket] Reconnected — re-joining session', this.currentSessionId);
+        this.socket!.emit('joinSession', { chatSessionId: this.currentSessionId });
+      }
+    });
+
     this.socket.on('newMessage', (message: ChatMessage) => {
       this.newMessage$.next(message);
     });
