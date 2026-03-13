@@ -855,7 +855,42 @@ export class CoderAgent extends BaseAgent {
     } catch (stashErr) {
       this.logger.warn(`git stash failed: ${stashErr.message}`);
     }
-    await execFileAsync('git', ['checkout', branch], { cwd, timeout: GIT_TIMEOUT_MS });
+    try {
+      await execFileAsync('git', ['checkout', branch], { cwd, timeout: GIT_TIMEOUT_MS });
+    } catch (checkoutErr) {
+      // Handle "branch already checked out in another worktree" error
+      // CLI tools (Codex, Claude) can leave stale /tmp worktrees referencing the branch
+      if (checkoutErr.message?.includes('Arbeitsverzeichnis') || checkoutErr.message?.includes('worktree')) {
+        this.logger.warn(`Branch ${branch} locked by another worktree — pruning stale worktrees and retrying`);
+        try {
+          await execFileAsync('git', ['worktree', 'prune'], { cwd, timeout: GIT_TIMEOUT_MS });
+          await execFileAsync('git', ['checkout', branch], { cwd, timeout: GIT_TIMEOUT_MS });
+          return;
+        } catch (retryErr) {
+          this.logger.warn(`Worktree prune didn't help — force-removing stale worktree locks`);
+          // Find and remove the stale worktree
+          try {
+            const { stdout: worktreeList } = await execFileAsync('git', ['worktree', 'list', '--porcelain'], { cwd, timeout: GIT_TIMEOUT_MS });
+            const lines = worktreeList.split('\n');
+            for (let i = 0; i < lines.length; i++) {
+              if (lines[i].startsWith('branch refs/heads/' + branch)) {
+                // Previous line has the worktree path
+                const pathLine = lines[i - 2] || '';
+                const wtPath = pathLine.replace('worktree ', '').trim();
+                if (wtPath && wtPath.startsWith('/tmp/')) {
+                  this.logger.log(`Removing stale worktree at ${wtPath} for branch ${branch}`);
+                  await execFileAsync('git', ['worktree', 'remove', '--force', wtPath], { cwd, timeout: GIT_TIMEOUT_MS }).catch(() => {});
+                  await execFileAsync('git', ['checkout', branch], { cwd, timeout: GIT_TIMEOUT_MS });
+                  return;
+                }
+              }
+            }
+          } catch { /* fall through to original error */ }
+        }
+        throw checkoutErr;
+      }
+      throw checkoutErr;
+    }
   }
 
   private async gitCreateBranch(cwd: string, branch: string): Promise<void> {

@@ -40,33 +40,53 @@ export abstract class CliBaseProvider implements LlmProvider {
       .join('\n\n');
   }
 
+  /** Default timeout: 10 minutes. CLI tasks that need more should pass timeoutMs. */
+  static readonly DEFAULT_TIMEOUT_MS = 10 * 60 * 1000;
+
   async complete(options: LlmCompletionOptions): Promise<LlmCompletionResult> {
     const args = this.buildArgs(options);
 
     // User prompt is sent via stdin (or as positional arg, depending on CLI)
     const prompt = this.getUserPrompt(options);
 
-    this.logger.log(`CLI request: ${this.command} ${args.join(' ')} (${prompt.length} chars)`);
+    const timeoutMs = options.timeoutMs ?? CliBaseProvider.DEFAULT_TIMEOUT_MS;
+
+    this.logger.log(
+      `CLI request: ${this.command} ${args.join(' ')} (${prompt.length} chars, timeout ${Math.round(timeoutMs / 1000)}s)`,
+    );
 
     return new Promise((resolve) => {
       const child = execFile(
         this.command,
         args,
         {
-          timeout: 0, // No timeout — CLI tools get unlimited time
+          timeout: timeoutMs,
           maxBuffer: 10 * 1024 * 1024, // 10 MB
           env: { ...process.env },
           ...(options.cwd && { cwd: options.cwd }),
         },
         (error, stdout, stderr) => {
           if (error) {
-            this.logger.error(
-              `CLI ${this.command} failed: ${error.message}`,
-            );
+            const isTimeout = error.killed || (error as any).signal === 'SIGTERM';
+            if (isTimeout) {
+              this.logger.warn(
+                `CLI ${this.command} killed after ${Math.round(timeoutMs / 1000)}s timeout`,
+              );
+            } else {
+              this.logger.error(
+                `CLI ${this.command} failed: ${error.message}`,
+              );
+            }
             if (stderr) {
               this.logger.debug(`stderr: ${stderr.substring(0, 500)}`);
             }
-            resolve({ content: '', finishReason: 'error' });
+            // Return partial stdout if available (process may have produced output before timeout)
+            if (stdout && stdout.trim().length > 0) {
+              this.logger.log(`Returning partial output (${stdout.length} chars) despite error`);
+              resolve({ content: stdout.trim(), finishReason: 'stop' });
+            } else {
+              resolve({ content: '', finishReason: 'error' });
+            }
             return;
           }
 

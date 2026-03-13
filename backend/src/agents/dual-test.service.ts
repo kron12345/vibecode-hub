@@ -56,22 +56,36 @@ export class DualTestService {
       providers: { primary: `${config.provider}/${config.model}` },
     };
 
-    // Call secondary if dual-testing is configured
+    // Call secondary if dual-testing is configured (with timeout to avoid blocking pipeline)
     if (config.dualProvider && config.dualModel) {
       this.logger.log(
         `Dual-testing: calling secondary ${config.dualProvider}/${config.dualModel} (strategy: ${config.dualStrategy ?? 'merge'})`,
       );
 
-      const secondary = await this.llmService.complete({
-        provider: config.dualProvider,
-        model: config.dualModel,
-        messages,
-        temperature: config.parameters.temperature,
-        maxTokens: config.parameters.maxTokens,
-      });
+      const SECONDARY_TIMEOUT_MS = 5 * 60 * 1000; // 5 minutes — if secondary is slower, skip it
 
-      result.secondary = secondary;
-      result.providers.secondary = `${config.dualProvider}/${config.dualModel}`;
+      try {
+        const secondary = await Promise.race([
+          this.llmService.complete({
+            provider: config.dualProvider,
+            model: config.dualModel,
+            messages,
+            temperature: config.parameters.temperature,
+            maxTokens: config.parameters.maxTokens,
+          }),
+          new Promise<never>((_, reject) =>
+            setTimeout(() => reject(new Error('Secondary provider timeout')), SECONDARY_TIMEOUT_MS),
+          ),
+        ]);
+
+        result.secondary = secondary;
+        result.providers.secondary = `${config.dualProvider}/${config.dualModel}`;
+      } catch (err) {
+        this.logger.warn(
+          `Dual-testing secondary call failed: ${err.message} — proceeding with primary only`,
+        );
+        // Don't set result.secondary — code reviewer will use primary results only
+      }
     }
 
     return result;
