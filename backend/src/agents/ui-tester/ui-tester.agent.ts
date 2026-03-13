@@ -9,6 +9,8 @@ import { GitlabService } from '../../gitlab/gitlab.service';
 import { LlmMessage } from '../../llm/llm.interfaces';
 import { BaseAgent, AgentContext } from '../agent-base';
 import { MonitorGateway } from '../../monitor/monitor.gateway';
+import { McpAgentLoopService } from '../../mcp/mcp-agent-loop.service';
+import { McpRegistryService } from '../../mcp/mcp-registry.service';
 import { DualTestService } from '../dual-test.service';
 import { postAgentComment, getAgentCommentHistory } from '../agent-comment.utils';
 import { UiTestResult, UiTestFinding } from './ui-test-result.interface';
@@ -87,6 +89,8 @@ export class UiTesterAgent extends BaseAgent {
     monitorGateway: MonitorGateway,
     private readonly eventEmitter: EventEmitter2,
     private readonly dualTestService: DualTestService,
+    private readonly mcpAgentLoop: McpAgentLoopService,
+    private readonly mcpRegistry: McpRegistryService,
   ) {
     super(prisma, settings, chatService, chatGateway, llmService, monitorGateway);
   }
@@ -263,6 +267,37 @@ Do NOT omit the JSON block.`;
             ctx,
             `🔀 **Dual-test** (${strategy}): ${stats.primaryCount} + ${stats.secondaryCount} → ${stats.mergedCount} findings [${dualResult.providers.primary} + ${dualResult.providers.secondary}]`,
           );
+        }
+      }
+
+      // Retry JSON extraction if parsing returned 0 findings but response was substantial
+      if (testResult && testResult.findings.length === 0 && dualResult.primary.content.length > 500) {
+        const retryJson = await this.dualTestService.retryJsonExtraction(
+          config,
+          dualResult.primary.content,
+          '{"passed": true/false, "summary": "...", "pagesChecked": 0, "findings": [{"type": "accessibility|responsive|ux|consistency|missing", "page": "...", "description": "...", "severity": "info|warning|critical"}]}',
+        );
+        if (retryJson) {
+          const retried = this.parseTestResult(retryJson, issueId);
+          if (retried && retried.findings.length > 0) {
+            this.logger.log(`JSON retry recovered ${retried.findings.length} UI findings`);
+            testResult = retried;
+          }
+        }
+      }
+
+      // Retry full parse failure with JSON extraction
+      if (!testResult && dualResult.primary.content.length > 500) {
+        const retryJson = await this.dualTestService.retryJsonExtraction(
+          config,
+          dualResult.primary.content,
+          '{"passed": true/false, "summary": "...", "pagesChecked": 0, "findings": [{"type": "accessibility|responsive|ux|consistency|missing", "page": "...", "description": "...", "severity": "info|warning|critical"}]}',
+        );
+        if (retryJson) {
+          testResult = this.parseTestResult(retryJson, issueId);
+          if (testResult) {
+            this.logger.log(`JSON retry recovered full UI result (${testResult.findings.length} findings)`);
+          }
         }
       }
 

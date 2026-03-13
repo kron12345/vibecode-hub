@@ -174,6 +174,11 @@ export class McpRegistryService implements OnModuleInit {
    * ready-to-use McpServerConfig objects with runtime args filled in.
    * Applies project-level overrides when projectId is provided.
    */
+  /** Server names that are always included regardless of tech stack */
+  private static readonly UNIVERSAL_SERVERS = new Set([
+    'filesystem', 'git', 'gitlab', 'shell', 'memory', 'sequentialthinking', 'searxng',
+  ]);
+
   async resolveServersForRole(
     role: AgentRole,
     context: McpRuntimeContext,
@@ -208,6 +213,9 @@ export class McpRegistryService implements OnModuleInit {
           }
         }
       }
+
+      // Tech-stack filtering: only include framework-specific servers that match the project
+      servers = await this.filterByTechStack(servers, context.projectId);
     }
 
     if (servers.length === 0) {
@@ -216,6 +224,47 @@ export class McpRegistryService implements OnModuleInit {
     }
 
     return servers.map((s) => this.resolveServer(s, context));
+  }
+
+  /**
+   * Filter MCP servers by project tech stack.
+   * Universal servers (filesystem, git, shell, etc.) are always included.
+   * Framework-specific servers (vaadin, spring-docs, angular-cli, prisma) are only
+   * included if they match the project's mcpServers whitelist.
+   */
+  private async filterByTechStack(
+    servers: McpServerDefinition[],
+    projectId: string,
+  ): Promise<McpServerDefinition[]> {
+    const project = await this.prisma.project.findUnique({
+      where: { id: projectId },
+      select: { techStack: true },
+    });
+
+    if (!project?.techStack) return servers;
+
+    const techStack = project.techStack as any;
+    const requestedServers = techStack.mcpServers as Array<{ name: string }> | undefined;
+
+    if (!requestedServers || requestedServers.length === 0) return servers;
+
+    // Build whitelist: universal servers + project-requested servers
+    const whitelist = new Set<string>(McpRegistryService.UNIVERSAL_SERVERS);
+    for (const s of requestedServers) {
+      whitelist.add(s.name);
+    }
+
+    const before = servers.length;
+    const filtered = servers.filter((s) => whitelist.has(s.name));
+
+    if (filtered.length < before) {
+      const removed = servers.filter((s) => !whitelist.has(s.name)).map((s) => s.name);
+      this.logger.log(
+        `Tech-stack filter: removed ${removed.join(', ')} (not in project whitelist: ${requestedServers.map((s) => s.name).join(', ')})`,
+      );
+    }
+
+    return filtered;
   }
 
   /** Convert a single DB record into McpServerConfig with runtime placeholders replaced */
@@ -296,7 +345,14 @@ export class McpRegistryService implements OnModuleInit {
 
   /** Fallback: hardcoded servers matching previous behavior (safety net) */
   private getFallbackServers(role: AgentRole, context: McpRuntimeContext): McpServerConfig[] {
-    if (role === AgentRole.CODER) {
+    const needsShell = new Set<AgentRole>([
+      AgentRole.CODER,
+      AgentRole.FUNCTIONAL_TESTER,
+      AgentRole.UI_TESTER,
+      AgentRole.PEN_TESTER,
+      AgentRole.DEVOPS,
+    ]);
+    if (needsShell.has(role)) {
       return [
         {
           name: 'filesystem',

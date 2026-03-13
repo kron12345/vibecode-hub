@@ -44,6 +44,13 @@ export class AgentOrchestratorService implements OnModuleInit, OnModuleDestroy {
    */
   private readonly startingAgents = new Set<string>();
 
+  /**
+   * In-memory lock to prevent concurrent FIX_CODE tasks for the same issue.
+   * Prevents race condition where multiple test-failure events trigger
+   * simultaneous retriggerCoder() calls for the same issue.
+   */
+  private readonly fixingIssues = new Set<string>();
+
   private acquireStartLock(projectId: string, role: AgentRole): boolean {
     const key = `${projectId}:${role}`;
     if (this.startingAgents.has(key)) {
@@ -1754,6 +1761,14 @@ export class AgentOrchestratorService implements OnModuleInit, OnModuleDestroy {
     feedback: string,
     feedbackSource: 'review' | 'pipeline' | 'user' | 'functional-test' | 'ui-test' | 'security',
   ): Promise<void> {
+    // Guard: prevent concurrent FIX_CODE triggers for the same issue
+    const fixLockKey = `${projectId}:${issueId}`;
+    if (this.fixingIssues.has(fixLockKey)) {
+      this.logger.warn(`FIX_CODE already in progress for issue ${issueId} — skipping duplicate (source: ${feedbackSource})`);
+      return;
+    }
+    this.fixingIssues.add(fixLockKey);
+
     const pipelineCfg = this.settings.getPipelineConfig();
     const globalMax = pipelineCfg.maxFixAttempts ?? 5;
 
@@ -1765,6 +1780,15 @@ export class AgentOrchestratorService implements OnModuleInit, OnModuleDestroy {
     const maxAttempts = project?.maxFixAttempts ?? globalMax;
 
     try {
+      // DB guard: skip if a FIX_CODE task is already RUNNING for this issue
+      const activeFix = await this.prisma.agentTask.findFirst({
+        where: { issueId, type: AgentTaskType.FIX_CODE, status: AgentTaskStatus.RUNNING },
+      });
+      if (activeFix) {
+        this.logger.warn(`FIX_CODE task ${activeFix.id} already RUNNING for issue ${issueId} — skipping`);
+        return;
+      }
+
       // Check how many FIX_CODE tasks already exist for this issue
       const fixCount = await this.prisma.agentTask.count({
         where: { issueId, type: AgentTaskType.FIX_CODE },
@@ -1854,11 +1878,16 @@ export class AgentOrchestratorService implements OnModuleInit, OnModuleDestroy {
         chatSessionId,
       };
 
-      this.coder.fixIssue(ctx, issueId, feedback, feedbackSource as any).catch((err) => {
-        this.logger.error(`Coder fix (${feedbackSource}) error: ${err.message}`);
-      });
+      this.coder.fixIssue(ctx, issueId, feedback, feedbackSource as any)
+        .catch((err) => {
+          this.logger.error(`Coder fix (${feedbackSource}) error: ${err.message}`);
+        })
+        .finally(() => {
+          this.fixingIssues.delete(fixLockKey);
+        });
     } catch (err) {
       this.logger.error(`retriggerCoder error: ${err.message}`);
+      this.fixingIssues.delete(fixLockKey);
     }
   }
 

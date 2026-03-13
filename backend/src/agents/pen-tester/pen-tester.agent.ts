@@ -12,6 +12,8 @@ import { GitlabService } from '../../gitlab/gitlab.service';
 import { LlmMessage } from '../../llm/llm.interfaces';
 import { BaseAgent, AgentContext } from '../agent-base';
 import { MonitorGateway } from '../../monitor/monitor.gateway';
+import { McpAgentLoopService } from '../../mcp/mcp-agent-loop.service';
+import { McpRegistryService } from '../../mcp/mcp-registry.service';
 import { DualTestService } from '../dual-test.service';
 import { postAgentComment, getAgentCommentHistory } from '../agent-comment.utils';
 import { PenTestResult, SecurityFinding } from './pen-test-result.interface';
@@ -119,6 +121,8 @@ export class PenTesterAgent extends BaseAgent {
     monitorGateway: MonitorGateway,
     private readonly eventEmitter: EventEmitter2,
     private readonly dualTestService: DualTestService,
+    private readonly mcpAgentLoop: McpAgentLoopService,
+    private readonly mcpRegistry: McpRegistryService,
   ) {
     super(prisma, settings, chatService, chatGateway, llmService, monitorGateway);
   }

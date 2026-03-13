@@ -9,6 +9,9 @@ import { GitlabService } from '../../gitlab/gitlab.service';
 import { LlmMessage } from '../../llm/llm.interfaces';
 import { BaseAgent, AgentContext } from '../agent-base';
 import { MonitorGateway } from '../../monitor/monitor.gateway';
+import { McpAgentLoopService } from '../../mcp/mcp-agent-loop.service';
+import { McpRegistryService } from '../../mcp/mcp-registry.service';
+import { DualTestService } from '../dual-test.service';
 import { postAgentComment, getAgentCommentHistory } from '../agent-comment.utils';
 import { FunctionalTestResult, FunctionalTestFinding } from './functional-test-result.interface';
 import {
@@ -24,39 +27,32 @@ const DEFAULT_SYSTEM_PROMPT = `You are the Functional Tester Agent for VibCode H
 
 ## Your Role
 You verify that merge request code changes correctly implement the acceptance criteria defined in the issue.
-You perform **static code analysis only** — you analyze MR diffs, NOT run the code.
+You have access to MCP tools including filesystem access and a shell to build and test the code.
 
 ## Testing Approach
-- Read the issue description and acceptance criteria carefully
-- Analyze the MR diffs to verify each criterion is addressed in the code
-- Check for edge cases and error handling
-- Verify that the implementation is complete, not partial
-- Look for missing test coverage
-- Check that configuration files (pom.xml, package.json, application.properties, etc.) include all required dependencies
+1. **Read the MR diffs** to understand what was changed
+2. **Use filesystem tools** to read the full source files (diffs are often truncated)
+3. **Run the build** to verify compilation: \`npm run build\`, \`npx nest build\`, \`mvn compile\`, etc.
+4. **Run tests** if test files exist: \`npm test\`, \`npx jest\`, \`mvn test\`, etc.
+5. **Run database migrations** if applicable: \`npx prisma migrate deploy\`, \`mvn flyway:migrate\`, etc.
+6. **Verify each acceptance criterion** against both code AND runtime results
 
-## IMPORTANT: Static Analysis Only
-You do NOT have access to a shell or runtime. Do NOT claim you need to run Maven, npm, or any build tool.
-Instead, verify implementation quality by reading the code:
-- Are all required classes/files present in the diffs?
-- Do imports, annotations, and configurations look correct?
-- Are dependencies declared in build files (pom.xml, package.json)?
-- Do SQL migrations have valid syntax?
-- Are Spring annotations (@Entity, @Column, etc.) used correctly?
+## Shell Commands You Should Try
+- **Node/TypeScript**: \`npm install\`, \`npm run build\`, \`npm test\`, \`npx prisma generate\`, \`npx prisma migrate deploy\`
+- **Java/Maven**: \`mvn compile\`, \`mvn test\`, \`mvn package -DskipTests\`
+- **General**: \`ls\`, \`cat\`, \`find\` to explore the project structure
 
-## CRITICAL: Runtime Criteria Handling
-If an acceptance criterion mentions "tests pass", "build succeeds", "application starts", or any runtime behavior:
-- Verify by inspecting the code: are test files present? Is the test logic correct? Are assertions meaningful?
-- Mark the criterion as **PASSED** if the test code exists and looks correct — do NOT mark it FAILED just because you cannot execute it.
-- Only mark runtime criteria as FAILED if the code is clearly broken (e.g., wrong imports, missing classes, syntax errors that would prevent compilation).
+## IMPORTANT: Read-Only — Do NOT Modify Code
+You may READ files and RUN commands, but do NOT edit or create source files. Your job is to TEST, not to fix.
 
 ## Severity Levels
-- **critical**: Acceptance criterion clearly NOT implemented in the code, or code has obvious bugs that would prevent compilation/startup
+- **critical**: Acceptance criterion clearly NOT implemented, build fails, tests fail
 - **warning**: Partial implementation, missing edge cases, weak error handling
-- **info**: Minor improvements, style suggestions, extra test ideas
+- **info**: Minor improvements, style suggestions
 
 ## Decision Rules
-- **PASS** if: All acceptance criteria are addressed in the code AND no critical findings
-- **FAIL** if: Any acceptance criterion has NO corresponding code change OR any critical code bug
+- **PASS** if: All acceptance criteria verified AND build succeeds AND no critical findings
+- **FAIL** if: Build fails OR tests fail OR any acceptance criterion not implemented
 
 ## Completion Format
 End your analysis with EXACTLY this format:
@@ -93,6 +89,9 @@ export class FunctionalTesterAgent extends BaseAgent {
     private readonly gitlabService: GitlabService,
     monitorGateway: MonitorGateway,
     private readonly eventEmitter: EventEmitter2,
+    private readonly dualTestService: DualTestService,
+    private readonly mcpAgentLoop: McpAgentLoopService,
+    private readonly mcpRegistry: McpRegistryService,
   ) {
     super(prisma, settings, chatService, chatGateway, llmService, monitorGateway);
   }
@@ -195,22 +194,92 @@ ${COMPLETION_MARKER}
 \`\`\`
 Do NOT omit the JSON block.`;
 
-      const messages: LlmMessage[] = [
-        { role: 'system', content: systemPrompt },
-        { role: 'user', content: userPrompt },
-      ];
+      // Try MCP agent loop (with shell access) if workspace exists, else fallback to plain LLM
+      let resultContent: string;
 
-      // Call LLM
-      const result = await this.callLlm(messages);
+      const mcpServers = workspace
+        ? await this.mcpRegistry.resolveServersForRole(
+            AgentRole.FUNCTIONAL_TESTER,
+            { workspace, allowedPaths: [workspace], projectId: ctx.projectId },
+          )
+        : [];
 
-      if (result.finishReason === 'error') {
-        await this.sendAgentMessage(ctx, 'Functional Tester LLM call failed');
-        await this.markFailed(ctx, 'LLM call failed');
-        return;
+      if (mcpServers.length > 0 && workspace) {
+        this.logger.log(`Using MCP agent loop with ${mcpServers.length} servers (workspace: ${workspace})`);
+        await this.sendAgentMessage(ctx, `Running functional tests with shell access (${mcpServers.length} MCP tools)...`);
+
+        const mcpResult = await this.mcpAgentLoop.run({
+          provider: config.provider,
+          model: config.model,
+          systemPrompt,
+          userPrompt,
+          mcpServers,
+          maxIterations: 20,
+          temperature: config.parameters.temperature,
+          maxTokens: config.parameters.maxTokens,
+          agentTaskId: ctx.agentTaskId,
+          cwd: workspace,
+        });
+
+        if (mcpResult.finishReason === 'error') {
+          await this.sendAgentMessage(ctx, 'Functional Tester MCP loop failed');
+          await this.markFailed(ctx, 'MCP agent loop failed');
+          return;
+        }
+
+        resultContent = mcpResult.content;
+        this.logger.log(`MCP loop: ${mcpResult.iterations} iterations, ${mcpResult.toolCallsExecuted} tool calls`);
+      } else {
+        // Fallback: plain LLM call (no shell access)
+        const messages: LlmMessage[] = [
+          { role: 'system', content: systemPrompt },
+          { role: 'user', content: userPrompt },
+        ];
+
+        const result = await this.callLlm(messages);
+
+        if (result.finishReason === 'error') {
+          await this.sendAgentMessage(ctx, 'Functional Tester LLM call failed');
+          await this.markFailed(ctx, 'LLM call failed');
+          return;
+        }
+
+        resultContent = result.content;
       }
 
       // Parse test result
-      const testResult = this.parseTestResult(result.content, issueId);
+      let testResult = this.parseTestResult(resultContent, issueId);
+
+      // Retry JSON extraction if parsing returned 0 findings but response was substantial
+      if (testResult && testResult.findings.length === 0 && resultContent.length > 500) {
+        const retryJson = await this.dualTestService.retryJsonExtraction(
+          config,
+          resultContent,
+          '{"passed": true/false, "summary": "...", "findings": [{"criterion": "...", "passed": true/false, "details": "...", "severity": "info|warning|critical"}]}',
+        );
+        if (retryJson) {
+          const retried = this.parseTestResult(retryJson, issueId);
+          if (retried && retried.findings.length > 0) {
+            this.logger.log(`JSON retry recovered ${retried.findings.length} findings`);
+            testResult = retried;
+          }
+        }
+      }
+
+      // Retry full parse failure with JSON extraction
+      if (!testResult && resultContent.length > 500) {
+        const retryJson = await this.dualTestService.retryJsonExtraction(
+          config,
+          resultContent,
+          '{"passed": true/false, "summary": "...", "findings": [{"criterion": "...", "passed": true/false, "details": "...", "severity": "info|warning|critical"}]}',
+        );
+        if (retryJson) {
+          testResult = this.parseTestResult(retryJson, issueId);
+          if (testResult) {
+            this.logger.log(`JSON retry recovered full result (${testResult.findings.length} findings)`);
+          }
+        }
+      }
 
       if (!testResult) {
         await this.sendAgentMessage(ctx, 'Could not parse test result — defaulting to pass');
