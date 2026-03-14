@@ -28,6 +28,7 @@ export interface VoiceConfig {
   sttLanguage: string;
   ttsEngine: TtsEngine;
   ttsVoice: string;
+  ttsLanguage: string;
   ttsSpeed: number;
   enabled: boolean;
 }

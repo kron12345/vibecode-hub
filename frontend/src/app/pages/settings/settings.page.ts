@@ -486,6 +486,24 @@ const PERMISSION_KEYS: { key: keyof AgentRoleConfig['permissions']; labelKey: st
                     }
                   </div>
                   <div>
+                    <label class="block text-xs font-medium text-slate-500 mb-1">{{ 'settings.voiceTtsLanguage' | translate }}</label>
+                    <select
+                      [(ngModel)]="sysValues['voice.tts.language']"
+                      class="w-full bg-slate-900/50 border border-white/10 rounded-xl px-4 py-2.5 text-white text-sm focus:outline-none focus:border-pink-500/50 transition-colors"
+                    >
+                      <option value="auto">Auto-detect</option>
+                      <option value="de">Deutsch</option>
+                      <option value="en">English</option>
+                      <option value="it">Italiano</option>
+                      <option value="fr">Français</option>
+                      <option value="es">Español</option>
+                      <option value="ja">日本語</option>
+                      <option value="zh">中文</option>
+                      <option value="ko">한국어</option>
+                    </select>
+                    <p class="text-[10px] text-slate-600 mt-1">{{ 'settings.voiceTtsLanguageHint' | translate }}</p>
+                  </div>
+                  <div>
                     <label class="block text-xs font-medium text-slate-500 mb-1">
                       {{ 'settings.voiceTtsSpeed' | translate }}: {{ sysValues['voice.tts.speed'] || '1.0' }}x
                     </label>
@@ -1546,6 +1564,7 @@ export class SettingsPage implements OnInit {
       'voice.tts.engine',
       'voice.tts.url',
       'voice.tts.voice',
+      'voice.tts.language',
       'voice.tts.speed',
     ];
     for (const key of voiceKeys) {

@@ -82,7 +82,7 @@ export class VoiceService {
       body: JSON.stringify({
         text,
         voice: options?.voice ?? config.ttsVoice,
-        language: options?.language,
+        language: options?.language ?? (config.ttsLanguage !== 'auto' ? config.ttsLanguage : undefined),
         speed: options?.speed ?? config.ttsSpeed,
         stream: false,
       }),

@@ -258,6 +258,8 @@
     "voiceTtsUrl": "URL Server",
     "voiceTtsVoice": "Voce",
     "voiceTtsEngine": "Motore TTS",
+    "voiceTtsLanguage": "Lingua",
+    "voiceTtsLanguageHint": "Lingua target per la sintesi vocale. Qwen3 la usa attivamente, F5-TTS necessita di audio di riferimento corrispondente.",
     "voiceTtsSpeed": "Velocità",
     "voiceTtsVoicesCount": "voci",
     "voiceLoadVoices": "Carica voci",

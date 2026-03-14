@@ -242,6 +242,10 @@ export class SystemSettingsService implements OnModuleInit {
     return parseFloat(this.get('voice.tts.speed', undefined, '1.0')) || 1.0;
   }
 
+  get ttsLanguage(): string {
+    return this.get('voice.tts.language', undefined, 'de');
+  }
+
   getVoiceConfig(): VoiceConfig {
     return {
       enabled: this.voiceEnabled,
@@ -251,6 +255,7 @@ export class SystemSettingsService implements OnModuleInit {
       sttLanguage: this.sttLanguage,
       ttsEngine: this.ttsEngine,
       ttsVoice: this.ttsVoice,
+      ttsLanguage: this.ttsLanguage,
       ttsSpeed: this.ttsSpeed,
     };
   }
