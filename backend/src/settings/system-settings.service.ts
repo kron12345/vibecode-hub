@@ -219,6 +219,7 @@ export class SystemSettingsService implements OnModuleInit {
     'piper': { url: 'http://localhost:8302', voice: 'de_DE-thorsten_emotional-medium' },
     'qwen3': { url: 'http://localhost:8301', voice: 'serena' },
     'f5-tts': { url: 'http://localhost:8303', voice: 'default' },
+    'chatterbox': { url: 'http://localhost:8304', voice: 'thorsten_de' },
   };
 
   get ttsEngine(): TtsEngine {

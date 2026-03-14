@@ -1297,6 +1297,7 @@ export class SettingsPage implements OnInit {
     { id: 'piper', name: 'Piper', hint: 'CPU, schnell, ~0.07s', url: 'http://localhost:8302', voice: 'de_DE-thorsten_emotional-medium' },
     { id: 'qwen3', name: 'Qwen3-TTS', hint: 'GPU, natuerlich, ~3s', url: 'http://localhost:8301', voice: 'serena' },
     { id: 'f5-tts', name: 'F5-TTS', hint: 'GPU, Voice Cloning', url: 'http://localhost:8303', voice: 'default' },
+    { id: 'chatterbox', name: 'Chatterbox', hint: 'GPU, DE perfekt, ~1.3s', url: 'http://localhost:8304', voice: 'thorsten_de' },
   ];
 
   // Provider discovery

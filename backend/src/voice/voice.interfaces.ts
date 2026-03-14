@@ -1,4 +1,4 @@
-export type TtsEngine = 'piper' | 'qwen3' | 'f5-tts';
+export type TtsEngine = 'piper' | 'qwen3' | 'f5-tts' | 'chatterbox';
 
 export interface TranscriptionResult {
   text: string;
