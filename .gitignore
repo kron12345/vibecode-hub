@@ -30,6 +30,7 @@ frontend/.angular/
 # Logs
 *.log
 npm-debug.log*
+logs/
 
 # Coverage
 coverage/

@@ -1,4 +1,4 @@
-import { Module } from '@nestjs/common';
+import { MiddlewareConsumer, Module, NestModule } from '@nestjs/common';
 import { ConfigModule } from '@nestjs/config';
 import { APP_GUARD } from '@nestjs/core';
 import { EventEmitterModule } from '@nestjs/event-emitter';
@@ -16,6 +16,8 @@ import { AgentsModule } from './agents/agents.module';
 import { PreviewModule } from './preview/preview.module';
 import { MonitorModule } from './monitor/monitor.module';
 import { VoiceModule } from './voice/voice.module';
+import { HttpLoggingMiddleware } from './common/http-logging.middleware';
+import { AuditLogService } from './common/audit-log.service';
 
 @Module({
   imports: [
@@ -40,6 +42,12 @@ import { VoiceModule } from './voice/voice.module';
       provide: APP_GUARD,
       useClass: AuthGuard,
     },
+    AuditLogService,
   ],
+  exports: [AuditLogService],
 })
-export class AppModule {}
+export class AppModule implements NestModule {
+  configure(consumer: MiddlewareConsumer) {
+    consumer.apply(HttpLoggingMiddleware).forRoutes('*');
+  }
+}

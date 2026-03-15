@@ -3,9 +3,13 @@ import { ValidationPipe } from '@nestjs/common';
 import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger';
 import { AppModule } from './app.module';
 import { SystemSettingsService } from './settings/system-settings.service';
+import { createWinstonLogger } from './common/logger.config';
+import { AllExceptionsFilter } from './common/all-exceptions.filter';
 
 async function bootstrap() {
-  const app = await NestFactory.create(AppModule);
+  const logger = createWinstonLogger();
+
+  const app = await NestFactory.create(AppModule, { logger });
   const systemSettings = app.get(SystemSettingsService);
 
   app.setGlobalPrefix('api');
@@ -21,6 +25,7 @@ async function bootstrap() {
     credentials: true,
   });
   app.useGlobalPipes(new ValidationPipe({ whitelist: true, transform: true }));
+  app.useGlobalFilters(new AllExceptionsFilter());
 
   const swaggerConfig = new DocumentBuilder()
     .setTitle('VibCode Hub API')
@@ -34,6 +39,6 @@ async function bootstrap() {
 
   const port = process.env.PORT ?? 3100;
   await app.listen(port);
-  console.log(`VibCode Hub API running on port ${port}`);
+  logger.log(`VibCode Hub API running on port ${port}`);
 }
 bootstrap();

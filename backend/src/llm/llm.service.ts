@@ -52,15 +52,17 @@ export class LlmService {
       `LLM request → ${options.provider}/${options.model} (${options.messages.length} messages)`,
     );
 
+    const start = Date.now();
     const result = await provider.complete(options);
+    const durationMs = Date.now() - start;
 
     if (result.finishReason === 'error') {
       this.logger.warn(
-        `LLM request failed: ${options.provider}/${options.model}`,
+        `LLM failed (${durationMs}ms): ${options.provider}/${options.model}`,
       );
     } else {
-      this.logger.debug(
-        `LLM response: ${result.content.length} chars, reason=${result.finishReason}`,
+      this.logger.log(
+        `LLM response (${durationMs}ms): ${options.provider}/${options.model} → ${result.content.length} chars, reason=${result.finishReason}`,
       );
     }
 
