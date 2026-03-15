@@ -58,7 +58,7 @@ export class OllamaProvider implements LlmStreamingProvider {
         return msg;
       }),
       stream: false,
-      think: false, // Disable thinking mode (qwen3.5, deepseek-r1) — we don't use the output
+      think: options.enableReasoning ?? false,
       keep_alive: keepAlive,
       options: {
         ...(options.temperature !== undefined && {
@@ -196,7 +196,7 @@ export class OllamaProvider implements LlmStreamingProvider {
         return msg;
       }),
       stream: true,
-      think: false,
+      think: options.enableReasoning ?? false,
       keep_alive: keepAlive,
       options: {
         ...(options.temperature !== undefined && {

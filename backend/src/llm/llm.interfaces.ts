@@ -63,6 +63,8 @@ export interface LlmCompletionOptions {
   cwd?: string;
   /** Custom timeout in ms (default: provider-specific, e.g. 600s for Ollama) */
   timeoutMs?: number;
+  /** Enable chain-of-thought reasoning (Ollama think mode for qwen3.5, deepseek-r1, etc.) */
+  enableReasoning?: boolean;
 }
 
 export interface LlmCompletionResult {

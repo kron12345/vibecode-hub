@@ -22,6 +22,8 @@ export interface AgentRoleConfig {
     gitOperations: boolean;
   };
   pipelinePosition: number;
+  /** Enable chain-of-thought reasoning (Ollama think mode) */
+  enableReasoning?: boolean;
   description: string;
   color: string;
   icon: string;

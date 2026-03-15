@@ -164,6 +164,7 @@ export interface AgentRoleConfig {
     gitOperations: boolean;
   };
   pipelinePosition: number;
+  enableReasoning?: boolean;
   description: string;
   color: string;
   icon: string;

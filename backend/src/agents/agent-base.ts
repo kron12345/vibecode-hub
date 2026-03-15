@@ -96,7 +96,7 @@ export abstract class BaseAgent {
   /** Call the LLM with the configured provider/model for this role */
   protected async callLlm(
     messages: LlmMessage[],
-    overrides?: { temperature?: number; maxTokens?: number; timeoutMs?: number },
+    overrides?: { temperature?: number; maxTokens?: number; timeoutMs?: number; enableReasoning?: boolean },
   ) {
     const config = this.getRoleConfig();
 
@@ -107,6 +107,7 @@ export abstract class BaseAgent {
       temperature: overrides?.temperature ?? config.parameters.temperature,
       maxTokens: overrides?.maxTokens ?? config.parameters.maxTokens,
       timeoutMs: overrides?.timeoutMs,
+      enableReasoning: overrides?.enableReasoning ?? config.enableReasoning,
     });
   }
 
@@ -117,7 +118,7 @@ export abstract class BaseAgent {
   protected async callLlmStreaming(
     ctx: AgentContext,
     messages: LlmMessage[],
-    overrides?: { temperature?: number; maxTokens?: number },
+    overrides?: { temperature?: number; maxTokens?: number; enableReasoning?: boolean },
   ): Promise<LlmCompletionResult> {
     const config = this.getRoleConfig();
 
@@ -136,6 +137,7 @@ export abstract class BaseAgent {
         messages,
         temperature: overrides?.temperature ?? config.parameters.temperature,
         maxTokens: overrides?.maxTokens ?? config.parameters.maxTokens,
+        enableReasoning: overrides?.enableReasoning ?? config.enableReasoning,
       });
 
       for await (const chunk of stream) {

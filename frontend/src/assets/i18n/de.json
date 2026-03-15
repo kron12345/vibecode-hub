@@ -224,6 +224,8 @@
     "permInstall": "Pakete installieren",
     "permHttp": "HTTP-Anfragen",
     "permGit": "Git-Operationen",
+    "enableReasoning": "Chain-of-Thought Reasoning",
+    "enableReasoningHint": "Aktiviert den Denkmodus (Ollama: qwen3.5, deepseek-r1). Bessere Analyse, aber langsamere Antworten.",
     "systemPrompt": "Verhaltensprofil (System Prompt)",
     "systemPromptPlaceholder": "Definiere das Verhalten, die Verantwortlichkeiten und Regeln des Agenten...",
     "systemPromptHint": "Markdown unterstützt. Das ist die Identität des Agenten — wie eine CLAUDE.md für jede Rolle.",
