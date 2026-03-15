@@ -165,6 +165,9 @@ export interface AgentRoleConfig {
   };
   pipelinePosition: number;
   enableReasoning?: boolean;
+  dualProvider?: string;
+  dualModel?: string;
+  dualStrategy?: 'merge' | 'consensus' | 'enrich';
   description: string;
   color: string;
   icon: string;

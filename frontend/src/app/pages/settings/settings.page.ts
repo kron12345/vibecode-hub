@@ -1228,6 +1228,79 @@ const PERMISSION_KEYS: { key: keyof AgentRoleConfig['permissions']; labelKey: st
                   </div>
                 </div>
 
+                <!-- Row 1b: Dual-Testing -->
+                <div class="border border-white/5 rounded-xl p-4 bg-slate-900/30">
+                  <div class="flex items-center justify-between mb-3">
+                    <div class="flex items-center gap-2">
+                      <app-icon name="git-compare" [size]="16" class="text-amber-400" />
+                      <span class="text-sm font-medium text-slate-400">{{ 'settings.dualTesting' | translate }}</span>
+                    </div>
+                    <label class="relative inline-flex items-center cursor-pointer">
+                      <input
+                        type="checkbox"
+                        [checked]="!!agentRoleConfigs[role].dualProvider"
+                        (change)="toggleDualTesting(role)"
+                        class="sr-only peer"
+                      />
+                      <div class="w-9 h-5 bg-slate-700 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-amber-500"></div>
+                    </label>
+                  </div>
+                  @if (agentRoleConfigs[role].dualProvider) {
+                    <p class="text-[10px] text-slate-600 mb-3">{{ 'settings.dualTestingHint' | translate }}</p>
+                    <div class="grid grid-cols-1 md:grid-cols-3 gap-3">
+                      <div>
+                        <label class="block text-[10px] font-medium text-slate-500 mb-1">{{ 'settings.dualProvider' | translate }}</label>
+                        <div class="relative">
+                          <select
+                            [(ngModel)]="agentRoleConfigs[role].dualProvider"
+                            class="w-full appearance-none bg-slate-800/50 border border-amber-500/20 rounded-lg pl-3 pr-8 py-2 text-white text-sm focus:outline-none focus:border-amber-500/40 transition-colors cursor-pointer"
+                          >
+                            <optgroup label="Local">
+                              @for (p of getProvidersByCategory('local'); track p.value) {
+                                <option [value]="p.value">{{ p.label }}</option>
+                              }
+                            </optgroup>
+                            <optgroup label="CLI">
+                              @for (p of getProvidersByCategory('cli'); track p.value) {
+                                <option [value]="p.value">{{ p.label }}</option>
+                              }
+                            </optgroup>
+                            <optgroup label="API">
+                              @for (p of getProvidersByCategory('api'); track p.value) {
+                                <option [value]="p.value">{{ p.label }}</option>
+                              }
+                            </optgroup>
+                          </select>
+                          <app-icon name="chevron-down" [size]="12" class="absolute right-2 top-1/2 -translate-y-1/2 text-slate-500 pointer-events-none" />
+                        </div>
+                      </div>
+                      <div>
+                        <label class="block text-[10px] font-medium text-slate-500 mb-1">{{ 'settings.dualModel' | translate }}</label>
+                        <input
+                          type="text"
+                          [(ngModel)]="agentRoleConfigs[role].dualModel"
+                          class="w-full bg-slate-800/50 border border-amber-500/20 rounded-lg px-3 py-2 text-white text-sm focus:outline-none focus:border-amber-500/40 transition-colors"
+                          placeholder="sonnet, opus, haiku, ..."
+                        />
+                      </div>
+                      <div>
+                        <label class="block text-[10px] font-medium text-slate-500 mb-1">{{ 'settings.dualStrategy' | translate }}</label>
+                        <div class="relative">
+                          <select
+                            [(ngModel)]="agentRoleConfigs[role].dualStrategy"
+                            class="w-full appearance-none bg-slate-800/50 border border-amber-500/20 rounded-lg pl-3 pr-8 py-2 text-white text-sm focus:outline-none focus:border-amber-500/40 transition-colors cursor-pointer"
+                          >
+                            <option value="merge">Merge ({{ 'settings.dualMerge' | translate }})</option>
+                            <option value="consensus">Consensus ({{ 'settings.dualConsensus' | translate }})</option>
+                            <option value="enrich">Enrich ({{ 'settings.dualEnrich' | translate }})</option>
+                          </select>
+                          <app-icon name="chevron-down" [size]="12" class="absolute right-2 top-1/2 -translate-y-1/2 text-slate-500 pointer-events-none" />
+                        </div>
+                      </div>
+                    </div>
+                  }
+                </div>
+
                 <!-- Row 2: Parameters -->
                 <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
                   <div>
@@ -1782,6 +1855,20 @@ export class SettingsPage implements OnInit {
 
   toggleRoleExpanded(role: string) {
     this.expandedRoles[role] = !this.expandedRoles[role];
+  }
+
+  toggleDualTesting(role: string) {
+    if (this.agentRoleConfigs[role].dualProvider) {
+      // Disable: clear all dual fields
+      delete this.agentRoleConfigs[role].dualProvider;
+      delete this.agentRoleConfigs[role].dualModel;
+      delete this.agentRoleConfigs[role].dualStrategy;
+    } else {
+      // Enable: set defaults
+      this.agentRoleConfigs[role].dualProvider = 'CLAUDE_CODE';
+      this.agentRoleConfigs[role].dualModel = 'sonnet';
+      this.agentRoleConfigs[role].dualStrategy = 'merge';
+    }
   }
 
   togglePermission(role: string, key: keyof AgentRoleConfig['permissions']) {
