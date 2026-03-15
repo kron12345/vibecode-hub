@@ -322,7 +322,12 @@
     "colStatus": "Status",
     "colSlug": "Slug",
     "colUpdated": "Zuletzt aktualisiert",
-    "noProjects": "Keine Projekte gefunden"
+    "noProjects": "Keine Projekte gefunden",
+    "deleteTitle": "Projekt löschen?",
+    "deleteWarning": "Diese Aktion ist nicht rückgängig zu machen. Folgendes wird gelöscht:",
+    "deleteGitlab": "GitLab-Repository inkl. aller Branches und Wiki",
+    "deleteDb": "Alle Issues, Milestones und Agent-Logs",
+    "deleteChats": "Alle Chat-Sessions und Nachrichten"
   },
   "agentsPage": {
     "title": "Agenten",

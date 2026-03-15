@@ -153,9 +153,18 @@ const STATUS_ICONS: Record<string, string> = {
                   <span class="text-xs text-slate-500">{{ project.updatedAt | date:'dd.MM.yyyy HH:mm' }}</span>
                 </td>
                 <td class="px-4 py-3.5 text-right">
-                  <a [routerLink]="['/projects', project.slug]" class="p-1.5 rounded-lg text-slate-600 hover:text-indigo-400 hover:bg-indigo-500/10 transition-all inline-flex">
-                    <app-icon name="arrow-up-right" [size]="16" />
-                  </a>
+                  <div class="flex items-center justify-end gap-1">
+                    <button
+                      (click)="confirmDelete(project, $event)"
+                      class="p-1.5 rounded-lg text-slate-700 hover:text-red-400 hover:bg-red-500/10 transition-all opacity-0 group-hover:opacity-100"
+                      [title]="'common.delete' | translate"
+                    >
+                      <app-icon name="trash-2" [size]="14" />
+                    </button>
+                    <a [routerLink]="['/projects', project.slug]" class="p-1.5 rounded-lg text-slate-600 hover:text-indigo-400 hover:bg-indigo-500/10 transition-all inline-flex">
+                      <app-icon name="arrow-up-right" [size]="16" />
+                    </a>
+                  </div>
                 </td>
               </tr>
             } @empty {
@@ -173,6 +182,49 @@ const STATUS_ICONS: Record<string, string> = {
         </table>
       </div>
     </div>
+
+    <!-- Delete Confirmation Modal -->
+    @if (deleteTarget()) {
+      <div class="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm animate-in">
+        <div class="glass rounded-2xl p-6 max-w-md w-full mx-4 border border-red-500/20 shadow-2xl">
+          <div class="flex items-center gap-3 mb-4">
+            <div class="p-3 bg-red-500/15 rounded-xl">
+              <app-icon name="alert-triangle" [size]="24" class="text-red-400" />
+            </div>
+            <div>
+              <h3 class="text-lg font-semibold text-white">{{ 'projectsList.deleteTitle' | translate }}</h3>
+              <p class="text-sm text-slate-400">{{ deleteTarget()!.name }}</p>
+            </div>
+          </div>
+          <p class="text-sm text-slate-300 mb-2">{{ 'projectsList.deleteWarning' | translate }}</p>
+          <ul class="text-xs text-slate-500 space-y-1 mb-6 ml-4">
+            <li class="flex items-center gap-2"><app-icon name="git-branch" [size]="12" class="text-red-400" /> {{ 'projectsList.deleteGitlab' | translate }}</li>
+            <li class="flex items-center gap-2"><app-icon name="database" [size]="12" class="text-red-400" /> {{ 'projectsList.deleteDb' | translate }}</li>
+            <li class="flex items-center gap-2"><app-icon name="message-circle" [size]="12" class="text-red-400" /> {{ 'projectsList.deleteChats' | translate }}</li>
+          </ul>
+          <div class="flex justify-end gap-3">
+            <button
+              (click)="deleteTarget.set(null)"
+              class="px-4 py-2 rounded-xl text-sm text-slate-400 hover:text-white bg-slate-800/50 hover:bg-slate-700/50 border border-white/10 transition-all"
+            >
+              {{ 'common.cancel' | translate }}
+            </button>
+            <button
+              (click)="executeDelete()"
+              [disabled]="deleting()"
+              class="px-4 py-2 rounded-xl text-sm text-white bg-red-600/80 hover:bg-red-600 border border-red-500/30 transition-all flex items-center gap-2"
+            >
+              @if (deleting()) {
+                <app-icon name="loader-2" [size]="14" class="animate-spin" />
+              } @else {
+                <app-icon name="trash-2" [size]="14" />
+              }
+              {{ 'common.delete' | translate }}
+            </button>
+          </div>
+        </div>
+      </div>
+    }
   `,
 })
 export class ProjectsPage implements OnInit {
@@ -180,6 +232,8 @@ export class ProjectsPage implements OnInit {
   private api = inject(ApiService);
 
   projects = signal<Project[]>([]);
+  deleteTarget = signal<Project | null>(null);
+  deleting = signal(false);
   searchQuery = '';
   filterStatus = '';
   sortField: 'updatedAt' | 'name' | 'createdAt' = 'updatedAt';
@@ -224,5 +278,29 @@ export class ProjectsPage implements OnInit {
 
   statusIcon(status?: string): string {
     return STATUS_ICONS[status ?? ''] ?? 'circle';
+  }
+
+  confirmDelete(project: Project, event: Event) {
+    event.stopPropagation();
+    event.preventDefault();
+    this.deleteTarget.set(project);
+  }
+
+  executeDelete() {
+    const project = this.deleteTarget();
+    if (!project) return;
+
+    this.deleting.set(true);
+    this.api.deleteProject(project.id).subscribe({
+      next: () => {
+        this.projects.update((list) => list.filter((p) => p.id !== project.id));
+        this.deleteTarget.set(null);
+        this.deleting.set(false);
+      },
+      error: (err) => {
+        console.error('Delete failed:', err);
+        this.deleting.set(false);
+      },
+    });
   }
 }
