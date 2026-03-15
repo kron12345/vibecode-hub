@@ -1,6 +1,6 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { EventEmitter2 } from '@nestjs/event-emitter';
-import { execFile } from 'child_process';
+import { exec, execFile } from 'child_process';
 import { promisify } from 'util';
 import * as path from 'path';
 import * as fs from 'fs/promises';
@@ -29,13 +29,7 @@ import {
 } from '@prisma/client';
 
 const execFileAsync = promisify(execFile);
-
-/** Binaries allowed to be executed by the DevOps agent */
-const ALLOWED_BINARIES = new Set([
-  'npx', 'npm', 'node', 'git', 'pnpm', 'yarn', 'bun',
-  'cargo', 'go', 'python', 'python3', 'pip', 'pip3',
-  'dotnet', 'mvn', 'gradle', 'java', 'javac', 'curl', 'tar',
-]);
+const execAsync = promisify(exec);
 
 /** Known MCP server definitions — maps name → command + args */
 const MCP_SERVER_REGISTRY: Record<string, { command: string; args: string[]; transport?: string; url?: string }> = {
@@ -1245,87 +1239,30 @@ build:
 
   // ─── Helpers ───────────────────────────────────────────────
 
-  /** Parse a command string into [binary, ...args] respecting quotes */
-  private parseCommand(command: string): string[] {
-    const parts: string[] = [];
-    let current = '';
-    let inQuote: string | null = null;
-
-    for (const char of command) {
-      if (inQuote) {
-        if (char === inQuote) {
-          inQuote = null;
-        } else {
-          current += char;
-        }
-      } else if (char === '"' || char === "'") {
-        inQuote = char;
-      } else if (char === ' ') {
-        if (current) {
-          parts.push(current);
-          current = '';
-        }
-      } else {
-        current += char;
-      }
-    }
-    if (current) parts.push(current);
-    return parts;
-  }
-
   /**
-   * Resolve `cd subdir && actual-command` patterns into { cwd, command }.
-   * Supports: "cd foo && npm install", "cd foo/bar && npx ...", "npm install" (no cd).
+   * Execute a command via shell.
+   * Supports cd, &&, pipes, redirects — full shell syntax.
+   * Commands run in the project workspace directory.
    */
-  private resolveCdPrefix(command: string, baseCwd: string): { resolvedCwd: string; resolvedCommand: string } {
-    const cdMatch = command.match(/^cd\s+([^\s&]+)\s*&&\s*(.+)$/);
-    if (cdMatch) {
-      const subdir = cdMatch[1];
-      const actualCommand = cdMatch[2].trim();
-      const { join } = require('path');
-      return { resolvedCwd: join(baseCwd, subdir), resolvedCommand: actualCommand };
-    }
-    return { resolvedCwd: baseCwd, resolvedCommand: command };
-  }
-
-  /** Execute a command with allowlist enforcement */
   private async executeCommand(
     command: string,
     cwd: string,
     timeout: number,
   ): Promise<CommandResult> {
-    // Handle "cd subdir && actual-command" by extracting cwd
-    const { resolvedCwd, resolvedCommand } = this.resolveCdPrefix(command, cwd);
-
-    const parts = this.parseCommand(resolvedCommand);
-    if (parts.length === 0) {
+    if (!command.trim()) {
       return { command, exitCode: 1, stdout: '', stderr: 'Empty command' };
     }
 
-    const binary = parts[0];
-    const args = parts.slice(1);
-
-    // Allowlist check
-    if (!ALLOWED_BINARIES.has(binary)) {
-      return {
-        command,
-        exitCode: 1,
-        stdout: '',
-        stderr: `Binary "${binary}" is not in the allowlist. Allowed: ${[...ALLOWED_BINARIES].join(', ')}`,
-      };
-    }
-
     // Replace {PORT} placeholder if present
-    const processedArgs = args.map(arg =>
-      arg.replace(/\{PORT\}/g, '3000'),
-    );
+    const processedCommand = command.replace(/\{PORT\}/g, '3000');
 
     try {
-      const { stdout, stderr } = await execFileAsync(binary, processedArgs, {
-        cwd: resolvedCwd,
+      const { stdout, stderr } = await execAsync(processedCommand, {
+        cwd,
         timeout,
         maxBuffer: 10 * 1024 * 1024, // 10 MB
-        env: { ...process.env, CI: 'true' }, // Prevent interactive prompts
+        env: { ...process.env, CI: 'true', DEBIAN_FRONTEND: 'noninteractive' },
+        shell: '/bin/bash',
       });
       return { command, exitCode: 0, stdout, stderr };
     } catch (err: any) {
