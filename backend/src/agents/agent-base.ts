@@ -381,6 +381,8 @@ export abstract class BaseAgent {
     projectSlug: string,
     chatSessionId?: string,
   ): Promise<string> {
+    let workspace: string;
+
     if (chatSessionId) {
       const session = await this.prisma.chatSession.findUnique({
         where: { id: chatSessionId },
@@ -388,14 +390,47 @@ export abstract class BaseAgent {
       });
 
       if (session?.type === ChatSessionType.DEV_SESSION && session.branch) {
-        return getSessionWorktreePath(
+        workspace = getSessionWorktreePath(
           this.settings.devopsWorkspacePath,
           projectSlug,
           session.branch,
         );
+      } else {
+        workspace = path.resolve(this.settings.devopsWorkspacePath, projectSlug);
+      }
+    } else {
+      workspace = path.resolve(this.settings.devopsWorkspacePath, projectSlug);
+    }
+
+    // Workspace fence: ensure package.json exists so npm never escapes upward
+    await this.ensureWorkspaceFence(workspace);
+
+    return workspace;
+  }
+
+  /**
+   * Workspace fence: ensures a package.json exists in the workspace root.
+   * Without this, npm/npx walk up the directory tree and can modify
+   * the Hub's own package.json — catastrophic for the Coder agent.
+   */
+  protected async ensureWorkspaceFence(workspace: string): Promise<void> {
+    const pkgPath = path.join(workspace, 'package.json');
+    try {
+      await fs.access(pkgPath);
+    } catch {
+      // Only create if workspace dir exists (it might not exist yet during setup)
+      try {
+        await fs.access(workspace);
+        await fs.writeFile(pkgPath, JSON.stringify({
+          name: path.basename(workspace),
+          version: '0.0.0',
+          private: true,
+        }, null, 2) + '\n');
+        this.logger.debug(`Workspace fence: created sentinel package.json in ${workspace}`);
+      } catch {
+        // Workspace doesn't exist yet — skip
       }
     }
-    return path.resolve(this.settings.devopsWorkspacePath, projectSlug);
   }
 
   /** Map Prisma MessageRole to LLM role */

@@ -288,6 +288,10 @@ export class DevopsAgent extends BaseAgent {
         await this.log(ctx.agentTaskId, 'INFO', `Git clone completed: ${redactedUrl}`);
       }
 
+      // Fence: ensure package.json exists in workspace root to prevent npm
+      // from walking up the directory tree into the Hub's package.json
+      await this.ensureWorkspaceFence(projectDir);
+
       result.cloneSuccess = true;
       result.steps.push(this.step(
         'cloneRepository', 'success',
