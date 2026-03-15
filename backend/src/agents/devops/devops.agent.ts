@@ -1273,13 +1273,31 @@ build:
     return parts;
   }
 
+  /**
+   * Resolve `cd subdir && actual-command` patterns into { cwd, command }.
+   * Supports: "cd foo && npm install", "cd foo/bar && npx ...", "npm install" (no cd).
+   */
+  private resolveCdPrefix(command: string, baseCwd: string): { resolvedCwd: string; resolvedCommand: string } {
+    const cdMatch = command.match(/^cd\s+([^\s&]+)\s*&&\s*(.+)$/);
+    if (cdMatch) {
+      const subdir = cdMatch[1];
+      const actualCommand = cdMatch[2].trim();
+      const { join } = require('path');
+      return { resolvedCwd: join(baseCwd, subdir), resolvedCommand: actualCommand };
+    }
+    return { resolvedCwd: baseCwd, resolvedCommand: command };
+  }
+
   /** Execute a command with allowlist enforcement */
   private async executeCommand(
     command: string,
     cwd: string,
     timeout: number,
   ): Promise<CommandResult> {
-    const parts = this.parseCommand(command);
+    // Handle "cd subdir && actual-command" by extracting cwd
+    const { resolvedCwd, resolvedCommand } = this.resolveCdPrefix(command, cwd);
+
+    const parts = this.parseCommand(resolvedCommand);
     if (parts.length === 0) {
       return { command, exitCode: 1, stdout: '', stderr: 'Empty command' };
     }
@@ -1304,7 +1322,7 @@ build:
 
     try {
       const { stdout, stderr } = await execFileAsync(binary, processedArgs, {
-        cwd,
+        cwd: resolvedCwd,
         timeout,
         maxBuffer: 10 * 1024 * 1024, // 10 MB
         env: { ...process.env, CI: 'true' }, // Prevent interactive prompts
