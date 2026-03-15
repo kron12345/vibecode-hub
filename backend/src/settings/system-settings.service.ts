@@ -57,6 +57,18 @@ export interface PipelineConfig {
   maxParallelOllamaModels: number;
   maxFixAttempts: number;
   merge: MergeConfig;
+  /** MCP Agent Loop: max tool-use iterations per agent run (default: 30) */
+  mcpMaxIterations?: number;
+  /** Max messages in an interview session before auto-completing (default: 50) */
+  maxInterviewMessages?: number;
+  /** Stuck-task cleanup check interval in minutes (default: 5) */
+  stuckCheckIntervalMinutes?: number;
+  /** Git operation timeout in seconds (default: 60) */
+  gitTimeoutSeconds?: number;
+  /** CLI tool (Claude Code, Codex CLI) timeout in minutes (default: 10) */
+  cliTimeoutMinutes?: number;
+  /** Max MR diffs reviewed per agent run (default: 25) */
+  maxReviewDiffs?: number;
 }
 
 /**

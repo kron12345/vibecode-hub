@@ -27,8 +27,8 @@ const SUGGESTIONS_MARKER = ':::SUGGESTIONS:::';
 /** Marker for partial interview progress */
 const PROGRESS_MARKER = ':::PROGRESS:::';
 
-/** Max messages per interview to prevent runaway conversations */
-const MAX_INTERVIEW_MESSAGES = 50;
+/** Fallback max messages per interview (overridden by pipeline config) */
+const FALLBACK_MAX_INTERVIEW_MESSAGES = 50;
 
 const DEFAULT_SYSTEM_PROMPT = `You are the Interviewer Agent for VibCode Hub — an AI development team platform.
 
@@ -239,7 +239,7 @@ export class InterviewerAgent extends BaseAgent {
       where: { chatSessionId: ctx.chatSessionId },
     });
 
-    if (messageCount > MAX_INTERVIEW_MESSAGES) {
+    if (messageCount > (this.settings.getPipelineConfig().maxInterviewMessages ?? FALLBACK_MAX_INTERVIEW_MESSAGES)) {
       await this.sendAgentMessage(
         ctx,
         'The interview has reached the maximum number of messages. Please create a new project to start over.',
@@ -705,7 +705,7 @@ export class InterviewerAgent extends BaseAgent {
     const messageCount = await this.prisma.chatMessage.count({
       where: { chatSessionId: ctx.chatSessionId },
     });
-    if (messageCount > MAX_INTERVIEW_MESSAGES) {
+    if (messageCount > (this.settings.getPipelineConfig().maxInterviewMessages ?? FALLBACK_MAX_INTERVIEW_MESSAGES)) {
       await this.sendAgentMessage(ctx, 'Feature interview reached max messages. Please finalize or create a new session.');
       await this.updateStatus(ctx, AgentStatus.ERROR);
       return;

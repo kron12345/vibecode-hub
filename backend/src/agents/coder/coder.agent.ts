@@ -29,8 +29,9 @@ const execFileAsync = promisify(execFile);
 
 /** Timeout for MCP agent loop (10 minutes) */
 // No timeout — LLMs get unlimited time (only maxIterations limits the loop)
-/** Timeout for git operations */
-const GIT_TIMEOUT_MS = 60_000;
+/** Fallback git timeout (overridden by pipeline config gitTimeoutSeconds) */
+/** Fallback git timeout — overridden by pipeline config gitTimeoutSeconds */
+const _FALLBACK_GIT_TIMEOUT_MS = 60_000;
 
 @Injectable()
 export class CoderAgent extends BaseAgent {
@@ -846,7 +847,7 @@ export class CoderAgent extends BaseAgent {
 
   private async gitPull(cwd: string): Promise<void> {
     try {
-      await execFileAsync('git', ['pull', '--ff-only'], { cwd, timeout: GIT_TIMEOUT_MS });
+      await execFileAsync('git', ['pull', '--ff-only'], { cwd, timeout: this.getGitTimeoutMs() });
     } catch (err) {
       this.logger.debug(`git pull failed (non-fatal): ${err.message}`);
     }
@@ -855,30 +856,30 @@ export class CoderAgent extends BaseAgent {
   private async gitCheckout(cwd: string, branch: string): Promise<void> {
     // Stash any uncommitted AND untracked changes before switching branches
     try {
-      const { stdout: status } = await execFileAsync('git', ['status', '--porcelain'], { cwd, timeout: GIT_TIMEOUT_MS });
+      const { stdout: status } = await execFileAsync('git', ['status', '--porcelain'], { cwd, timeout: this.getGitTimeoutMs() });
       if (status.trim()) {
         this.logger.debug(`Stashing ${status.trim().split('\n').length} changes (incl. untracked) before checkout ${branch}`);
-        await execFileAsync('git', ['stash', 'push', '--include-untracked', '-m', `auto-stash before checkout ${branch}`], { cwd, timeout: GIT_TIMEOUT_MS });
+        await execFileAsync('git', ['stash', 'push', '--include-untracked', '-m', `auto-stash before checkout ${branch}`], { cwd, timeout: this.getGitTimeoutMs() });
       }
     } catch (stashErr) {
       this.logger.warn(`git stash failed: ${stashErr.message}`);
     }
     try {
-      await execFileAsync('git', ['checkout', branch], { cwd, timeout: GIT_TIMEOUT_MS });
+      await execFileAsync('git', ['checkout', branch], { cwd, timeout: this.getGitTimeoutMs() });
     } catch (checkoutErr) {
       // Handle "branch already checked out in another worktree" error
       // CLI tools (Codex, Claude) can leave stale /tmp worktrees referencing the branch
       if (checkoutErr.message?.includes('Arbeitsverzeichnis') || checkoutErr.message?.includes('worktree')) {
         this.logger.warn(`Branch ${branch} locked by another worktree — pruning stale worktrees and retrying`);
         try {
-          await execFileAsync('git', ['worktree', 'prune'], { cwd, timeout: GIT_TIMEOUT_MS });
-          await execFileAsync('git', ['checkout', branch], { cwd, timeout: GIT_TIMEOUT_MS });
+          await execFileAsync('git', ['worktree', 'prune'], { cwd, timeout: this.getGitTimeoutMs() });
+          await execFileAsync('git', ['checkout', branch], { cwd, timeout: this.getGitTimeoutMs() });
           return;
         } catch (retryErr) {
           this.logger.warn(`Worktree prune didn't help — force-removing stale worktree locks`);
           // Find and remove the stale worktree
           try {
-            const { stdout: worktreeList } = await execFileAsync('git', ['worktree', 'list', '--porcelain'], { cwd, timeout: GIT_TIMEOUT_MS });
+            const { stdout: worktreeList } = await execFileAsync('git', ['worktree', 'list', '--porcelain'], { cwd, timeout: this.getGitTimeoutMs() });
             const lines = worktreeList.split('\n');
             for (let i = 0; i < lines.length; i++) {
               if (lines[i].startsWith('branch refs/heads/' + branch)) {
@@ -887,8 +888,8 @@ export class CoderAgent extends BaseAgent {
                 const wtPath = pathLine.replace('worktree ', '').trim();
                 if (wtPath && wtPath.startsWith('/tmp/')) {
                   this.logger.log(`Removing stale worktree at ${wtPath} for branch ${branch}`);
-                  await execFileAsync('git', ['worktree', 'remove', '--force', wtPath], { cwd, timeout: GIT_TIMEOUT_MS }).catch(() => {});
-                  await execFileAsync('git', ['checkout', branch], { cwd, timeout: GIT_TIMEOUT_MS });
+                  await execFileAsync('git', ['worktree', 'remove', '--force', wtPath], { cwd, timeout: this.getGitTimeoutMs() }).catch(() => {});
+                  await execFileAsync('git', ['checkout', branch], { cwd, timeout: this.getGitTimeoutMs() });
                   return;
                 }
               }
@@ -903,10 +904,10 @@ export class CoderAgent extends BaseAgent {
 
   private async gitCreateBranch(cwd: string, branch: string): Promise<void> {
     try {
-      await execFileAsync('git', ['checkout', '-b', branch], { cwd, timeout: GIT_TIMEOUT_MS });
+      await execFileAsync('git', ['checkout', '-b', branch], { cwd, timeout: this.getGitTimeoutMs() });
     } catch {
       // Branch may already exist — try to check it out
-      await execFileAsync('git', ['checkout', branch], { cwd, timeout: GIT_TIMEOUT_MS });
+      await execFileAsync('git', ['checkout', branch], { cwd, timeout: this.getGitTimeoutMs() });
     }
   }
 
@@ -922,7 +923,7 @@ export class CoderAgent extends BaseAgent {
     try {
       const { stdout } = await execFileAsync(
         'git', ['status', '--porcelain'],
-        { cwd, timeout: GIT_TIMEOUT_MS, maxBuffer: 10 * 1024 * 1024 },
+        { cwd, timeout: this.getGitTimeoutMs(), maxBuffer: 10 * 1024 * 1024 },
       );
       for (const line of stdout.trim().split('\n')) {
         if (line.trim()) files.add(line.substring(3).trim());
@@ -933,7 +934,7 @@ export class CoderAgent extends BaseAgent {
     try {
       const { stdout } = await execFileAsync(
         'git', ['diff', '--name-only', defaultBranch + '...HEAD'],
-        { cwd, timeout: GIT_TIMEOUT_MS, maxBuffer: 10 * 1024 * 1024 },
+        { cwd, timeout: this.getGitTimeoutMs(), maxBuffer: 10 * 1024 * 1024 },
       );
       for (const line of stdout.trim().split('\n')) {
         if (line.trim()) files.add(line.trim());
@@ -952,9 +953,9 @@ export class CoderAgent extends BaseAgent {
    */
   private async gitCommitAndPush(cwd: string, branch: string, message: string): Promise<string> {
     // Stage and commit any uncommitted changes (may be empty for CLI providers)
-    await execFileAsync('git', ['add', '.'], { cwd, timeout: GIT_TIMEOUT_MS, maxBuffer: 10 * 1024 * 1024 });
+    await execFileAsync('git', ['add', '.'], { cwd, timeout: this.getGitTimeoutMs(), maxBuffer: 10 * 1024 * 1024 });
     try {
-      await execFileAsync('git', ['commit', '-m', message], { cwd, timeout: GIT_TIMEOUT_MS, maxBuffer: 10 * 1024 * 1024 });
+      await execFileAsync('git', ['commit', '-m', message], { cwd, timeout: this.getGitTimeoutMs(), maxBuffer: 10 * 1024 * 1024 });
     } catch (commitErr) {
       // "nothing to commit" is fine — CLI provider already committed
       // Check message, stdout, AND stderr since Node distributes the text across properties
@@ -965,12 +966,12 @@ export class CoderAgent extends BaseAgent {
       this.logger.debug('No uncommitted changes to commit — CLI provider likely already committed');
     }
 
-    const { stdout } = await execFileAsync('git', ['rev-parse', 'HEAD'], { cwd, timeout: GIT_TIMEOUT_MS });
+    const { stdout } = await execFileAsync('git', ['rev-parse', 'HEAD'], { cwd, timeout: this.getGitTimeoutMs() });
     const commitSha = stdout.trim();
 
     await execFileAsync(
       'git', ['push', '-u', 'origin', branch],
-      { cwd, timeout: GIT_TIMEOUT_MS, maxBuffer: 10 * 1024 * 1024 },
+      { cwd, timeout: this.getGitTimeoutMs(), maxBuffer: 10 * 1024 * 1024 },
     );
     return commitSha;
   }

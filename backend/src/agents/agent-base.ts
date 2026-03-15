@@ -93,6 +93,18 @@ export abstract class BaseAgent {
     }));
   }
 
+  /** Get git timeout from pipeline config (seconds → ms) */
+  protected getGitTimeoutMs(): number {
+    const cfg = this.settings.getPipelineConfig();
+    return (cfg.gitTimeoutSeconds ?? 60) * 1000;
+  }
+
+  /** Get max review diffs from pipeline config */
+  protected getMaxReviewDiffs(): number {
+    const cfg = this.settings.getPipelineConfig();
+    return cfg.maxReviewDiffs ?? 25;
+  }
+
   /** Call the LLM with the configured provider/model for this role */
   protected async callLlm(
     messages: LlmMessage[],
@@ -106,9 +118,15 @@ export abstract class BaseAgent {
       messages,
       temperature: overrides?.temperature ?? config.parameters.temperature,
       maxTokens: overrides?.maxTokens ?? config.parameters.maxTokens,
-      timeoutMs: overrides?.timeoutMs,
+      timeoutMs: overrides?.timeoutMs ?? this.getCliTimeoutMs(),
       enableReasoning: overrides?.enableReasoning ?? config.enableReasoning,
     });
+  }
+
+  /** Get CLI tool timeout from pipeline config (minutes → ms) */
+  private getCliTimeoutMs(): number | undefined {
+    const cfg = this.settings.getPipelineConfig();
+    return cfg.cliTimeoutMinutes ? cfg.cliTimeoutMinutes * 60 * 1000 : undefined;
   }
 
   /**

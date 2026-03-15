@@ -128,7 +128,7 @@ export class CodeReviewerAgent extends BaseAgent {
       const systemPrompt = config.systemPrompt || DEFAULT_SYSTEM_PROMPT;
 
       // Prioritize source files > configs > other files for review
-      const MAX_REVIEW_DIFFS = 25;
+      const MAX_REVIEW_DIFFS = this.getMaxReviewDiffs();
       const MAX_DIFF_CHARS = 2000;
       const sortedDiffs = [...diffs].sort((a, b) => {
         const score = (path: string) => {

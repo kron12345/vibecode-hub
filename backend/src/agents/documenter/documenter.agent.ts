@@ -27,7 +27,8 @@ import {
 const execFileAsync = promisify(execFile);
 
 const COMPLETION_MARKER = ':::DOCS_COMPLETE:::';
-const GIT_TIMEOUT_MS = 30_000;
+/** Fallback git timeout — overridden by pipeline config gitTimeoutSeconds */
+const _FALLBACK_GIT_TIMEOUT_MS = 30_000;
 
 const DEFAULT_SYSTEM_PROMPT = `You are the Documenter Agent for VibCode Hub — an AI development team platform.
 
@@ -154,7 +155,7 @@ export class DocumenterAgent extends BaseAgent {
 
       // Checkout the feature branch
       try {
-        await execFileAsync('git', ['checkout', branchName], { cwd: workspace, timeout: GIT_TIMEOUT_MS });
+        await execFileAsync('git', ['checkout', branchName], { cwd: workspace, timeout: this.getGitTimeoutMs() });
       } catch {
         this.logger.warn(`Could not checkout ${branchName} — working on current branch`);
       }
@@ -542,12 +543,12 @@ For code-level docs (README, API, JSDoc), keep \`wikiPage: false\` or omit it.`;
   // ─── Git Operations ──────────────────────────────────────
 
   private async gitCommitAndPush(cwd: string, branch: string, message: string): Promise<string> {
-    await execFileAsync('git', ['add', '.'], { cwd, timeout: GIT_TIMEOUT_MS });
+    await execFileAsync('git', ['add', '.'], { cwd, timeout: this.getGitTimeoutMs() });
 
     // Check if there are staged changes
     const { stdout: status } = await execFileAsync(
       'git', ['status', '--porcelain'],
-      { cwd, timeout: GIT_TIMEOUT_MS },
+      { cwd, timeout: this.getGitTimeoutMs() },
     );
 
     if (!status.trim()) {
@@ -555,13 +556,13 @@ For code-level docs (README, API, JSDoc), keep \`wikiPage: false\` or omit it.`;
       return '';
     }
 
-    await execFileAsync('git', ['commit', '-m', message], { cwd, timeout: GIT_TIMEOUT_MS });
-    const { stdout } = await execFileAsync('git', ['rev-parse', 'HEAD'], { cwd, timeout: GIT_TIMEOUT_MS });
+    await execFileAsync('git', ['commit', '-m', message], { cwd, timeout: this.getGitTimeoutMs() });
+    const { stdout } = await execFileAsync('git', ['rev-parse', 'HEAD'], { cwd, timeout: this.getGitTimeoutMs() });
     const commitSha = stdout.trim();
 
     await execFileAsync(
       'git', ['push', '-u', 'origin', branch],
-      { cwd, timeout: GIT_TIMEOUT_MS },
+      { cwd, timeout: this.getGitTimeoutMs() },
     );
 
     return commitSha;

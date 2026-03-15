@@ -84,12 +84,14 @@ export class AgentOrchestratorService implements OnModuleInit, OnModuleDestroy {
   ) {}
 
   onModuleInit() {
+    const pipelineCfg = this.settings.getPipelineConfig();
+    const intervalMs = (pipelineCfg.stuckCheckIntervalMinutes ?? 5) * 60 * 1000;
     this.stuckCheckTimer = setInterval(() => {
       this.cleanupStuckTasks().catch((err) => {
         this.logger.error(`Stuck task cleanup failed: ${err.message}`);
       });
-    }, STUCK_CHECK_INTERVAL_MS);
-    this.logger.log('Stuck task cleanup scheduled (every 5 min)');
+    }, intervalMs);
+    this.logger.log(`Stuck task cleanup scheduled (every ${pipelineCfg.stuckCheckIntervalMinutes ?? 5} min)`);
   }
 
   onModuleDestroy() {

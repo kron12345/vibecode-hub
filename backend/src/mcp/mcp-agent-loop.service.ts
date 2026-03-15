@@ -3,9 +3,10 @@ import { LlmService } from '../llm/llm.service';
 import { LlmMessage } from '../llm/llm.interfaces';
 import { McpClientService } from './mcp-client.service';
 import { PrismaService } from '../prisma/prisma.service';
+import { SystemSettingsService } from '../settings/system-settings.service';
 import { McpAgentLoopOptions, McpAgentLoopResult } from './mcp.interfaces';
 
-const DEFAULT_MAX_ITERATIONS = 30;
+const FALLBACK_MAX_ITERATIONS = 30;
 
 /**
  * Generic MCP Agent Loop.
@@ -22,6 +23,7 @@ export class McpAgentLoopService {
     private readonly llmService: LlmService,
     private readonly mcpClient: McpClientService,
     private readonly prisma: PrismaService,
+    private readonly settings: SystemSettingsService,
   ) {}
 
   /**
@@ -36,7 +38,8 @@ export class McpAgentLoopService {
    */
   async run(options: McpAgentLoopOptions): Promise<McpAgentLoopResult> {
     const start = Date.now();
-    const maxIterations = options.maxIterations ?? DEFAULT_MAX_ITERATIONS;
+    const pipelineCfg = this.settings.getPipelineConfig();
+    const maxIterations = options.maxIterations ?? pipelineCfg.mcpMaxIterations ?? FALLBACK_MAX_ITERATIONS;
     let sessionId: string | null = null;
 
     try {

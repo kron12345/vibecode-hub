@@ -809,6 +809,100 @@ const PERMISSION_KEYS: { key: keyof AgentRoleConfig['permissions']; labelKey: st
               />
             </div>
           </div>
+
+          <!-- Advanced Pipeline Tuning -->
+          <div class="border-t border-white/5 pt-4 mt-4">
+            <h3 class="text-sm font-semibold text-slate-500 mb-4 flex items-center gap-2">
+              <app-icon name="sliders-horizontal" [size]="14" />
+              {{ 'settings.advancedTuning' | translate }}
+            </h3>
+            <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
+              <div>
+                <label class="block text-xs font-medium text-slate-500 mb-1">
+                  {{ 'settings.mcpMaxIterations' | translate }}
+                </label>
+                <p class="text-[10px] text-slate-600 mb-1">{{ 'settings.mcpMaxIterationsHint' | translate }}</p>
+                <input
+                  type="number"
+                  [(ngModel)]="pipelineConfig.mcpMaxIterations"
+                  min="5"
+                  max="100"
+                  placeholder="30"
+                  class="w-full bg-slate-900/50 border border-white/10 rounded-xl px-4 py-2.5 text-white text-sm focus:outline-none focus:border-indigo-500/50 transition-colors"
+                />
+              </div>
+              <div>
+                <label class="block text-xs font-medium text-slate-500 mb-1">
+                  {{ 'settings.maxInterviewMessages' | translate }}
+                </label>
+                <p class="text-[10px] text-slate-600 mb-1">{{ 'settings.maxInterviewMessagesHint' | translate }}</p>
+                <input
+                  type="number"
+                  [(ngModel)]="pipelineConfig.maxInterviewMessages"
+                  min="10"
+                  max="200"
+                  placeholder="50"
+                  class="w-full bg-slate-900/50 border border-white/10 rounded-xl px-4 py-2.5 text-white text-sm focus:outline-none focus:border-indigo-500/50 transition-colors"
+                />
+              </div>
+              <div>
+                <label class="block text-xs font-medium text-slate-500 mb-1">
+                  {{ 'settings.stuckCheckInterval' | translate }}
+                </label>
+                <p class="text-[10px] text-slate-600 mb-1">{{ 'settings.stuckCheckIntervalHint' | translate }}</p>
+                <input
+                  type="number"
+                  [(ngModel)]="pipelineConfig.stuckCheckIntervalMinutes"
+                  min="1"
+                  max="60"
+                  placeholder="5"
+                  class="w-full bg-slate-900/50 border border-white/10 rounded-xl px-4 py-2.5 text-white text-sm focus:outline-none focus:border-indigo-500/50 transition-colors"
+                />
+              </div>
+              <div>
+                <label class="block text-xs font-medium text-slate-500 mb-1">
+                  {{ 'settings.gitTimeout' | translate }}
+                </label>
+                <p class="text-[10px] text-slate-600 mb-1">{{ 'settings.gitTimeoutHint' | translate }}</p>
+                <input
+                  type="number"
+                  [(ngModel)]="pipelineConfig.gitTimeoutSeconds"
+                  min="10"
+                  max="600"
+                  placeholder="60"
+                  class="w-full bg-slate-900/50 border border-white/10 rounded-xl px-4 py-2.5 text-white text-sm focus:outline-none focus:border-indigo-500/50 transition-colors"
+                />
+              </div>
+              <div>
+                <label class="block text-xs font-medium text-slate-500 mb-1">
+                  {{ 'settings.cliTimeout' | translate }}
+                </label>
+                <p class="text-[10px] text-slate-600 mb-1">{{ 'settings.cliTimeoutHint' | translate }}</p>
+                <input
+                  type="number"
+                  [(ngModel)]="pipelineConfig.cliTimeoutMinutes"
+                  min="1"
+                  max="60"
+                  placeholder="10"
+                  class="w-full bg-slate-900/50 border border-white/10 rounded-xl px-4 py-2.5 text-white text-sm focus:outline-none focus:border-indigo-500/50 transition-colors"
+                />
+              </div>
+              <div>
+                <label class="block text-xs font-medium text-slate-500 mb-1">
+                  {{ 'settings.maxReviewDiffs' | translate }}
+                </label>
+                <p class="text-[10px] text-slate-600 mb-1">{{ 'settings.maxReviewDiffsHint' | translate }}</p>
+                <input
+                  type="number"
+                  [(ngModel)]="pipelineConfig.maxReviewDiffs"
+                  min="5"
+                  max="100"
+                  placeholder="25"
+                  class="w-full bg-slate-900/50 border border-white/10 rounded-xl px-4 py-2.5 text-white text-sm focus:outline-none focus:border-indigo-500/50 transition-colors"
+                />
+              </div>
+            </div>
+          </div>
         </div>
 
         <!-- MCP Servers -->

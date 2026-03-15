@@ -209,6 +209,12 @@ export interface PipelineConfig {
   timeoutMinutes: number;
   maxParallelOllamaModels: number;
   maxFixAttempts: number;
+  mcpMaxIterations?: number;
+  maxInterviewMessages?: number;
+  stuckCheckIntervalMinutes?: number;
+  gitTimeoutSeconds?: number;
+  cliTimeoutMinutes?: number;
+  maxReviewDiffs?: number;
 }
 
 export interface ProviderModel {
