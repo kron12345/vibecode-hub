@@ -123,10 +123,11 @@ export abstract class BaseAgent {
     });
   }
 
-  /** Get CLI tool timeout from pipeline config (minutes → ms) */
-  private getCliTimeoutMs(): number | undefined {
+  /** Get CLI tool timeout from pipeline config (minutes → ms), default 30 min */
+  private getCliTimeoutMs(): number {
     const cfg = this.settings.getPipelineConfig();
-    return cfg.cliTimeoutMinutes ? cfg.cliTimeoutMinutes * 60 * 1000 : undefined;
+    const minutes = cfg.cliTimeoutMinutes ?? 30;
+    return minutes * 60 * 1000;
   }
 
   /**

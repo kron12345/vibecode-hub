@@ -508,7 +508,7 @@ export class CoderAgent extends BaseAgent {
           issueIid: issue.gitlabIid,
           agentTaskId: agentTask.id,
           authorName: 'Coder Agent',
-          markdownContent: `## 🔧 Fix in Progress (${sourceLabel})\n\n> ${feedback.substring(0, 500)}`,
+          markdownContent: `## 🔧 Fix in Progress (${sourceLabel})\n\n> ${feedback.substring(0, 5000)}`,
         });
       }
 

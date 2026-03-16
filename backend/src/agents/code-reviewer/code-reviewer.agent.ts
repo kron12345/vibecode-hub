@@ -129,7 +129,7 @@ export class CodeReviewerAgent extends BaseAgent {
 
       // Prioritize source files > configs > other files for review
       const MAX_REVIEW_DIFFS = this.getMaxReviewDiffs();
-      const MAX_DIFF_CHARS = 2000;
+      const MAX_DIFF_CHARS = 20000;
       const sortedDiffs = [...diffs].sort((a, b) => {
         const score = (path: string) => {
           if (/\.(ts|js|tsx|jsx|py|rs|go|java|css|scss|html)$/.test(path)) return 0;

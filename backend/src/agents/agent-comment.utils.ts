@@ -6,7 +6,7 @@ import { CommentAuthorType } from '@prisma/client';
 const logger = new Logger('AgentComment');
 
 /** Max chars for comment history injected into LLM prompts */
-const MAX_HISTORY_CHARS = 4000;
+const MAX_HISTORY_CHARS = 60000;
 
 export interface PostAgentCommentDeps {
   prisma: PrismaService;

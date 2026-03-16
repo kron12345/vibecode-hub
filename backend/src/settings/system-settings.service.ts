@@ -335,6 +335,7 @@ export class SystemSettingsService implements OnModuleInit {
       timeoutMinutes: 30,
       maxParallelOllamaModels: 1,
       maxFixAttempts: 5,
+      cliTimeoutMinutes: 30,
       merge: {
         autoMerge: true,
         method: 'merge',
