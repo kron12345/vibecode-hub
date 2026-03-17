@@ -10,7 +10,7 @@ import { LlmMessage } from '../../llm/llm.interfaces';
 import { BaseAgent, AgentContext } from '../agent-base';
 import { MonitorGateway } from '../../monitor/monitor.gateway';
 import { DualTestService } from '../dual-test.service';
-import { postAgentComment, getAgentCommentHistory } from '../agent-comment.utils';
+import { postAgentComment, getAgentCommentHistory, extractLastAgentFindings } from '../agent-comment.utils';
 import {
   buildArchitectScopeGuardSection,
   extractArchitectOutOfScopeItems,
@@ -200,17 +200,27 @@ export class CodeReviewerAgent extends BaseAgent {
       const outOfScopeItems = extractArchitectOutOfScopeItems(commentHistory);
       const scopeGuardSection = buildArchitectScopeGuardSection(outOfScopeItems);
 
-      const userPrompt = `Review the following merge request:
+      // Build structured previous findings section (Expectation Pattern memory)
+      const previousFindings = extractLastAgentFindings(commentHistory, 'Code Reviewer');
+      const previousFindingsSection = previousFindings.length > 0
+        ? `\n## YOUR Previous Review Findings — Re-Evaluate Each One\n${previousFindings.map((f, i) =>
+            `${i + 1}. [${(f.severity ?? 'warning').toUpperCase()}] \`${f.file ?? 'unknown'}\`: ${f.message}\n   Expected fix: ${f.expectedFix ?? f.suggestion ?? 'not specified'}`
+          ).join('\n')}\n\nFor each finding above: check if it is now fixed in the current code. Report fixed items in \`resolvedFromPrevious\`. Carry unfixed items forward in \`findings\` with the SAME message text.\n`
+        : '';
+
+      const userPrompt = `Review the following merge request${previousFindings.length > 0 ? ' (Re-review after fix attempt)' : ''}:
 
 **Issue:** ${issue.title}
 **Description:** ${issue.description || 'N/A'}
-${historySection}${knowledgeSection}
+${previousFindingsSection}${historySection}${knowledgeSection}
 ${scopeGuardSection}
 ## MR Diffs (${reviewDiffs.length} of ${diffs.length} file(s)):
 
 ${diffText}${skippedNote}
 
-Provide your review analysis and end with the completion marker and JSON result.`;
+${previousFindings.length > 0
+  ? 'IMPORTANT: First address each item in "YOUR Previous Review Findings" above, then check for new issues.'
+  : 'Provide your review analysis and end with the completion marker and JSON result.'}`;
 
       const messages: LlmMessage[] = [
         { role: 'system', content: systemPrompt },

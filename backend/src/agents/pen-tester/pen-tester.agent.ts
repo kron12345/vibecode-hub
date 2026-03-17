@@ -15,7 +15,7 @@ import { MonitorGateway } from '../../monitor/monitor.gateway';
 import { McpAgentLoopService } from '../../mcp/mcp-agent-loop.service';
 import { McpRegistryService } from '../../mcp/mcp-registry.service';
 import { DualTestService } from '../dual-test.service';
-import { postAgentComment, getAgentCommentHistory } from '../agent-comment.utils';
+import { postAgentComment, getAgentCommentHistory, extractLastAgentFindings } from '../agent-comment.utils';
 import {
   buildArchitectScopeGuardSection,
   extractArchitectOutOfScopeItems,
@@ -275,7 +275,15 @@ export class PenTesterAgent extends BaseAgent {
 
       const maxWarnings = this.getMaxWarnings();
 
-      const userPrompt = `Perform a security analysis of this merge request:
+      // Build structured previous findings section (Expectation Pattern memory)
+      const previousFindings = extractLastAgentFindings(commentHistory, 'Pen Tester');
+      const previousFindingsSection = previousFindings.length > 0
+        ? `\n## YOUR Previous Security Findings — Re-Evaluate Each One\n${previousFindings.map((f, i) =>
+            `${i + 1}. [${(f.severity ?? 'warning').toUpperCase()}] ${f.file ? `\`${f.file}\`: ` : ''}${f.message}\n   Expected fix: ${f.expectedFix ?? f.suggestion ?? 'not specified'}\n   → NOW CHECK: is this vulnerability still present in the current code?`
+          ).join('\n')}\n\nFor each finding above: if fixed, report in \`resolvedFromPrevious\`. If still present, carry forward with SAME description.\n`
+        : '';
+
+      const userPrompt = `Perform a security analysis of this merge request${previousFindings.length > 0 ? ' (Re-test after fix attempt)' : ''}:
 
 **Issue:** ${issue.title}
 **Description:** ${issue.description || 'N/A'}
@@ -284,7 +292,7 @@ export class PenTesterAgent extends BaseAgent {
 ${techStackContext}
 
 **Warning threshold:** PASS if ≤${maxWarnings} warnings and 0 critical findings.
-${historySection}
+${previousFindingsSection}${historySection}
 ${scopeGuardSection}
 ## MR Diffs (${reviewDiffs.length} of ${diffs.length} file(s)):
 
@@ -294,12 +302,14 @@ ${auditReport ? `## npm audit Results (production dependencies only):\n\n${audit
 
 ${headerReport ? `## Security Headers Check:\n\n${headerReport}` : ''}
 
-Analyze the code for OWASP Top 10 vulnerabilities. Be context-aware: consider the tech stack and project type.
+${previousFindings.length > 0
+  ? 'IMPORTANT: First address each item in "YOUR Previous Security Findings" above, then check for new vulnerabilities.'
+  : 'Analyze the code for OWASP Top 10 vulnerabilities. Be context-aware: consider the tech stack and project type.'}
 
 IMPORTANT: You MUST end your response with the JSON result in this EXACT format:
 ${COMPLETION_MARKER}
 \`\`\`json
-{"passed": true/false, "summary": "...", "findings": [{"category": "A03:2021", "severity": "critical/warning/info", "title": "...", "details": "...", "remediation": "..."}]}
+{"passed": true/false, "summary": "...", "roundNumber": 1, "findings": [{"category": "A03:2021", "severity": "critical/warning/info", "description": "...", "file": "path", "expectedFix": "...", "exploitScenario": "...", "status": "new/unresolved/blocked"}]}
 \`\`\`
 Do NOT omit the JSON block.`;
 

@@ -12,7 +12,7 @@ import { MonitorGateway } from '../../monitor/monitor.gateway';
 import { McpAgentLoopService } from '../../mcp/mcp-agent-loop.service';
 import { McpRegistryService } from '../../mcp/mcp-registry.service';
 import { DualTestService } from '../dual-test.service';
-import { postAgentComment, getAgentCommentHistory } from '../agent-comment.utils';
+import { postAgentComment, getAgentCommentHistory, extractLastAgentFindings } from '../agent-comment.utils';
 import {
   buildArchitectScopeGuardSection,
   extractArchitectOutOfScopeItems,
@@ -318,12 +318,20 @@ export class UiTesterAgent extends BaseAgent {
         }
       }
 
-      const userPrompt = `Analyze the UI changes in this merge request:
+      // Build structured previous findings section (Expectation Pattern memory)
+      const previousFindings = extractLastAgentFindings(commentHistory, 'UI Tester');
+      const previousFindingsSection = previousFindings.length > 0
+        ? `\n## YOUR Previous UI Test Findings — Re-Evaluate Each One\n${previousFindings.map((f, i) =>
+            `${i + 1}. [${(f.severity ?? 'warning').toUpperCase()}] ${f.message}\n   → NOW CHECK: is this still present in the current code/screenshots?`
+          ).join('\n')}\n\nFor each finding above: if fixed, report in \`resolvedFromPrevious\`. If still present, carry forward with SAME description.\n`
+        : '';
+
+      const userPrompt = `Analyze the UI changes in this merge request${previousFindings.length > 0 ? ' (Re-test after fix attempt)' : ''}:
 
 **Issue:** ${issue.title}
 **Description:** ${issue.description || 'N/A'}
 ${previewUrl ? `**Preview URL:** ${previewUrl}` : ''}
-${historySection}
+${previousFindingsSection}${historySection}
 ${scopeGuardSection}
 ## Code Changes (${reviewDiffs.length} UI-related file(s)):
 
@@ -332,7 +340,9 @@ ${diffText || '_No UI-related files changed._'}
 ${browserData ? `## Browser Test Results:\n\n${browserData}` : ''}
 ${visualAnalysis ? `## Visual Screenshot Analysis:\n\n${visualAnalysis}` : ''}
 
-Analyze the UI changes for layout, responsiveness, accessibility, visual quality, and interactions.
+${previousFindings.length > 0
+  ? 'IMPORTANT: First address each item in "YOUR Previous UI Test Findings" above, then check for new issues.'
+  : 'Analyze the UI changes for layout, responsiveness, accessibility, visual quality, and interactions.'}
 
 IMPORTANT: You MUST end your response with the JSON result in this EXACT format:
 ${COMPLETION_MARKER}

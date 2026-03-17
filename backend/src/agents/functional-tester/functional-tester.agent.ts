@@ -12,7 +12,7 @@ import { MonitorGateway } from '../../monitor/monitor.gateway';
 import { McpAgentLoopService } from '../../mcp/mcp-agent-loop.service';
 import { McpRegistryService } from '../../mcp/mcp-registry.service';
 import { DualTestService } from '../dual-test.service';
-import { postAgentComment, getAgentCommentHistory } from '../agent-comment.utils';
+import { postAgentComment, getAgentCommentHistory, extractLastAgentFindings } from '../agent-comment.utils';
 import {
   buildArchitectScopeGuardSection,
   extractArchitectOutOfScopeItems,
@@ -209,11 +209,19 @@ export class FunctionalTesterAgent extends BaseAgent {
         ? await this.buildKnowledgeSectionWiki(this.gitlabService, project?.gitlabProjectId ?? null, workspace)
         : '';
 
-      const userPrompt = `Verify the following merge request implements the issue requirements:
+      // Build structured previous findings section (Expectation Pattern memory)
+      const previousFindings = extractLastAgentFindings(commentHistory, 'Functional Tester');
+      const previousFindingsSection = previousFindings.length > 0
+        ? `\n## YOUR Previous Test Results — Re-Evaluate Each One\n${previousFindings.map((f, i) =>
+            `${i + 1}. Criterion: "${f.criterion ?? f.message}"\n   Previous verdict: FAILED\n   Previous observation: ${f.message}\n   → NOW CHECK: is this fixed in the current code?`
+          ).join('\n\n')}\n`
+        : '';
+
+      const userPrompt = `Verify the following merge request${previousFindings.length > 0 ? ' (Re-test after fix attempt)' : ''} implements the issue requirements:
 
 **Issue:** ${issue.title}
 **Description:** ${issue.description || 'N/A'}
-${historySection}${knowledgeSection}
+${previousFindingsSection}${historySection}${knowledgeSection}
 ${scopeGuardSection}
 ## Acceptance Criteria:
 ${acceptanceCriteria || '_No sub-issues / acceptance criteria defined — verify based on issue description._'}
@@ -222,12 +230,14 @@ ${acceptanceCriteria || '_No sub-issues / acceptance criteria defined — verify
 
 ${diffText}
 
-Analyze each acceptance criterion against the code changes.
+${previousFindings.length > 0
+  ? 'IMPORTANT: First address each item in "YOUR Previous Test Results" above, then check remaining criteria.'
+  : 'Analyze each acceptance criterion against the code changes.'}
 
 IMPORTANT: You MUST end your response with the JSON result in this EXACT format:
 ${COMPLETION_MARKER}
 \`\`\`json
-{"passed": true/false, "summary": "...", "findings": [{"criterion": "...", "passed": true/false, "details": "...", "severity": "info/warning/critical"}]}
+{"passed": true/false, "summary": "...", "roundNumber": 1, "findings": [{"criterion": "...", "passed": true/false, "details": "...", "severity": "info/warning/critical", "conclusiveness": "definitive/inconclusive", "expectedEvidence": "...", "actualEvidence": "...", "status": "new/unresolved/blocked"}]}
 \`\`\`
 Do NOT omit the JSON block.`;
 
