@@ -12,7 +12,7 @@ import { GitlabService } from '../../gitlab/gitlab.service';
 import { IssuesService } from '../../issues/issues.service';
 import { McpAgentLoopService } from '../../mcp/mcp-agent-loop.service';
 import { McpRegistryService } from '../../mcp/mcp-registry.service';
-import { BaseAgent, AgentContext } from '../agent-base';
+import { BaseAgent, AgentContext, sanitizeJsonOutput } from '../agent-base';
 import { MonitorGateway } from '../../monitor/monitor.gateway';
 import { postAgentComment } from '../agent-comment.utils';
 import { CoderIssueResult } from './coder-result.interface';
@@ -457,7 +457,7 @@ export class CoderAgent extends BaseAgent {
         where: { id: agentTask.id },
         data: {
           status: AgentTaskStatus.COMPLETED,
-          output: result as any,
+          output: sanitizeJsonOutput(result) as any,
           completedAt: new Date(),
         },
       });
@@ -500,7 +500,7 @@ export class CoderAgent extends BaseAgent {
           data: {
             status: AgentTaskStatus.FAILED,
             completedAt: new Date(),
-            output: result as any,
+            output: sanitizeJsonOutput(result) as any,
           },
         });
       } catch {
@@ -725,7 +725,7 @@ export class CoderAgent extends BaseAgent {
         where: { id: agentTask.id },
         data: {
           status: AgentTaskStatus.COMPLETED,
-          output: { changedFiles, feedbackSource, commitSha } as any,
+          output: sanitizeJsonOutput({ changedFiles, feedbackSource, commitSha }) as any,
           completedAt: new Date(),
         },
       });

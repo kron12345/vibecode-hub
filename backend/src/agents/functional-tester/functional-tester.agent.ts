@@ -7,7 +7,7 @@ import { ChatGateway } from '../../chat/chat.gateway';
 import { LlmService } from '../../llm/llm.service';
 import { GitlabService } from '../../gitlab/gitlab.service';
 import { LlmMessage } from '../../llm/llm.interfaces';
-import { BaseAgent, AgentContext } from '../agent-base';
+import { BaseAgent, AgentContext, sanitizeJsonOutput } from '../agent-base';
 import { MonitorGateway } from '../../monitor/monitor.gateway';
 import { McpAgentLoopService } from '../../mcp/mcp-agent-loop.service';
 import { McpRegistryService } from '../../mcp/mcp-registry.service';
@@ -529,7 +529,7 @@ Do NOT omit the JSON block.`;
       where: { id: ctx.agentTaskId },
       data: {
         status: AgentTaskStatus.COMPLETED,
-        output: testResult as any,
+        output: sanitizeJsonOutput(testResult) as any,
         completedAt: new Date(),
       },
     });
@@ -570,7 +570,7 @@ Do NOT omit the JSON block.`;
       where: { id: ctx.agentTaskId },
       data: {
         status: AgentTaskStatus.COMPLETED,
-        output: testResult as any,
+        output: sanitizeJsonOutput(testResult) as any,
         completedAt: new Date(),
       },
     });

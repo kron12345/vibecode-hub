@@ -9,7 +9,7 @@ import { LlmMessage } from '../../llm/llm.interfaces';
 import { GitlabService } from '../../gitlab/gitlab.service';
 import { PreviewService } from '../../preview/preview.service';
 import { MonitorGateway } from '../../monitor/monitor.gateway';
-import { BaseAgent, AgentContext } from '../agent-base';
+import { BaseAgent, AgentContext, sanitizeJsonOutput } from '../agent-base';
 import {
   InterviewResult,
   FeatureInterviewResult,
@@ -704,7 +704,7 @@ export class InterviewerAgent extends BaseAgent {
       where: { id: ctx.agentTaskId },
       data: {
         status: AgentTaskStatus.COMPLETED,
-        output: interviewResult as any,
+        output: sanitizeJsonOutput(interviewResult) as any,
         completedAt: new Date(),
       },
     });
@@ -1115,7 +1115,7 @@ The JSON must be valid. Do NOT ask for confirmation — just finalize when ready
       where: { id: ctx.agentTaskId },
       data: {
         status: AgentTaskStatus.COMPLETED,
-        output: featureResult as any,
+        output: sanitizeJsonOutput(featureResult) as any,
         completedAt: new Date(),
       },
     });

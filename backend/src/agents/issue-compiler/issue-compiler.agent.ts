@@ -8,7 +8,7 @@ import { LlmService } from '../../llm/llm.service';
 import { GitlabService } from '../../gitlab/gitlab.service';
 import { IssuesService } from '../../issues/issues.service';
 import { LlmMessage } from '../../llm/llm.interfaces';
-import { BaseAgent, AgentContext } from '../agent-base';
+import { BaseAgent, AgentContext, sanitizeJsonOutput } from '../agent-base';
 import { MonitorGateway } from '../../monitor/monitor.gateway';
 import {
   InterviewResult,
@@ -934,7 +934,7 @@ IMPORTANT: Respond with ONLY the JSON object. No prose, no explanation, no markd
       where: { id: ctx.agentTaskId },
       data: {
         status: AgentTaskStatus.COMPLETED,
-        output: result as any,
+        output: sanitizeJsonOutput(result) as any,
         completedAt: new Date(),
       },
     });

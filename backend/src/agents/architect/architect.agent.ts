@@ -11,7 +11,7 @@ import { GitlabService } from '../../gitlab/gitlab.service';
 import { McpAgentLoopService } from '../../mcp/mcp-agent-loop.service';
 import { McpRegistryService } from '../../mcp/mcp-registry.service';
 import { LlmMessage } from '../../llm/llm.interfaces';
-import { BaseAgent, AgentContext } from '../agent-base';
+import { BaseAgent, AgentContext, sanitizeJsonOutput } from '../agent-base';
 import { MonitorGateway } from '../../monitor/monitor.gateway';
 import { postAgentComment } from '../agent-comment.utils';
 import {
@@ -664,7 +664,7 @@ export class ArchitectAgent extends BaseAgent {
       data: {
         status: AgentTaskStatus.COMPLETED,
         completedAt: new Date(),
-        output: { groundedIssues: groundedCount } as any,
+        output: sanitizeJsonOutput({ groundedIssues: groundedCount }) as any,
       },
     });
 

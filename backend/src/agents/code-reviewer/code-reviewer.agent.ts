@@ -7,7 +7,7 @@ import { ChatGateway } from '../../chat/chat.gateway';
 import { LlmService } from '../../llm/llm.service';
 import { GitlabService } from '../../gitlab/gitlab.service';
 import { LlmMessage } from '../../llm/llm.interfaces';
-import { BaseAgent, AgentContext } from '../agent-base';
+import { BaseAgent, AgentContext, sanitizeJsonOutput } from '../agent-base';
 import { MonitorGateway } from '../../monitor/monitor.gateway';
 import { DualTestService } from '../dual-test.service';
 import {
@@ -494,7 +494,7 @@ ${
       where: { id: ctx.agentTaskId },
       data: {
         status: AgentTaskStatus.COMPLETED,
-        output: reviewResult as any,
+        output: sanitizeJsonOutput(reviewResult) as any,
         completedAt: new Date(),
       },
     });
@@ -547,7 +547,7 @@ ${
       where: { id: ctx.agentTaskId },
       data: {
         status: AgentTaskStatus.COMPLETED,
-        output: reviewResult as any,
+        output: sanitizeJsonOutput(reviewResult) as any,
         completedAt: new Date(),
       },
     });

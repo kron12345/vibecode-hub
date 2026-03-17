@@ -18,6 +18,30 @@ import {
 export const KNOWLEDGE_BASE_FILE = 'PROJECT_KNOWLEDGE.md';
 export const ENVIRONMENT_FILE = 'ENVIRONMENT.md';
 
+/**
+ * Sanitize an object for safe storage as Prisma JSON/JSONB.
+ * Removes control characters and NUL bytes that PostgreSQL JSONB rejects.
+ * Use this before `output: result as any` in agentTask.update().
+ */
+export function sanitizeJsonOutput(obj: unknown): unknown {
+  if (obj === null || obj === undefined) return obj;
+  if (typeof obj === 'string') {
+    // Remove NUL bytes and control chars (except \n, \r, \t)
+    return obj.replace(/[\x00-\x08\x0B\x0C\x0E-\x1F\x7F]/g, '');
+  }
+  if (Array.isArray(obj)) {
+    return obj.map(sanitizeJsonOutput);
+  }
+  if (typeof obj === 'object') {
+    const clean: Record<string, unknown> = {};
+    for (const [key, value] of Object.entries(obj as Record<string, unknown>)) {
+      clean[key] = sanitizeJsonOutput(value);
+    }
+    return clean;
+  }
+  return obj; // numbers, booleans
+}
+
 /** Minimal interface for wiki reads — avoids coupling BaseAgent to GitlabService */
 export interface WikiReader {
   getWikiPageContent(projectId: number, slug: string): Promise<string | null>;

@@ -11,7 +11,7 @@ import { ChatGateway } from '../../chat/chat.gateway';
 import { LlmService } from '../../llm/llm.service';
 import { GitlabService } from '../../gitlab/gitlab.service';
 import { LlmMessage } from '../../llm/llm.interfaces';
-import { BaseAgent, AgentContext, KNOWLEDGE_BASE_FILE } from '../agent-base';
+import { BaseAgent, AgentContext, KNOWLEDGE_BASE_FILE, sanitizeJsonOutput } from '../agent-base';
 import { MonitorGateway } from '../../monitor/monitor.gateway';
 import { DualTestService } from '../dual-test.service';
 import {
@@ -506,7 +506,7 @@ For code-level docs (README, API, JSDoc), keep \`wikiPage: false\` or omit it.`;
       where: { id: ctx.agentTaskId },
       data: {
         status: AgentTaskStatus.COMPLETED,
-        output: result as any,
+        output: sanitizeJsonOutput(result) as any,
         completedAt: new Date(),
       },
     });

@@ -15,6 +15,7 @@ import {
   AgentContext,
   KNOWLEDGE_BASE_FILE,
   ENVIRONMENT_FILE,
+  sanitizeJsonOutput,
 } from '../agent-base';
 import { McpAgentLoopService } from '../../mcp/mcp-agent-loop.service';
 import { McpRegistryService } from '../../mcp/mcp-registry.service';
@@ -1687,7 +1688,7 @@ build:
         where: { id: ctx.agentTaskId },
         data: {
           status: AgentTaskStatus.COMPLETED,
-          output: result as any,
+          output: sanitizeJsonOutput(result) as any,
           completedAt: new Date(),
         },
       });
@@ -2113,7 +2114,7 @@ build:
         where: { id: ctx.agentTaskId },
         data: {
           status: AgentTaskStatus.FAILED,
-          output: result as any,
+          output: sanitizeJsonOutput(result) as any,
           completedAt: new Date(),
         },
       });
