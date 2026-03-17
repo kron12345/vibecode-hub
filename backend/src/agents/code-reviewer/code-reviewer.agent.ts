@@ -654,6 +654,21 @@ ${
           : `Changes requested (${findings.length} finding(s))`;
       }
 
+      // Repair "No details" findings by extracting info from the summary text
+      // Some LLMs (gpt-5.3-codex) put finding details in summary instead of finding objects
+      const noDetailFindings = findings.filter(f => f.message === 'No details');
+      if (noDetailFindings.length > 0 && summary && summary.length > 20) {
+        // Parse numbered items from summary: "1. 🔴 Description (file:line)"
+        const summaryItems = summary.match(/\d+\.\s*[🔴🟡🔵⚠️]?\s*\*?\*?(?:critical|warning|info)?:?\*?\*?\s*(.+?)(?=\d+\.\s*[🔴🟡🔵⚠️]|$)/gi) || [];
+        for (let i = 0; i < noDetailFindings.length && i < summaryItems.length; i++) {
+          const item = summaryItems[i].replace(/^\d+\.\s*[🔴🟡🔵⚠️]?\s*\*?\*?(?:critical|warning|info)?:?\*?\*?\s*/i, '').trim();
+          if (item.length > 5) {
+            noDetailFindings[i].message = item.substring(0, 300);
+            this.logger.debug(`Repaired "No details" finding ${i + 1} from summary: ${item.substring(0, 80)}`);
+          }
+        }
+      }
+
       // Apply decision rules ourselves — don't blindly trust LLM's "approved" field
       // APPROVE if: no critical findings AND ≤2 warnings (matches system prompt)
       const criticalFindings = findings.filter(
