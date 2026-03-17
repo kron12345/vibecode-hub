@@ -10,7 +10,12 @@ import { LlmMessage } from '../../llm/llm.interfaces';
 import { BaseAgent, AgentContext } from '../agent-base';
 import { MonitorGateway } from '../../monitor/monitor.gateway';
 import { DualTestService } from '../dual-test.service';
-import { postAgentComment } from '../agent-comment.utils';
+import { postAgentComment, getAgentCommentHistory } from '../agent-comment.utils';
+import {
+  buildArchitectScopeGuardSection,
+  extractArchitectOutOfScopeItems,
+  filterOutOfScopeFindings,
+} from '../agent-scope.utils';
 import { ReviewResult, ReviewFinding } from './review-result.interface';
 import {
   AgentRole,
@@ -34,6 +39,19 @@ You review merge request diffs for code quality, security, correctness, and best
 - Check code style and readability
 - Verify the code actually implements what the issue describes
 - Be constructive — suggest fixes, not just point out problems
+- For EACH finding, include an \`expectedFix\` field showing the CONCRETE code change or pattern you want to see
+
+## Expectation Pattern (Anti-Loop Protocol)
+You are part of an iterative review pipeline. To prevent infinite fix loops:
+1. **Review Previous Round:** If "Previous Agent Comments" exist, find YOUR OWN previous findings first. For each one, check whether the Coder addressed it in the current diff.
+2. **Classify Each Previous Finding:**
+   - \`resolved\`: Fixed correctly. Report in \`resolvedFromPrevious\`. Do NOT re-report as new finding.
+   - \`unresolved\`: Not addressed at all. Carry forward with SAME wording — do NOT rephrase.
+   - \`blocked\`: Cannot verify (e.g., needs runtime). NOT a rejection reason on its own.
+3. **Mandatory Expectations:** For every REJECT finding, the \`expectedFix\` field MUST contain CONCRETE code or pseudocode — not "add validation" but the actual code snippet. This is a contract: if the Coder implements this exactly, you SHOULD approve next round.
+4. **No Goalpost Shifting:** Do NOT add new requirements to an existing finding across rounds. New discoveries are NEW findings.
+5. **No Rephrasing:** If you reported "Missing aud validation" in round 1, do NOT report "JWT audience not checked" in round 2. Use the SAME message text. Rephrasing wastes fix cycles.
+6. **Persistence Escalation:** Carry \`firstReportedRound\` forward. After 3+ rounds, make your \`expectedFix\` even MORE specific (include exact file, line, and code).
 
 ## Severity Levels
 - **critical**: Security vulnerabilities, data loss risks, crashes, broken functionality
@@ -52,19 +70,29 @@ ${COMPLETION_MARKER}
 {
   "approved": true,
   "summary": "Brief 1-2 sentence summary",
+  "roundNumber": 1,
+  "resolvedFromPrevious": [
+    {
+      "message": "Previous finding that was fixed",
+      "resolvedBy": "How the Coder fixed it"
+    }
+  ],
   "findings": [
     {
       "severity": "warning",
       "file": "src/example.ts",
       "line": 42,
       "message": "Missing null check",
-      "suggestion": "Add a null check before accessing the property"
+      "suggestion": "Add a null check before accessing the property",
+      "expectedFix": "Add \`if (!user) throw new UnauthorizedException();\` before line 42",
+      "firstReportedRound": 1,
+      "status": "new"
     }
   ]
 }
 \`\`\`
 
-CRITICAL: The JSON must be valid. "approved" must be boolean. "severity" must be "info", "warning", or "critical".`;
+CRITICAL: The JSON must be valid. "approved" must be boolean. "severity" must be "info", "warning", or "critical". "status" must be "new", "resolved", "unresolved", or "blocked".`;
 
 @Injectable()
 export class CodeReviewerAgent extends BaseAgent {
@@ -165,12 +193,19 @@ export class CodeReviewerAgent extends BaseAgent {
       const knowledgeSection = workspace
         ? await this.buildKnowledgeSectionWiki(this.gitlabService, project?.gitlabProjectId ?? null, workspace)
         : '';
+      const commentHistory = await getAgentCommentHistory({ prisma: this.prisma, issueId });
+      const historySection = commentHistory
+        ? `\n## Previous Agent Comments on this Issue\n${commentHistory}\n`
+        : '';
+      const outOfScopeItems = extractArchitectOutOfScopeItems(commentHistory);
+      const scopeGuardSection = buildArchitectScopeGuardSection(outOfScopeItems);
 
       const userPrompt = `Review the following merge request:
 
 **Issue:** ${issue.title}
 **Description:** ${issue.description || 'N/A'}
-${knowledgeSection}
+${historySection}${knowledgeSection}
+${scopeGuardSection}
 ## MR Diffs (${reviewDiffs.length} of ${diffs.length} file(s)):
 
 ${diffText}${skippedNote}
@@ -187,7 +222,7 @@ Provide your review analysis and end with the completion marker and JSON result.
 
       if (dualResult.primary.finishReason === 'error') {
         await this.sendAgentMessage(ctx, '❌ Code Reviewer LLM call failed');
-        await this.markFailed(ctx, 'LLM call failed');
+        await this.markFailed(ctx, `LLM call failed: ${dualResult.primary.errorMessage ?? 'unknown error'}`);
         return;
       }
 
@@ -240,6 +275,9 @@ Provide your review analysis and end with the completion marker and JSON result.
         });
         return;
       }
+
+      // Enforce Architect out-of-scope constraints server-side to prevent false review loops.
+      reviewResult = this.applyArchitectScopeFilter(reviewResult, outOfScopeItems);
 
       // Post unified review comment (same rich markdown for local + GitLab)
       const reviewMarkdown = this.buildReviewMarkdown(reviewResult);
@@ -352,10 +390,20 @@ Provide your review analysis and end with the completion marker and JSON result.
 
     await this.updateStatus(ctx, AgentStatus.IDLE);
 
-    // Build feedback for Coder — include summary if no findings
+    // Build feedback for Coder — include expectedFix and persistence info
     const findingsForCoder = reviewResult.findings
-      .map(f => `[${f.severity.toUpperCase()}] ${f.file}${f.line ? `:${f.line}` : ''}: ${f.message}${f.suggestion ? ` → ${f.suggestion}` : ''}`)
-      .join('\n');
+      .map((f, i) => {
+        const persist = f.firstReportedRound ? ` (open since round ${f.firstReportedRound})` : '';
+        const parts = [`${i + 1}. [${f.severity.toUpperCase()}] \`${f.file}${f.line ? `:${f.line}` : ''}\`${persist}`];
+        parts.push(`   Finding: ${f.message}`);
+        if (f.expectedFix) {
+          parts.push(`   EXPECTED FIX: ${f.expectedFix}`);
+        } else if (f.suggestion) {
+          parts.push(`   Suggestion: ${f.suggestion}`);
+        }
+        return parts.join('\n');
+      })
+      .join('\n\n');
 
     const feedback = findingsForCoder
       ? `Code Review findings:\n\n${findingsForCoder}`
@@ -430,12 +478,25 @@ Provide your review analysis and end with the completion marker and JSON result.
         );
       }
 
+      // Extract Expectation Pattern metadata
+      const roundNumber = typeof parsed.roundNumber === 'number' ? parsed.roundNumber : undefined;
+      const resolvedFromPrevious = Array.isArray(parsed.resolvedFromPrevious)
+        ? parsed.resolvedFromPrevious
+            .filter((r: any) => r && typeof r === 'object' && r.message)
+            .map((r: any) => ({
+              message: String(r.message),
+              resolvedBy: String(r.resolvedBy ?? ''),
+            }))
+        : undefined;
+
       const result: ReviewResult = {
         issueId,
         mrIid,
         approved: ruleBasedApproval,
         summary,
         findings,
+        roundNumber,
+        resolvedFromPrevious,
       };
 
       this.logger.log(`Parsed review: approved=${result.approved}, findings=${result.findings.length} (${criticalFindings.length}C/${warningFindings.length}W), summary="${result.summary.substring(0, 80)}"`);
@@ -536,6 +597,9 @@ Provide your review analysis and end with the completion marker and JSON result.
         line: typeof f.line === 'number' ? f.line : (typeof f.lineNumber === 'number' ? f.lineNumber : undefined),
         message: String(f.message ?? f.description ?? f.comment ?? f.text ?? 'No details'),
         suggestion: f.suggestion ? String(f.suggestion) : (f.suggestedFix ? String(f.suggestedFix) : undefined),
+        expectedFix: f.expectedFix ? String(f.expectedFix) : undefined,
+        firstReportedRound: typeof f.firstReportedRound === 'number' ? f.firstReportedRound : undefined,
+        status: ['new', 'resolved', 'unresolved', 'blocked'].includes(f.status) ? f.status : undefined,
       }));
   }
 
@@ -667,6 +731,43 @@ Provide your review analysis and end with the completion marker and JSON result.
   }
 
   // ─── Diff Fetching ──────────────────────────────────────
+
+  private applyArchitectScopeFilter(
+    reviewResult: ReviewResult,
+    outOfScopeItems: string[],
+  ): ReviewResult {
+    if (outOfScopeItems.length === 0 || reviewResult.findings.length === 0) {
+      return reviewResult;
+    }
+
+    const { filtered, removedCount } = filterOutOfScopeFindings(
+      reviewResult.findings,
+      outOfScopeItems,
+      (f) => `${f.file} ${f.message} ${f.suggestion ?? ''}`,
+    );
+
+    if (removedCount === 0) return reviewResult;
+
+    const criticalCount = filtered.filter((f) => f.severity === 'critical').length;
+    const warningCount = filtered.filter((f) => f.severity === 'warning').length;
+    const approved = criticalCount === 0 && warningCount <= 2;
+
+    this.logger.log(
+      `Architect scope filter removed ${removedCount} review finding(s) as out-of-scope`,
+    );
+
+    const summarySuffix = `Architect scope filter ignored ${removedCount} out-of-scope finding(s).`;
+    const summary = reviewResult.summary
+      ? `${reviewResult.summary} ${summarySuffix}`
+      : summarySuffix;
+
+    return {
+      ...reviewResult,
+      approved,
+      findings: filtered,
+      summary,
+    };
+  }
 
   /**
    * Fetch MR diffs with retry — GitLab may not have computed diffs

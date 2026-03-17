@@ -164,12 +164,13 @@ export class CoderAgent extends BaseAgent {
       );
 
       // If coding failed (no codingComplete event), emit codingFailed so
-      // the orchestrator can skip to the next issue in the sequential pipeline
+      // the orchestrator can pause this session's pipeline.
       if (issueResult.status === 'failed') {
         this.eventEmitter.emit('agent.codingFailed', {
           projectId: ctx.projectId,
           chatSessionId: ctx.chatSessionId,
           issueId: issue.id,
+          errorMessage: issueResult.error,
         });
       }
 
@@ -779,7 +780,7 @@ export class CoderAgent extends BaseAgent {
     );
 
     if (result.finishReason === 'error' && result.toolCallsExecuted === 0) {
-      throw new Error('MCP agent loop failed — LLM returned no usable output');
+      throw new Error(result.errorMessage || 'MCP agent loop failed — LLM returned no usable output');
     }
 
     return result.content;
@@ -836,6 +837,26 @@ export class CoderAgent extends BaseAgent {
       `4. For each finding: open the mentioned file, locate the issue, and make a concrete code change`,
       `5. Do NOT just add comments or TODOs — make actual code fixes`,
       `6. After fixing, verify your changes don't break existing functionality`,
+      '',
+      `## Expectation-Driven Fixing`,
+      '',
+      `The reviewer/tester findings above may contain "EXPECTED FIX:" fields. These are CONCRETE code`,
+      `changes that the reviewer/tester wants to see. Follow these rules:`,
+      '',
+      `- For each finding with an "EXPECTED FIX:" field: implement that change LITERALLY in the specified`,
+      `  file and line. The reviewer/tester already told you what they want to see.`,
+      `- Do NOT reinterpret or refactor around the expected fix — make the change they requested.`,
+      `- For findings marked "(open since round N)" or "(failing since round N)": this has been requested`,
+      `  N times already. If you skipped it before, do NOT skip it again.`,
+      `- For findings with "Expected:" and "Observed:" fields: the gap between these two is what you`,
+      `  need to fix. Make the observed match the expected.`,
+      '',
+      `## Common Traps to Avoid`,
+      '',
+      `- Do NOT add a validation to the wrong place (e.g., config instead of runtime validate())`,
+      `- Do NOT address a finding by adding a comment explaining why it is not needed`,
+      `- Do NOT fix finding A but accidentally break the fix for finding B from the previous round`,
+      `- If a finding says "line 42 in file X": OPEN FILE X, GO TO LINE 42, and make the change THERE`,
       '',
       `IMPORTANT: Previous fix attempts for this issue may have failed. Make sure you actually change the relevant source files. A fix attempt that produces 0 file changes will be rejected.`,
     ];

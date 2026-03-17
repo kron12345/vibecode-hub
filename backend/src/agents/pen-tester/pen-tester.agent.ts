@@ -16,6 +16,11 @@ import { McpAgentLoopService } from '../../mcp/mcp-agent-loop.service';
 import { McpRegistryService } from '../../mcp/mcp-registry.service';
 import { DualTestService } from '../dual-test.service';
 import { postAgentComment, getAgentCommentHistory } from '../agent-comment.utils';
+import {
+  buildArchitectScopeGuardSection,
+  extractArchitectOutOfScopeItems,
+  filterOutOfScopeFindings,
+} from '../agent-scope.utils';
 import { PenTestResult, SecurityFinding } from './pen-test-result.interface';
 import {
   AgentRole,
@@ -89,6 +94,20 @@ You may READ files and RUN security tools, but do NOT edit or create source file
 - Focus on ACTUAL exploitable issues, not theoretical concerns
 - Frontend-only changes rarely have backend security implications
 - Verify findings from automated tools — filter out false positives before reporting
+- For auth-related findings: verify the SPECIFIC attack vector exists given the token issuer, audience configuration, and verification settings in the current code
+- A finding is only "critical" if you can describe a concrete exploit scenario with steps
+
+## Expectation Pattern (Anti-Loop Protocol)
+You are part of an iterative test pipeline. To prevent infinite fix loops:
+1. **Review Previous Round:** If "Previous Agent Comments" exist, find YOUR OWN previous security findings first. Check the CURRENT code to determine if each was addressed.
+2. **Classify Each Previous Finding:**
+   - \`resolved\`: Fixed correctly. Report in \`resolvedFromPrevious\`. Do NOT re-report.
+   - \`unresolved\`: Not addressed. Carry forward with the EXACT SAME description + \`persistsSinceRound\`.
+   - \`blocked\`: Cannot verify without runtime. NOT a FAIL reason on its own.
+3. **Mandatory Expectations:** For every critical/warning finding, \`expectedFix\` MUST contain the CONCRETE secure code pattern — not "add validation" but the actual code that should exist.
+4. **Exploit Scenario Required:** Each critical finding MUST include \`exploitScenario\` describing the concrete attack steps. No scenario = downgrade to warning.
+5. **No Oscillation:** Do NOT oscillate between different phrasings of the same issue across rounds. If you said "Missing aud validation" in round 1, do NOT say "JWT audience not checked" in round 2.
+6. **Fix Evaluation:** If the Coder's fix attempt is close but wrong, describe precisely what is STILL MISSING — referencing the specific line and what you see vs. what should be there.
 
 ## Severity Levels
 - **critical**: Exploitable vulnerability with direct impact (injection, auth bypass, RCE, data exposure)
@@ -107,6 +126,14 @@ ${COMPLETION_MARKER}
 {
   "passed": true,
   "summary": "Brief 1-2 sentence summary",
+  "roundNumber": 1,
+  "resolvedFromPrevious": [
+    {
+      "category": "A03:2021 - Injection",
+      "description": "Previously reported SQL injection",
+      "resolvedBy": "Now uses Prisma parameterized query"
+    }
+  ],
   "findings": [
     {
       "category": "A03:2021 - Injection",
@@ -114,14 +141,19 @@ ${COMPLETION_MARKER}
       "description": "User input passed directly to SQL query",
       "file": "src/users/users.service.ts",
       "line": 42,
-      "recommendation": "Use parameterized queries via Prisma"
+      "recommendation": "Use parameterized queries via Prisma",
+      "expectedFix": "Replace raw SQL with: prisma.user.findMany({ where: { name: { contains: input } } })",
+      "exploitScenario": "Attacker sends name=' OR 1=1-- to /api/users?search= and dumps all users",
+      "verificationMethod": "Read users.service.ts line 42 — raw string concatenation in SQL query",
+      "persistsSinceRound": null,
+      "status": "new"
     }
   ],
   "auditResult": { "vulnerabilities": 0, "critical": 0, "high": 0 }
 }
 \`\`\`
 
-CRITICAL: The JSON must be valid. Always include the OWASP category in findings.`;
+CRITICAL: The JSON must be valid. Always include the OWASP category in findings. "status" must be "new", "resolved", "unresolved", or "blocked".`;
 
 @Injectable()
 export class PenTesterAgent extends BaseAgent {
@@ -238,6 +270,8 @@ export class PenTesterAgent extends BaseAgent {
       const historySection = commentHistory
         ? `\n## Previous Agent Comments on this Issue\n${commentHistory}\n`
         : '';
+      const outOfScopeItems = extractArchitectOutOfScopeItems(commentHistory);
+      const scopeGuardSection = buildArchitectScopeGuardSection(outOfScopeItems);
 
       const maxWarnings = this.getMaxWarnings();
 
@@ -251,6 +285,7 @@ ${techStackContext}
 
 **Warning threshold:** PASS if ≤${maxWarnings} warnings and 0 critical findings.
 ${historySection}
+${scopeGuardSection}
 ## MR Diffs (${reviewDiffs.length} of ${diffs.length} file(s)):
 
 ${diffText || '_No diffs available._'}
@@ -302,7 +337,7 @@ Do NOT omit the JSON block.`;
 
         if (mcpResult.finishReason === 'error') {
           await this.sendAgentMessage(ctx, 'Pen Tester MCP loop failed');
-          await this.markFailed(ctx, 'MCP agent loop failed');
+          await this.markFailed(ctx, `MCP agent loop failed: ${mcpResult.errorMessage ?? 'unknown error'}`);
           return;
         }
 
@@ -319,7 +354,7 @@ Do NOT omit the JSON block.`;
 
         if (dualResult.primary.finishReason === 'error') {
           await this.sendAgentMessage(ctx, 'Pen Tester LLM call failed');
-          await this.markFailed(ctx, 'LLM call failed');
+          await this.markFailed(ctx, `LLM call failed: ${dualResult.primary.errorMessage ?? 'unknown error'}`);
           return;
         }
 
@@ -340,6 +375,7 @@ Do NOT omit the JSON block.`;
 
             const passed = this.dualTestService.determineApproval(merged, maxWarnings);
             const mergedTestResult: PenTestResult = { ...primaryResult, findings: merged, passed };
+            const scopedMergedResult = this.applyArchitectScopeFilter(mergedTestResult, outOfScopeItems, maxWarnings);
 
             await this.sendAgentMessage(
               ctx,
@@ -347,13 +383,13 @@ Do NOT omit the JSON block.`;
             );
 
             // Rule-based override: critical findings → always fail
-            const critCount = merged.filter(f => f.severity === 'critical').length;
-            if (mergedTestResult.passed && critCount > 0) {
-              mergedTestResult.passed = false;
-              mergedTestResult.summary = `[OVERRIDE] ${critCount} critical finding(s) — auto-failed. ${mergedTestResult.summary}`;
+            const critCount = scopedMergedResult.findings.filter(f => f.severity === 'critical').length;
+            if (scopedMergedResult.passed && critCount > 0) {
+              scopedMergedResult.passed = false;
+              scopedMergedResult.summary = `[OVERRIDE] ${critCount} critical finding(s) — auto-failed. ${scopedMergedResult.summary}`;
             }
 
-            const testMarkdown = this.buildTestMarkdown(mergedTestResult);
+            const testMarkdown = this.buildTestMarkdown(scopedMergedResult);
             await postAgentComment({
               prisma: this.prisma,
               gitlabService: this.gitlabService,
@@ -365,10 +401,10 @@ Do NOT omit the JSON block.`;
               markdownContent: testMarkdown,
             });
 
-            if (mergedTestResult.passed) {
-              await this.handlePassed(ctx, issueId, mrIid, gitlabProjectId, mergedTestResult);
+            if (scopedMergedResult.passed) {
+              await this.handlePassed(ctx, issueId, mrIid, gitlabProjectId, scopedMergedResult);
             } else {
-              await this.handleFailed(ctx, issueId, mrIid, gitlabProjectId, mergedTestResult);
+              await this.handleFailed(ctx, issueId, mrIid, gitlabProjectId, scopedMergedResult);
             }
             return;
           }
@@ -416,6 +452,9 @@ Do NOT omit the JSON block.`;
         });
         return;
       }
+
+      // Enforce Architect out-of-scope constraints server-side to avoid false FAIL loops.
+      testResult = this.applyArchitectScopeFilter(testResult, outOfScopeItems, maxWarnings);
 
       // Rule-based override: critical findings → always fail, regardless of LLM opinion
       const criticalCount = testResult.findings.filter(f => f.severity === 'critical').length;
@@ -648,10 +687,16 @@ Do NOT omit the JSON block.`;
     const relevantFindings = testResult.findings.filter(f => f.severity !== 'info');
     const feedback = relevantFindings
       .map((f, i) => {
-        const parts = [`${i + 1}. [${f.severity.toUpperCase()}] [${f.category}]`];
+        const persist = f.persistsSinceRound ? ` (open since round ${f.persistsSinceRound})` : '';
+        const parts = [`${i + 1}. [${f.severity.toUpperCase()}] [${f.category}]${persist}`];
         parts.push(`   Vulnerability: ${f.description}`);
         if (f.file) parts.push(`   File: ${f.file}${f.line ? `:${f.line}` : ''}`);
-        parts.push(`   Fix: ${f.recommendation}`);
+        if (f.expectedFix) {
+          parts.push(`   EXPECTED FIX: ${f.expectedFix}`);
+        } else {
+          parts.push(`   Fix: ${f.recommendation}`);
+        }
+        if (f.exploitScenario) parts.push(`   Exploit: ${f.exploitScenario}`);
         return parts.join('\n');
       })
       .join('\n\n');
@@ -708,12 +753,26 @@ Do NOT omit the JSON block.`;
           : `Security test failed (${criticalCount} critical, ${warningCount} warning(s))`;
       }
 
+      // Extract roundNumber and resolvedFromPrevious from LLM output
+      const roundNumber = typeof parsed.roundNumber === 'number' ? parsed.roundNumber : undefined;
+      const resolvedFromPrevious = Array.isArray(parsed.resolvedFromPrevious)
+        ? parsed.resolvedFromPrevious
+            .filter((r: any) => r && typeof r === 'object')
+            .map((r: any) => ({
+              category: String(r.category ?? 'Unknown'),
+              description: String(r.description ?? ''),
+              resolvedBy: String(r.resolvedBy ?? ''),
+            }))
+        : undefined;
+
       return {
         issueId,
         passed,
         findings,
         summary,
         auditResult: parsed.auditResult || auditResult,
+        roundNumber,
+        resolvedFromPrevious,
       };
 
     } catch (err) {
@@ -781,6 +840,11 @@ Do NOT omit the JSON block.`;
         file: f.file ? String(f.file) : undefined,
         line: typeof f.line === 'number' ? f.line : undefined,
         recommendation: String(f.recommendation ?? f.fix ?? f.suggestion ?? 'Review and fix'),
+        expectedFix: f.expectedFix ? String(f.expectedFix) : undefined,
+        exploitScenario: f.exploitScenario ? String(f.exploitScenario) : undefined,
+        verificationMethod: f.verificationMethod ? String(f.verificationMethod) : undefined,
+        persistsSinceRound: typeof f.persistsSinceRound === 'number' ? f.persistsSinceRound : undefined,
+        status: ['new', 'resolved', 'unresolved', 'blocked'].includes(f.status) ? f.status : undefined,
       }));
   }
 
@@ -855,6 +919,44 @@ Do NOT omit the JSON block.`;
   }
 
   // ─── Diff Fetching ──────────────────────────────────────
+
+  private applyArchitectScopeFilter(
+    testResult: PenTestResult,
+    outOfScopeItems: string[],
+    maxWarnings: number,
+  ): PenTestResult {
+    if (outOfScopeItems.length === 0 || testResult.findings.length === 0) {
+      return testResult;
+    }
+
+    const { filtered, removedCount } = filterOutOfScopeFindings(
+      testResult.findings,
+      outOfScopeItems,
+      (f) => `${f.category} ${f.description} ${f.recommendation} ${f.file ?? ''}`,
+    );
+
+    if (removedCount === 0) return testResult;
+
+    const criticalCount = filtered.filter((f) => f.severity === 'critical').length;
+    const warningCount = filtered.filter((f) => f.severity === 'warning').length;
+    const passed = criticalCount === 0 && warningCount <= maxWarnings;
+
+    this.logger.log(
+      `Architect scope filter removed ${removedCount} security finding(s) as out-of-scope`,
+    );
+
+    const summarySuffix = `Architect scope filter ignored ${removedCount} out-of-scope finding(s).`;
+    const summary = testResult.summary
+      ? `${testResult.summary} ${summarySuffix}`
+      : summarySuffix;
+
+    return {
+      ...testResult,
+      passed,
+      findings: filtered,
+      summary,
+    };
+  }
 
   private async fetchDiffsWithRetry(
     gitlabProjectId: number,

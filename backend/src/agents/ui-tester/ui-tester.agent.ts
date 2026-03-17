@@ -13,6 +13,11 @@ import { McpAgentLoopService } from '../../mcp/mcp-agent-loop.service';
 import { McpRegistryService } from '../../mcp/mcp-registry.service';
 import { DualTestService } from '../dual-test.service';
 import { postAgentComment, getAgentCommentHistory } from '../agent-comment.utils';
+import {
+  buildArchitectScopeGuardSection,
+  extractArchitectOutOfScopeItems,
+  filterOutOfScopeFindings,
+} from '../agent-scope.utils';
 import { UiTestResult, UiTestFinding, ScreenshotManifest, ScreenshotEntry } from './ui-test-result.interface';
 import { PlaywrightRunner, PageCapture, A11yResult } from './playwright-runner';
 import * as fs from 'fs/promises';
@@ -50,6 +55,17 @@ You have access to MCP tools including filesystem access and a shell to inspect 
 - **Visual**: Consistent CSS classes, correct color/font references
 - **Interaction**: Event handlers attached, form validation logic present
 
+## Expectation Pattern (Anti-Loop Protocol)
+You are part of an iterative test pipeline. To prevent infinite fix loops:
+1. **Review Previous Round:** If "Previous Agent Comments" exist, find YOUR OWN previous UI test results first. For each previously reported finding, check if it is still present.
+2. **Classify Each Previous Finding:**
+   - \`resolved\`: Fixed correctly. Report in \`resolvedFromPrevious\`. Do NOT carry forward.
+   - \`unresolved\`: Still present. Carry forward with SAME description + \`persistsSinceRound\`.
+   - \`blocked\`: Cannot verify without browser/runtime. NOT a FAIL reason.
+3. **Mandatory Expectations:** For every FAIL finding, state the EXPECTED visual/code state via \`expectedState\`, not just the broken state. Include \`observedState\` showing what you actually see.
+4. **No Rephrasing:** Use the SAME description text across rounds.
+5. **Code-Only Limitations:** When analyzing without live screenshots, findings about runtime visual appearance are inherently uncertain — mark as \`verifiableFromCode: false\`. Only report "critical" if provable from code structure alone.
+
 ## IMPORTANT: Read-Only — Do NOT Modify Code
 You may READ files and RUN commands, but do NOT edit or create source files. Your job is to TEST, not to fix.
 
@@ -61,6 +77,7 @@ You may READ files and RUN commands, but do NOT edit or create source files. You
 ## Decision Rules
 - **PASS** if: No critical findings AND ≤3 warnings
 - **FAIL** if: Any critical finding OR >3 warnings
+- Do NOT fail based solely on findings with \`verifiableFromCode: false\`
 
 ## Completion Format
 End your analysis with EXACTLY this format:
@@ -71,18 +88,32 @@ ${COMPLETION_MARKER}
   "passed": true,
   "summary": "Brief 1-2 sentence summary",
   "pagesChecked": 3,
-  "findings": [
+  "roundNumber": 1,
+  "resolvedFromPrevious": [
     {
       "type": "accessibility",
       "page": "/dashboard",
       "description": "Missing alt text on project cards",
-      "severity": "warning"
+      "resolvedBy": "alt attributes added to all img elements"
+    }
+  ],
+  "findings": [
+    {
+      "type": "accessibility",
+      "page": "/dashboard",
+      "description": "Color contrast ratio below 4.5:1 on card titles",
+      "severity": "warning",
+      "verifiableFromCode": true,
+      "expectedState": "Card title text should have >=4.5:1 contrast ratio against background",
+      "observedState": "text-gray-400 on bg-gray-800 = ~3.5:1 ratio",
+      "persistsSinceRound": null,
+      "status": "new"
     }
   ]
 }
 \`\`\`
 
-CRITICAL: The JSON must be valid. "type" must be one of: layout, responsive, accessibility, visual, interaction.`;
+CRITICAL: The JSON must be valid. "type" must be one of: layout, responsive, accessibility, visual, interaction. "status" must be "new", "resolved", "unresolved", or "blocked".`;
 
 @Injectable()
 export class UiTesterAgent extends BaseAgent {
@@ -268,6 +299,8 @@ export class UiTesterAgent extends BaseAgent {
       const historySection = commentHistory
         ? `\n## Previous Agent Comments on this Issue\n${commentHistory}\n`
         : '';
+      const outOfScopeItems = extractArchitectOutOfScopeItems(commentHistory);
+      const scopeGuardSection = buildArchitectScopeGuardSection(outOfScopeItems);
 
       // ─── Visual Analysis: send screenshots to multimodal LLM ──────
       let visualAnalysis = '';
@@ -291,6 +324,7 @@ export class UiTesterAgent extends BaseAgent {
 **Description:** ${issue.description || 'N/A'}
 ${previewUrl ? `**Preview URL:** ${previewUrl}` : ''}
 ${historySection}
+${scopeGuardSection}
 ## Code Changes (${reviewDiffs.length} UI-related file(s)):
 
 ${diffText || '_No UI-related files changed._'}
@@ -303,7 +337,7 @@ Analyze the UI changes for layout, responsiveness, accessibility, visual quality
 IMPORTANT: You MUST end your response with the JSON result in this EXACT format:
 ${COMPLETION_MARKER}
 \`\`\`json
-{"passed": true/false, "summary": "...", "findings": [{"criterion": "...", "passed": true/false, "details": "...", "severity": "info/warning/critical"}]}
+{"passed": true/false, "summary": "...", "pagesChecked": 0, "roundNumber": 1, "findings": [{"type": "layout|responsive|accessibility|visual|interaction", "page": "/path", "description": "...", "severity": "info/warning/critical", "expectedState": "...", "observedState": "...", "status": "new|unresolved|blocked"}]}
 \`\`\`
 Do NOT omit the JSON block.`;
 
@@ -341,7 +375,7 @@ Do NOT omit the JSON block.`;
 
         if (mcpResult.finishReason === 'error') {
           await this.sendAgentMessage(ctx, 'UI Tester MCP loop failed');
-          await this.markFailed(ctx, 'MCP agent loop failed');
+          await this.markFailed(ctx, `MCP agent loop failed: ${mcpResult.errorMessage ?? 'unknown error'}`);
           return;
         }
 
@@ -358,7 +392,7 @@ Do NOT omit the JSON block.`;
 
         if (dualResult.primary.finishReason === 'error') {
           await this.sendAgentMessage(ctx, 'UI Tester LLM call failed');
-          await this.markFailed(ctx, 'LLM call failed');
+          await this.markFailed(ctx, `LLM call failed: ${dualResult.primary.errorMessage ?? 'unknown error'}`);
           return;
         }
 
@@ -385,6 +419,7 @@ Do NOT omit the JSON block.`;
               passed,
               pagesChecked: Math.max(primaryResult.pagesChecked, secondaryResult.pagesChecked),
             };
+            const scopedMergedResult = this.applyArchitectScopeFilter(mergedTestResult, outOfScopeItems);
 
             await this.sendAgentMessage(
               ctx,
@@ -392,7 +427,7 @@ Do NOT omit the JSON block.`;
             );
 
             // Skip normal parsing, go straight to result handling
-            const testMarkdown = this.buildTestMarkdown(mergedTestResult);
+            const testMarkdown = this.buildTestMarkdown(scopedMergedResult);
             await postAgentComment({
               prisma: this.prisma,
               gitlabService: this.gitlabService,
@@ -404,10 +439,10 @@ Do NOT omit the JSON block.`;
               markdownContent: testMarkdown,
             });
 
-            if (mergedTestResult.passed) {
-              await this.handlePassed(ctx, issueId, mrIid, gitlabProjectId, mergedTestResult);
+            if (scopedMergedResult.passed) {
+              await this.handlePassed(ctx, issueId, mrIid, gitlabProjectId, scopedMergedResult);
             } else {
-              await this.handleFailed(ctx, issueId, mrIid, gitlabProjectId, mergedTestResult);
+              await this.handleFailed(ctx, issueId, mrIid, gitlabProjectId, scopedMergedResult);
             }
             return;
           }
@@ -455,6 +490,9 @@ Do NOT omit the JSON block.`;
         });
         return;
       }
+
+      // Enforce Architect out-of-scope constraints server-side to avoid false FAIL loops.
+      testResult = this.applyArchitectScopeFilter(testResult, outOfScopeItems);
 
       // Post unified comment (same rich markdown for local + GitLab)
       const testMarkdown = this.buildTestMarkdown(testResult);
@@ -619,8 +657,12 @@ Do NOT omit the JSON block.`;
     const relevantFindings = testResult.findings.filter(f => f.severity !== 'info');
     const feedback = relevantFindings
       .map((f, i) => {
-        const parts = [`${i + 1}. [${f.severity.toUpperCase()}] [${f.type}] ${f.page}`];
+        const persist = f.persistsSinceRound ? ` (open since round ${f.persistsSinceRound})` : '';
+        const verifiable = f.verifiableFromCode === false ? ' [needs browser verification]' : '';
+        const parts = [`${i + 1}. [${f.severity.toUpperCase()}] [${f.type}] ${f.page}${persist}${verifiable}`];
         parts.push(`   Problem: ${f.description}`);
+        if (f.expectedState) parts.push(`   Expected: ${f.expectedState}`);
+        if (f.observedState) parts.push(`   Observed: ${f.observedState}`);
         return parts.join('\n');
       })
       .join('\n\n');
@@ -668,13 +710,30 @@ Do NOT omit the JSON block.`;
           : `UI test failed (${findings.filter(f => f.severity !== 'info').length} issue(s))`;
       }
 
-      return {
+      const result: UiTestResult = {
         issueId,
         passed,
         findings,
         summary,
         pagesChecked: parsed.pagesChecked ?? 0,
       };
+
+      if (typeof parsed.roundNumber === 'number') {
+        result.roundNumber = parsed.roundNumber;
+      }
+
+      if (Array.isArray(parsed.resolvedFromPrevious)) {
+        result.resolvedFromPrevious = parsed.resolvedFromPrevious
+          .filter((r: any) => r && typeof r === 'object' && r.description)
+          .map((r: any) => ({
+            type: String(r.type ?? 'visual'),
+            page: String(r.page ?? '/'),
+            description: String(r.description),
+            resolvedBy: String(r.resolvedBy ?? 'unknown'),
+          }));
+      }
+
+      return result;
 
     } catch (err) {
       this.logger.error(`JSON parse failed: ${err.message}`);
@@ -737,6 +796,11 @@ Do NOT omit the JSON block.`;
         page: String(f.page ?? f.route ?? f.url ?? '/'),
         description: String(f.description ?? f.message ?? f.details ?? 'No details'),
         severity: this.normalizeSeverity(f.severity),
+        verifiableFromCode: typeof f.verifiableFromCode === 'boolean' ? f.verifiableFromCode : undefined,
+        expectedState: f.expectedState ? String(f.expectedState) : undefined,
+        observedState: f.observedState ? String(f.observedState) : undefined,
+        persistsSinceRound: typeof f.persistsSinceRound === 'number' ? f.persistsSinceRound : undefined,
+        status: ['new', 'resolved', 'unresolved', 'blocked'].includes(f.status) ? f.status : undefined,
       }));
   }
 
@@ -797,6 +861,43 @@ Do NOT omit the JSON block.`;
   }
 
   // ─── Visual Screenshot Analysis ─────────────────────────
+
+  private applyArchitectScopeFilter(
+    testResult: UiTestResult,
+    outOfScopeItems: string[],
+  ): UiTestResult {
+    if (outOfScopeItems.length === 0 || testResult.findings.length === 0) {
+      return testResult;
+    }
+
+    const { filtered, removedCount } = filterOutOfScopeFindings(
+      testResult.findings,
+      outOfScopeItems,
+      (f) => `${f.type} ${f.page} ${f.description}`,
+    );
+
+    if (removedCount === 0) return testResult;
+
+    const criticalCount = filtered.filter((f) => f.severity === 'critical').length;
+    const warningCount = filtered.filter((f) => f.severity === 'warning').length;
+    const passed = criticalCount === 0 && warningCount <= 3;
+
+    this.logger.log(
+      `Architect scope filter removed ${removedCount} UI finding(s) as out-of-scope`,
+    );
+
+    const summarySuffix = `Architect scope filter ignored ${removedCount} out-of-scope finding(s).`;
+    const summary = testResult.summary
+      ? `${testResult.summary} ${summarySuffix}`
+      : summarySuffix;
+
+    return {
+      ...testResult,
+      passed,
+      findings: filtered,
+      summary,
+    };
+  }
 
   /**
    * Send screenshots to a multimodal LLM for visual analysis.

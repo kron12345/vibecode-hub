@@ -107,3 +107,92 @@ export async function getAgentCommentHistory(
 
   return result.trim();
 }
+
+/**
+ * Extract the LAST set of findings from a specific agent's comments in the comment history.
+ * Returns structured finding objects for injection into re-evaluation prompts.
+ * Only returns findings from the agent's MOST RECENT comment — not the full history.
+ */
+export function extractLastAgentFindings(
+  commentHistory: string | null,
+  agentName: 'Code Reviewer' | 'Functional Tester' | 'UI Tester' | 'Pen Tester',
+): Array<{
+  severity?: string;
+  file?: string;
+  message: string;
+  suggestion?: string;
+  expectedFix?: string;
+  criterion?: string;
+  status?: string;
+}> {
+  if (!commentHistory) return [];
+
+  // Find the last comment block from this specific agent
+  // Agent comments are formatted as "## <emoji> <AgentName>: <STATUS>" or "---\n_Reviewed by <AgentName> Agent_"
+  const agentMarkers: Record<string, RegExp> = {
+    'Code Reviewer': /## [✅⚠️❌]+ Code Review:/g,
+    'Functional Tester': /## [✅⚠️❌]+ Functional Test:/g,
+    'UI Tester': /## [✅⚠️❌]+ UI Test:/g,
+    'Pen Tester': /## [✅⚠️❌]+ Security Test:/g,
+  };
+
+  const marker = agentMarkers[agentName];
+  if (!marker) return [];
+
+  // Find all positions of this agent's comments
+  const matches = [...commentHistory.matchAll(marker)];
+  if (matches.length === 0) return [];
+
+  // Get the LAST comment block
+  const lastMatch = matches[matches.length - 1];
+  const startPos = lastMatch.index!;
+
+  // Find the end of this comment block (next agent comment or end of string)
+  const allAgentPattern = /## [✅⚠️❌]+ (?:Code Review|Functional Test|UI Test|Security Test):/g;
+  allAgentPattern.lastIndex = startPos + lastMatch[0].length;
+  const nextAgent = allAgentPattern.exec(commentHistory);
+  const endPos = nextAgent ? nextAgent.index : commentHistory.length;
+
+  const lastComment = commentHistory.substring(startPos, endPos);
+
+  // Extract findings from the markdown
+  // Findings are formatted as:
+  // 🔴/🟡/🔵 **severity** — `file:line`
+  //   message
+  //   💡 suggestion
+  // OR for functional tester:
+  // ✅/❌ **criterion**
+  //   details
+  const findings: Array<{
+    severity?: string;
+    file?: string;
+    message: string;
+    suggestion?: string;
+    expectedFix?: string;
+    criterion?: string;
+    status?: string;
+  }> = [];
+
+  // Pattern for code reviewer / pen tester findings
+  const reviewFindingPattern = /[🔴🟡🔵]\s+\*\*(\w+)\*\*\s+[—–-]\s+`([^`]+)`\s*\n\s+(.+?)(?:\n\s+💡\s+(.+?))?(?=\n[🔴🟡🔵]|\n---|\n\n|\n##|$)/gs;
+  let match: RegExpExecArray | null;
+  while ((match = reviewFindingPattern.exec(lastComment)) !== null) {
+    findings.push({
+      severity: match[1].toLowerCase(),
+      file: match[2],
+      message: match[3].trim(),
+      suggestion: match[4]?.trim(),
+    });
+  }
+
+  // Pattern for functional tester findings
+  const funcFindingPattern = /[✅❌]\s+\*\*(.+?)\*\*\s*\n\s+(.+?)(?=\n[✅❌]|\n---|\n\n|\n##|$)/gs;
+  while ((match = funcFindingPattern.exec(lastComment)) !== null) {
+    findings.push({
+      criterion: match[1].trim(),
+      message: match[2].trim(),
+    });
+  }
+
+  return findings;
+}
