@@ -84,7 +84,16 @@ export async function postFindingsAsThreads(
     findings,
   } = deps;
 
-  if (findings.length === 0) return [];
+  // Filter out empty/broken findings that would create useless threads
+  const validFindings = findings.filter(f => {
+    if (!f.message || f.message === 'No details' || f.message.trim().length < 5) {
+      logger.warn(`Skipping empty/broken finding: [${f.severity}] "${f.message}" — not posting as thread`);
+      return false;
+    }
+    return true;
+  });
+
+  if (validFindings.length === 0) return [];
 
   // Fetch MR for web_url and diff_refs
   let mrWebUrl: string;
@@ -105,7 +114,7 @@ export async function postFindingsAsThreads(
 
   const created: FindingThread[] = [];
 
-  for (const finding of findings) {
+  for (const finding of validFindings) {
     try {
       const fingerprint = generateFingerprint(
         finding.severity,
