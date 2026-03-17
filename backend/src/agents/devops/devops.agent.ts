@@ -849,16 +849,18 @@ install:
     key: \${CI_COMMIT_REF_SLUG}
     paths:
       - node_modules/
-  artifacts:
-    paths:
-      - node_modules/
-    expire_in: 1 hour
+    policy: pull-push
 
 lint:
   stage: lint
   tags: [docker, vibcode]
   image: node:22-alpine
   needs: [install]
+  cache:
+    key: \${CI_COMMIT_REF_SLUG}
+    paths:
+      - node_modules/
+    policy: pull
   script:
     - npm run lint --if-present
 
@@ -867,6 +869,11 @@ test:
   tags: [docker, vibcode]
   image: node:22-alpine
   needs: [install]
+  cache:
+    key: \${CI_COMMIT_REF_SLUG}
+    paths:
+      - node_modules/
+    policy: pull
   script:
     - npm test --if-present
   allow_failure: true
@@ -876,6 +883,11 @@ build:
   tags: [docker, vibcode]
   image: node:22-alpine
   needs: [install]
+  cache:
+    key: \${CI_COMMIT_REF_SLUG}
+    paths:
+      - node_modules/
+    policy: pull
   script:
     - npm run build
   artifacts:
