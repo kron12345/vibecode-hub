@@ -85,9 +85,11 @@ export async function postFindingsAsThreads(
   } = deps;
 
   // Filter out empty/broken findings that would create useless threads
+  const JUNK_MESSAGES = ['No details', 'No details.', 'Findings (nach Schweregrad)', 'Findings', 'CHANGES_REQUIRED', 'CHANGES REQUESTED'];
   const validFindings = findings.filter(f => {
-    if (!f.message || f.message === 'No details' || f.message.trim().length < 5) {
-      logger.warn(`Skipping empty/broken finding: [${f.severity}] "${f.message}" — not posting as thread`);
+    const msg = f.message?.trim() ?? '';
+    if (!msg || msg.length < 10 || JUNK_MESSAGES.some(j => msg.toLowerCase() === j.toLowerCase())) {
+      logger.warn(`Skipping empty/broken finding: [${f.severity}] "${msg}" — not posting as thread`);
       return false;
     }
     return true;
