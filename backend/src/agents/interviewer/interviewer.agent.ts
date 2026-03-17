@@ -10,7 +10,11 @@ import { GitlabService } from '../../gitlab/gitlab.service';
 import { PreviewService } from '../../preview/preview.service';
 import { MonitorGateway } from '../../monitor/monitor.gateway';
 import { BaseAgent, AgentContext } from '../agent-base';
-import { InterviewResult, FeatureInterviewResult, InterviewProgress } from './interview-result.interface';
+import {
+  InterviewResult,
+  FeatureInterviewResult,
+  InterviewProgress,
+} from './interview-result.interface';
 import {
   AgentRole,
   AgentStatus,
@@ -165,7 +169,14 @@ export class InterviewerAgent extends BaseAgent {
     monitorGateway: MonitorGateway,
     private readonly eventEmitter: EventEmitter2,
   ) {
-    super(prisma, settings, chatService, chatGateway, llmService, monitorGateway);
+    super(
+      prisma,
+      settings,
+      chatService,
+      chatGateway,
+      llmService,
+      monitorGateway,
+    );
   }
 
   /** Start a new interview — generates the first question */
@@ -186,8 +197,15 @@ export class InterviewerAgent extends BaseAgent {
     });
     let projectContext = '';
     if (project?.slug) {
-      const workspace = require('path').resolve(this.settings.devopsWorkspacePath, project.slug);
-      const kb = await this.readKnowledge(this.gitlabService, project.gitlabProjectId, workspace);
+      const workspace = require('path').resolve(
+        this.settings.devopsWorkspacePath,
+        project.slug,
+      );
+      const kb = await this.readKnowledge(
+        this.gitlabService,
+        project.gitlabProjectId,
+        workspace,
+      );
       if (kb) {
         projectContext = `\n\nIMPORTANT: This is an EXISTING project that already has code and features. Here is the current state:\n\n${kb}\n\nBased on this, help the user add NEW features or improvements. Don't suggest things that are already implemented.`;
       }
@@ -214,7 +232,9 @@ export class InterviewerAgent extends BaseAgent {
     }
 
     // Extract suggestions + progress, strip from displayed content
-    const { content, suggestions, progress } = this.extractMetadata(result.content);
+    const { content, suggestions, progress } = this.extractMetadata(
+      result.content,
+    );
 
     // Save the cleaned message to DB (frontend already saw raw tokens)
     await this.sendAgentMessage(ctx, content);
@@ -230,7 +250,9 @@ export class InterviewerAgent extends BaseAgent {
       select: { status: true },
     });
     if (!task || task.status === AgentTaskStatus.COMPLETED) {
-      this.logger.debug(`Interview task ${ctx.agentTaskId} already completed — ignoring message`);
+      this.logger.debug(
+        `Interview task ${ctx.agentTaskId} already completed — ignoring message`,
+      );
       return;
     }
 
@@ -239,13 +261,21 @@ export class InterviewerAgent extends BaseAgent {
       where: { chatSessionId: ctx.chatSessionId },
     });
 
-    if (messageCount > (this.settings.getPipelineConfig().maxInterviewMessages ?? FALLBACK_MAX_INTERVIEW_MESSAGES)) {
+    if (
+      messageCount >
+      (this.settings.getPipelineConfig().maxInterviewMessages ??
+        FALLBACK_MAX_INTERVIEW_MESSAGES)
+    ) {
       await this.sendAgentMessage(
         ctx,
         'The interview has reached the maximum number of messages. Please create a new project to start over.',
       );
       await this.updateStatus(ctx, AgentStatus.ERROR);
-      await this.log(ctx.agentTaskId, 'WARN', 'Interview message limit reached');
+      await this.log(
+        ctx.agentTaskId,
+        'WARN',
+        'Interview message limit reached',
+      );
       return;
     }
 
@@ -286,7 +316,9 @@ export class InterviewerAgent extends BaseAgent {
       );
     } else {
       // Extract suggestions + progress, strip from displayed content
-      const { content, suggestions, progress } = this.extractMetadata(result.content);
+      const { content, suggestions, progress } = this.extractMetadata(
+        result.content,
+      );
 
       // Save the cleaned message to DB (frontend already saw tokens)
       await this.sendAgentMessage(ctx, content);
@@ -311,7 +343,12 @@ export class InterviewerAgent extends BaseAgent {
     let progress: InterviewProgress | null = null;
 
     // Extract suggestions: :::SUGGESTIONS:::["A", "B", "C"]
-    const sugMatch = content.match(new RegExp(`${SUGGESTIONS_MARKER.replace(/:/g, '\\:')}\\s*(\\[.*?\\])`, 's'));
+    const sugMatch = content.match(
+      new RegExp(
+        `${SUGGESTIONS_MARKER.replace(/:/g, '\\:')}\\s*(\\[.*?\\])`,
+        's',
+      ),
+    );
     if (sugMatch) {
       try {
         const parsed = JSON.parse(sugMatch[1]);
@@ -325,7 +362,9 @@ export class InterviewerAgent extends BaseAgent {
     }
 
     // Extract progress: :::PROGRESS:::{...}
-    const progMatch = content.match(new RegExp(`${PROGRESS_MARKER.replace(/:/g, '\\:')}\\s*(\\{.*?\\})`, 's'));
+    const progMatch = content.match(
+      new RegExp(`${PROGRESS_MARKER.replace(/:/g, '\\:')}\\s*(\\{.*?\\})`, 's'),
+    );
     if (progMatch) {
       try {
         progress = JSON.parse(progMatch[1]);
@@ -368,8 +407,9 @@ export class InterviewerAgent extends BaseAgent {
    * Checks for common patterns local LLMs use to signal completion.
    */
   private detectJsonCompletion(content: string): boolean {
-    const jsonMatch = content.match(/```(?:json)?\s*(\{[\s\S]*?\})\s*```/) ||
-                      content.match(/(\{[\s\S]*\})/);
+    const jsonMatch =
+      content.match(/```(?:json)?\s*(\{[\s\S]*?\})\s*```/) ||
+      content.match(/(\{[\s\S]*\})/);
     if (!jsonMatch) return false;
 
     try {
@@ -378,12 +418,29 @@ export class InterviewerAgent extends BaseAgent {
       // Check explicit completion signals
       if (obj.completion_marker === true) return true;
       if (obj.ready_for_issue_compiler === true) return true;
-      if (obj.interview_status === 'completed' || obj.interview_status === 'complete') return true;
+      if (
+        obj.interview_status === 'completed' ||
+        obj.interview_status === 'complete'
+      )
+        return true;
 
       // Check for structural completeness (has the essential keys)
-      const hasSetup = !!(obj.techStack || obj.tech_stack || obj.setupInstructions || obj.setup_instructions);
-      const hasFeatures = !!(obj.features || obj.core_features || obj.feature_list);
-      const hasDescription = !!(obj.description || obj.summary || obj.feature_name);
+      const hasSetup = !!(
+        obj.techStack ||
+        obj.tech_stack ||
+        obj.setupInstructions ||
+        obj.setup_instructions
+      );
+      const hasFeatures = !!(
+        obj.features ||
+        obj.core_features ||
+        obj.feature_list
+      );
+      const hasDescription = !!(
+        obj.description ||
+        obj.summary ||
+        obj.feature_name
+      );
       if (hasSetup && hasFeatures && hasDescription) return true;
 
       return false;
@@ -407,7 +464,12 @@ export class InterviewerAgent extends BaseAgent {
     };
 
     // Normalize techStack — could be object or nested differently
-    let techStack = pick('techStack', 'tech_stack', 'technical_stack', 'technology_stack');
+    let techStack = pick(
+      'techStack',
+      'tech_stack',
+      'technical_stack',
+      'technology_stack',
+    );
     if (!techStack || typeof techStack !== 'object') {
       // Try to build from individual fields
       techStack = {
@@ -431,7 +493,9 @@ export class InterviewerAgent extends BaseAgent {
             title: String(f.title ?? f.name ?? f.description ?? 'Unnamed'),
             description: f.description ? String(f.description) : undefined,
             priority: this.normalizePriority(f.priority),
-            acceptanceCriteria: Array.isArray(f.acceptanceCriteria ?? f.acceptance_criteria)
+            acceptanceCriteria: Array.isArray(
+              f.acceptanceCriteria ?? f.acceptance_criteria,
+            )
               ? (f.acceptanceCriteria ?? f.acceptance_criteria).map(String)
               : undefined,
           };
@@ -446,8 +510,12 @@ export class InterviewerAgent extends BaseAgent {
       setup = {};
     }
     const setupInstructions = {
-      initCommand: setup.initCommand ?? setup.init_command ?? pick('initCommand', 'init_command'),
-      additionalCommands: setup.additionalCommands ?? setup.additional_commands ?? [],
+      initCommand:
+        setup.initCommand ??
+        setup.init_command ??
+        pick('initCommand', 'init_command'),
+      additionalCommands:
+        setup.additionalCommands ?? setup.additional_commands ?? [],
     };
 
     // Normalize deployment — apply framework defaults if LLM omitted fields
@@ -459,13 +527,25 @@ export class InterviewerAgent extends BaseAgent {
     const frameworkDefaults = this.getFrameworkDefaults(fw);
     const deployment = {
       isWebProject: deploy.isWebProject ?? deploy.is_web_project ?? true,
-      devServerPort: deploy.devServerPort ?? deploy.dev_server_port ?? deploy.port ?? frameworkDefaults.port,
-      devServerCommand: deploy.devServerCommand ?? deploy.dev_server_command ?? frameworkDefaults.devCommand,
-      buildCommand: deploy.buildCommand ?? deploy.build_command ?? frameworkDefaults.buildCommand,
+      devServerPort:
+        deploy.devServerPort ??
+        deploy.dev_server_port ??
+        deploy.port ??
+        frameworkDefaults.port,
+      devServerCommand:
+        deploy.devServerCommand ??
+        deploy.dev_server_command ??
+        frameworkDefaults.devCommand,
+      buildCommand:
+        deploy.buildCommand ??
+        deploy.build_command ??
+        frameworkDefaults.buildCommand,
     };
 
     const result: InterviewResult = {
-      description: pick('description', 'summary', 'project_description', 'feature_name') ?? '',
+      description:
+        pick('description', 'summary', 'project_description', 'feature_name') ??
+        '',
       techStack,
       features,
       mcpServers: pick('mcpServers', 'mcp_servers') ?? [],
@@ -481,11 +561,22 @@ export class InterviewerAgent extends BaseAgent {
   }
 
   /** Normalize priority string to one of the three valid values */
-  private normalizePriority(raw: any): 'must-have' | 'should-have' | 'nice-to-have' {
+  private normalizePriority(
+    raw: any,
+  ): 'must-have' | 'should-have' | 'nice-to-have' {
     if (!raw) return 'should-have';
-    const s = String(raw).toLowerCase().replace(/[_\s]+/g, '-');
-    if (s.includes('must') || s.includes('critical') || s.includes('high') || s.includes('required')) return 'must-have';
-    if (s.includes('nice') || s.includes('low') || s.includes('optional')) return 'nice-to-have';
+    const s = String(raw)
+      .toLowerCase()
+      .replace(/[_\s]+/g, '-');
+    if (
+      s.includes('must') ||
+      s.includes('critical') ||
+      s.includes('high') ||
+      s.includes('required')
+    )
+      return 'must-have';
+    if (s.includes('nice') || s.includes('low') || s.includes('optional'))
+      return 'nice-to-have';
     return 'should-have';
   }
 
@@ -496,19 +587,51 @@ export class InterviewerAgent extends BaseAgent {
     buildCommand?: string;
   } {
     if (framework.includes('angular'))
-      return { port: 4200, devCommand: 'npx ng serve --port {PORT}', buildCommand: 'npx ng build' };
+      return {
+        port: 4200,
+        devCommand: 'npx ng serve --port {PORT}',
+        buildCommand: 'npx ng build',
+      };
     if (framework.includes('react') || framework.includes('next'))
-      return { port: 3000, devCommand: 'npm run dev -- --port {PORT}', buildCommand: 'npm run build' };
+      return {
+        port: 3000,
+        devCommand: 'npm run dev -- --port {PORT}',
+        buildCommand: 'npm run build',
+      };
     if (framework.includes('vue') || framework.includes('nuxt'))
-      return { port: 5173, devCommand: 'npm run dev -- --port {PORT}', buildCommand: 'npm run build' };
+      return {
+        port: 5173,
+        devCommand: 'npm run dev -- --port {PORT}',
+        buildCommand: 'npm run build',
+      };
     if (framework.includes('nest'))
-      return { port: 3000, devCommand: 'npm run start:dev', buildCommand: 'npm run build' };
-    if (framework.includes('express') || framework.includes('fastapi') || framework.includes('flask'))
+      return {
+        port: 3000,
+        devCommand: 'npm run start:dev',
+        buildCommand: 'npm run build',
+      };
+    if (
+      framework.includes('express') ||
+      framework.includes('fastapi') ||
+      framework.includes('flask')
+    )
       return { port: 3000 };
-    if (framework.includes('vaadin') || framework.includes('spring') || framework.includes('quarkus'))
-      return { port: 8080, devCommand: 'mvn spring-boot:run', buildCommand: 'mvn clean package -Pproduction' };
+    if (
+      framework.includes('vaadin') ||
+      framework.includes('spring') ||
+      framework.includes('quarkus')
+    )
+      return {
+        port: 8080,
+        devCommand: 'mvn spring-boot:run',
+        buildCommand: 'mvn clean package -Pproduction',
+      };
     if (framework.includes('java'))
-      return { port: 8080, devCommand: 'mvn compile exec:java', buildCommand: 'mvn clean package' };
+      return {
+        port: 8080,
+        devCommand: 'mvn compile exec:java',
+        buildCommand: 'mvn clean package',
+      };
     return {};
   }
 
@@ -527,7 +650,9 @@ export class InterviewerAgent extends BaseAgent {
     let interviewResult: InterviewResult;
     try {
       // Strip thinking tags that local LLMs (qwen3.5) often wrap around output
-      const cleanedJson = jsonPart.replace(/<think>[\s\S]*?<\/think>/g, '').trim();
+      const cleanedJson = jsonPart
+        .replace(/<think>[\s\S]*?<\/think>/g, '')
+        .trim();
 
       // Extract JSON from possible markdown code block
       const jsonMatch = cleanedJson.match(/\{[\s\S]*\}/);
@@ -535,7 +660,7 @@ export class InterviewerAgent extends BaseAgent {
         throw new Error('No JSON object found in completion output');
       }
       // Clean trailing commas
-      let jsonStr = jsonMatch[0].replace(/,\s*([}\]])/g, '$1');
+      const jsonStr = jsonMatch[0].replace(/,\s*([}\]])/g, '$1');
       const rawResult = JSON.parse(jsonStr);
       interviewResult = this.normalizeInterviewResult(rawResult);
     } catch (err) {
@@ -585,7 +710,7 @@ export class InterviewerAgent extends BaseAgent {
     });
 
     const featureList = (interviewResult.features ?? [])
-      .map(f => typeof f === 'string' ? f : `${f.title} (${f.priority})`)
+      .map((f) => (typeof f === 'string' ? f : `${f.title} (${f.priority})`))
       .join(', ');
 
     let completionMsg = `Interview complete! I've gathered all the project details. The project is now ready for setup.\n\n**Tech Stack:** ${interviewResult.techStack.framework ?? 'N/A'} + ${interviewResult.techStack.backend ?? 'N/A'}\n**Features:** ${featureList || 'N/A'}`;
@@ -593,19 +718,20 @@ export class InterviewerAgent extends BaseAgent {
     // Setup preview if it's a web project
     if (interviewResult.deployment?.isWebProject) {
       try {
-        const previewUrl =
-          await this.previewService.setupPreview(ctx.projectId);
+        const previewUrl = await this.previewService.setupPreview(
+          ctx.projectId,
+        );
         if (previewUrl) {
           const project = await this.prisma.project.findUnique({
             where: { id: ctx.projectId },
           });
           completionMsg += `\n\n**Preview:** ${previewUrl} (Port ${project?.previewPort})`;
-          this.logger.log(`Preview setup for project ${ctx.projectId}: ${previewUrl}`);
+          this.logger.log(
+            `Preview setup for project ${ctx.projectId}: ${previewUrl}`,
+          );
         }
       } catch (err) {
-        this.logger.warn(
-          `Preview setup failed (non-fatal): ${err.message}`,
-        );
+        this.logger.warn(`Preview setup failed (non-fatal): ${err.message}`);
         await this.log(ctx.agentTaskId, 'WARN', 'Preview setup failed', {
           error: err.message,
         });
@@ -639,29 +765,58 @@ export class InterviewerAgent extends BaseAgent {
   /** Start a feature interview for a dev session */
   async startFeatureInterview(ctx: AgentContext, sessionTitle: string) {
     await this.updateStatus(ctx, AgentStatus.WORKING);
-    await this.log(ctx.agentTaskId, 'INFO', 'Feature interview started', { sessionTitle });
+    await this.log(ctx.agentTaskId, 'INFO', 'Feature interview started', {
+      sessionTitle,
+    });
 
     // Load project context
     const project = await this.prisma.project.findUnique({
       where: { id: ctx.projectId },
-      select: { slug: true, name: true, techStack: true, description: true, gitlabProjectId: true },
+      select: {
+        slug: true,
+        name: true,
+        techStack: true,
+        description: true,
+        gitlabProjectId: true,
+      },
     });
 
     let envContext = '';
     let knowledgeContext = '';
     if (project?.slug) {
-      const workspace = await this.resolveWorkspace(project.slug, ctx.chatSessionId);
-      const envDoc = await this.readEnvironment(this.gitlabService, project.gitlabProjectId, workspace);
-      const kb = await this.readKnowledge(this.gitlabService, project.gitlabProjectId, workspace);
-      if (envDoc) envContext = `\n## Current Project Environment\n\`\`\`\n${envDoc}\n\`\`\`\n`;
+      const workspace = await this.resolveWorkspace(
+        project.slug,
+        ctx.chatSessionId,
+      );
+      const envDoc = await this.readEnvironment(
+        this.gitlabService,
+        project.gitlabProjectId,
+        workspace,
+      );
+      const kb = await this.readKnowledge(
+        this.gitlabService,
+        project.gitlabProjectId,
+        workspace,
+      );
+      if (envDoc)
+        envContext = `\n## Current Project Environment\n\`\`\`\n${envDoc}\n\`\`\`\n`;
       if (kb) knowledgeContext = `\n## Project Knowledge Base\n${kb}\n`;
     }
 
     const techStack = project?.techStack as any;
-    const techLine = [techStack?.techStack?.framework, techStack?.techStack?.language, techStack?.techStack?.backend]
-      .filter(Boolean).join(', ');
+    const techLine = [
+      techStack?.techStack?.framework,
+      techStack?.techStack?.language,
+      techStack?.techStack?.backend,
+    ]
+      .filter(Boolean)
+      .join(', ');
 
-    const systemPrompt = this.buildFeatureInterviewPrompt(envContext, knowledgeContext, techLine);
+    const systemPrompt = this.buildFeatureInterviewPrompt(
+      envContext,
+      knowledgeContext,
+      techLine,
+    );
 
     const messages: LlmMessage[] = [
       { role: 'system', content: systemPrompt },
@@ -684,7 +839,9 @@ export class InterviewerAgent extends BaseAgent {
       return;
     }
 
-    const { content, suggestions, progress } = this.extractMetadata(result.content);
+    const { content, suggestions, progress } = this.extractMetadata(
+      result.content,
+    );
     await this.sendAgentMessage(ctx, content);
     this.emitSuggestionsAndProgress(ctx, suggestions, progress);
     await this.updateStatus(ctx, AgentStatus.WAITING);
@@ -698,15 +855,24 @@ export class InterviewerAgent extends BaseAgent {
       select: { status: true },
     });
     if (!task || task.status === AgentTaskStatus.COMPLETED) {
-      this.logger.debug(`Feature interview task ${ctx.agentTaskId} already completed`);
+      this.logger.debug(
+        `Feature interview task ${ctx.agentTaskId} already completed`,
+      );
       return;
     }
 
     const messageCount = await this.prisma.chatMessage.count({
       where: { chatSessionId: ctx.chatSessionId },
     });
-    if (messageCount > (this.settings.getPipelineConfig().maxInterviewMessages ?? FALLBACK_MAX_INTERVIEW_MESSAGES)) {
-      await this.sendAgentMessage(ctx, 'Feature interview reached max messages. Please finalize or create a new session.');
+    if (
+      messageCount >
+      (this.settings.getPipelineConfig().maxInterviewMessages ??
+        FALLBACK_MAX_INTERVIEW_MESSAGES)
+    ) {
+      await this.sendAgentMessage(
+        ctx,
+        'Feature interview reached max messages. Please finalize or create a new session.',
+      );
       await this.updateStatus(ctx, AgentStatus.ERROR);
       return;
     }
@@ -721,17 +887,38 @@ export class InterviewerAgent extends BaseAgent {
     let envContext = '';
     let knowledgeContext = '';
     if (project?.slug) {
-      const workspace = await this.resolveWorkspace(project.slug, ctx.chatSessionId);
-      const envDoc = await this.readEnvironment(this.gitlabService, project.gitlabProjectId, workspace);
-      const kb = await this.readKnowledge(this.gitlabService, project.gitlabProjectId, workspace);
-      if (envDoc) envContext = `\n## Current Project Environment\n\`\`\`\n${envDoc}\n\`\`\`\n`;
+      const workspace = await this.resolveWorkspace(
+        project.slug,
+        ctx.chatSessionId,
+      );
+      const envDoc = await this.readEnvironment(
+        this.gitlabService,
+        project.gitlabProjectId,
+        workspace,
+      );
+      const kb = await this.readKnowledge(
+        this.gitlabService,
+        project.gitlabProjectId,
+        workspace,
+      );
+      if (envDoc)
+        envContext = `\n## Current Project Environment\n\`\`\`\n${envDoc}\n\`\`\`\n`;
       if (kb) knowledgeContext = `\n## Project Knowledge Base\n${kb}\n`;
     }
     const techStack = project?.techStack as any;
-    const techLine = [techStack?.techStack?.framework, techStack?.techStack?.language, techStack?.techStack?.backend]
-      .filter(Boolean).join(', ');
+    const techLine = [
+      techStack?.techStack?.framework,
+      techStack?.techStack?.language,
+      techStack?.techStack?.backend,
+    ]
+      .filter(Boolean)
+      .join(', ');
 
-    const systemPrompt = this.buildFeatureInterviewPrompt(envContext, knowledgeContext, techLine);
+    const systemPrompt = this.buildFeatureInterviewPrompt(
+      envContext,
+      knowledgeContext,
+      techLine,
+    );
     const history = await this.getConversationHistory(ctx.chatSessionId);
     const messages: LlmMessage[] = [
       { role: 'system', content: systemPrompt },
@@ -741,7 +928,10 @@ export class InterviewerAgent extends BaseAgent {
     const result = await this.callLlmStreaming(ctx, messages);
 
     if (result.finishReason === 'error') {
-      await this.sendAgentMessage(ctx, 'Sorry, I could not reach the LLM. Please try again.');
+      await this.sendAgentMessage(
+        ctx,
+        'Sorry, I could not reach the LLM. Please try again.',
+      );
       await this.updateStatus(ctx, AgentStatus.ERROR);
       return;
     }
@@ -756,7 +946,9 @@ export class InterviewerAgent extends BaseAgent {
         FEATURE_COMPLETION_MARKER + '\n' + result.content,
       );
     } else {
-      const { content, suggestions, progress } = this.extractMetadata(result.content);
+      const { content, suggestions, progress } = this.extractMetadata(
+        result.content,
+      );
       await this.sendAgentMessage(ctx, content);
       this.emitSuggestionsAndProgress(ctx, suggestions, progress);
       await this.updateStatus(ctx, AgentStatus.WAITING);
@@ -825,14 +1017,20 @@ The JSON must be valid. Do NOT ask for confirmation — just finalize when ready
 
   /** Detect JSON-only completion for feature interviews */
   private detectFeatureJsonCompletion(content: string): boolean {
-    const jsonMatch = content.match(/```(?:json)?\s*(\{[\s\S]*?\})\s*```/) ||
-                      content.match(/(\{[\s\S]*\})/);
+    const jsonMatch =
+      content.match(/```(?:json)?\s*(\{[\s\S]*?\})\s*```/) ||
+      content.match(/(\{[\s\S]*\})/);
     if (!jsonMatch) return false;
 
     try {
       const obj = JSON.parse(jsonMatch[1]);
       const hasFeatures = !!(obj.features || obj.feature_list);
-      const hasGoal = !!(obj.sessionGoal || obj.session_goal || obj.goal || obj.description);
+      const hasGoal = !!(
+        obj.sessionGoal ||
+        obj.session_goal ||
+        obj.goal ||
+        obj.description
+      );
       return hasFeatures && hasGoal;
     } catch {
       return false;
@@ -840,10 +1038,15 @@ The JSON must be valid. Do NOT ask for confirmation — just finalize when ready
   }
 
   /** Handle feature interview completion — parse result and trigger pipeline */
-  private async handleFeatureInterviewComplete(ctx: AgentContext, content: string) {
+  private async handleFeatureInterviewComplete(
+    ctx: AgentContext,
+    content: string,
+  ) {
     const markerIndex = content.indexOf(FEATURE_COMPLETION_MARKER);
     const conversationPart = content.substring(0, markerIndex).trim();
-    const jsonPart = content.substring(markerIndex + FEATURE_COMPLETION_MARKER.length);
+    const jsonPart = content.substring(
+      markerIndex + FEATURE_COMPLETION_MARKER.length,
+    );
 
     if (conversationPart) {
       await this.sendAgentMessage(ctx, conversationPart);
@@ -851,31 +1054,45 @@ The JSON must be valid. Do NOT ask for confirmation — just finalize when ready
 
     let featureResult: FeatureInterviewResult;
     try {
-      const cleanedJson = jsonPart.replace(/<think>[\s\S]*?<\/think>/g, '').trim();
+      const cleanedJson = jsonPart
+        .replace(/<think>[\s\S]*?<\/think>/g, '')
+        .trim();
       const jsonMatch = cleanedJson.match(/\{[\s\S]*\}/);
       if (!jsonMatch) throw new Error('No JSON object found');
       const jsonStr = jsonMatch[0].replace(/,\s*([}\]])/g, '$1');
       const raw = JSON.parse(jsonStr);
 
       // Normalize
-      const features = (raw.features || raw.feature_list || []).map((f: any) => {
-        if (typeof f === 'string') return { title: f, priority: 'should-have' as const };
-        return {
-          title: String(f.title ?? f.name ?? 'Unnamed'),
-          description: f.description ? String(f.description) : undefined,
-          priority: this.normalizePriority(f.priority),
-          acceptanceCriteria: Array.isArray(f.acceptanceCriteria ?? f.acceptance_criteria)
-            ? (f.acceptanceCriteria ?? f.acceptance_criteria).map(String)
-            : undefined,
-        };
-      });
+      const features = (raw.features || raw.feature_list || []).map(
+        (f: any) => {
+          if (typeof f === 'string')
+            return { title: f, priority: 'should-have' as const };
+          return {
+            title: String(f.title ?? f.name ?? 'Unnamed'),
+            description: f.description ? String(f.description) : undefined,
+            priority: this.normalizePriority(f.priority),
+            acceptanceCriteria: Array.isArray(
+              f.acceptanceCriteria ?? f.acceptance_criteria,
+            )
+              ? (f.acceptanceCriteria ?? f.acceptance_criteria).map(String)
+              : undefined,
+          };
+        },
+      );
 
       featureResult = {
-        sessionGoal: raw.sessionGoal ?? raw.session_goal ?? raw.goal ?? raw.description ?? '',
+        sessionGoal:
+          raw.sessionGoal ??
+          raw.session_goal ??
+          raw.goal ??
+          raw.description ??
+          '',
         features,
       };
     } catch (err) {
-      this.logger.error(`Failed to parse feature interview result: ${err.message}`);
+      this.logger.error(
+        `Failed to parse feature interview result: ${err.message}`,
+      );
       await this.sendAgentMessage(
         ctx,
         'I had trouble formatting the feature list. Could you confirm the features one more time?',
@@ -885,7 +1102,10 @@ The JSON must be valid. Do NOT ask for confirmation — just finalize when ready
     }
 
     if (!featureResult.features || featureResult.features.length === 0) {
-      await this.sendAgentMessage(ctx, 'No features captured. Please describe at least one feature to build.');
+      await this.sendAgentMessage(
+        ctx,
+        'No features captured. Please describe at least one feature to build.',
+      );
       await this.updateStatus(ctx, AgentStatus.WAITING);
       return;
     }
@@ -901,7 +1121,7 @@ The JSON must be valid. Do NOT ask for confirmation — just finalize when ready
     });
 
     const featureList = featureResult.features
-      .map(f => `${f.title} (${f.priority})`)
+      .map((f) => `${f.title} (${f.priority})`)
       .join(', ');
 
     await this.sendAgentMessage(

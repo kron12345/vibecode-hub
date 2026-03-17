@@ -24,10 +24,18 @@ export interface PostAgentCommentDeps {
  * The SAME rich markdown is stored in both places.
  * If GitLab fails → still saves locally (graceful degradation).
  */
-export async function postAgentComment(deps: PostAgentCommentDeps): Promise<void> {
+export async function postAgentComment(
+  deps: PostAgentCommentDeps,
+): Promise<void> {
   const {
-    prisma, gitlabService, issueId, gitlabProjectId,
-    issueIid, agentTaskId, authorName, markdownContent,
+    prisma,
+    gitlabService,
+    issueId,
+    gitlabProjectId,
+    issueIid,
+    agentTaskId,
+    authorName,
+    markdownContent,
   } = deps;
 
   let gitlabNoteId: number | undefined;
@@ -145,10 +153,11 @@ export function extractLastAgentFindings(
 
   // Get the LAST comment block
   const lastMatch = matches[matches.length - 1];
-  const startPos = lastMatch.index!;
+  const startPos = lastMatch.index;
 
   // Find the end of this comment block (next agent comment or end of string)
-  const allAgentPattern = /## [✅⚠️❌]+ (?:Code Review|Functional Test|UI Test|Security Test):/g;
+  const allAgentPattern =
+    /## [✅⚠️❌]+ (?:Code Review|Functional Test|UI Test|Security Test):/g;
   allAgentPattern.lastIndex = startPos + lastMatch[0].length;
   const nextAgent = allAgentPattern.exec(commentHistory);
   const endPos = nextAgent ? nextAgent.index : commentHistory.length;
@@ -175,7 +184,8 @@ export function extractLastAgentFindings(
 
   // Pattern 1: Old format — code reviewer / pen tester findings (inline markdown)
   // 🔴 **severity** — `file:line`\n  message\n  💡 suggestion
-  const reviewFindingPattern = /[🔴🟡🔵]\s+\*\*(\w+)\*\*\s+[—–-]\s+`([^`]+)`\s*\n\s+(.+?)(?:\n\s+💡\s+(.+?))?(?=\n[🔴🟡🔵]|\n---|\n\n|\n##|$)/gs;
+  const reviewFindingPattern =
+    /[🔴🟡🔵]\s+\*\*(\w+)\*\*\s+[—–-]\s+`([^`]+)`\s*\n\s+(.+?)(?:\n\s+💡\s+(.+?))?(?=\n[🔴🟡🔵]|\n---|\n\n|\n##|$)/gs;
   let match: RegExpExecArray | null;
   while ((match = reviewFindingPattern.exec(lastComment)) !== null) {
     findings.push({
@@ -192,18 +202,23 @@ export function extractLastAgentFindings(
   while ((match = threadLinkPattern.exec(lastComment)) !== null) {
     // Only add if not already captured by pattern 1 (avoid duplicates)
     const msg = match[1].trim();
-    if (!findings.some(f => f.message === msg)) {
+    if (!findings.some((f) => f.message === msg)) {
       findings.push({
         message: msg,
-        severity: lastComment.charAt(match.index + 2) === '🔴' ? 'critical'
-          : lastComment.charAt(match.index + 2) === '🟡' ? 'warning' : 'info',
+        severity:
+          lastComment.charAt(match.index + 2) === '🔴'
+            ? 'critical'
+            : lastComment.charAt(match.index + 2) === '🟡'
+              ? 'warning'
+              : 'info',
       });
     }
   }
 
   // Pattern 3: Functional tester findings (old format)
   // ✅/❌ **criterion**\n  details
-  const funcFindingPattern = /[✅❌]\s+\*\*(.+?)\*\*\s*\n\s+(.+?)(?=\n[✅❌]|\n---|\n\n|\n##|$)/gs;
+  const funcFindingPattern =
+    /[✅❌]\s+\*\*(.+?)\*\*\s*\n\s+(.+?)(?=\n[✅❌]|\n---|\n\n|\n##|$)/gs;
   while ((match = funcFindingPattern.exec(lastComment)) !== null) {
     findings.push({
       criterion: match[1].trim(),

@@ -31,20 +31,25 @@ export interface PostFindingsAsThreadsDeps {
 // ─── Helpers ───────────────────────────────────────────────────
 
 const SEVERITY_ICONS: Record<string, string> = {
-  critical: '\uD83D\uDD34',  // red circle
-  warning: '\uD83D\uDFE1',   // yellow circle
-  info: '\uD83D\uDD35',      // blue circle
+  critical: '\uD83D\uDD34', // red circle
+  warning: '\uD83D\uDFE1', // yellow circle
+  info: '\uD83D\uDD35', // blue circle
 };
 
 function severityIcon(severity: string): string {
-  return SEVERITY_ICONS[severity.toLowerCase()] ?? '\u26AA';  // white circle fallback
+  return SEVERITY_ICONS[severity.toLowerCase()] ?? '\u26AA'; // white circle fallback
 }
 
 /**
  * Generate a stable fingerprint from severity + file + message.
  * Uses first 60 chars lowercased/trimmed, hashed to a short hex string.
  */
-function generateFingerprint(severity: string, file: string | undefined, message: string, line?: number): string {
+function generateFingerprint(
+  severity: string,
+  file: string | undefined,
+  message: string,
+  line?: number,
+): string {
   const raw = `${severity}:${file ?? ''}:${line ?? ''}:${message}`
     .toLowerCase()
     .trim()
@@ -69,22 +74,32 @@ export async function postFindingsAsThreads(
   deps: PostFindingsAsThreadsDeps,
 ): Promise<FindingThread[]> {
   const {
-    prisma, gitlabService, issueId, mrIid,
-    gitlabProjectId, agentRole, roundNumber, findings,
+    prisma,
+    gitlabService,
+    issueId,
+    mrIid,
+    gitlabProjectId,
+    agentRole,
+    roundNumber,
+    findings,
   } = deps;
 
   if (findings.length === 0) return [];
 
   // Fetch MR for web_url and diff_refs
   let mrWebUrl: string;
-  let diffRefs: { base_sha: string; head_sha: string; start_sha: string } | undefined;
+  let diffRefs:
+    | { base_sha: string; head_sha: string; start_sha: string }
+    | undefined;
 
   try {
     const mr = await gitlabService.getMergeRequest(gitlabProjectId, mrIid);
     mrWebUrl = mr.web_url;
     diffRefs = mr.diff_refs;
   } catch (err) {
-    logger.error(`Failed to fetch MR !${mrIid} in project ${gitlabProjectId}: ${err.message}`);
+    logger.error(
+      `Failed to fetch MR !${mrIid} in project ${gitlabProjectId}: ${err.message}`,
+    );
     return [];
   }
 
@@ -92,7 +107,12 @@ export async function postFindingsAsThreads(
 
   for (const finding of findings) {
     try {
-      const fingerprint = generateFingerprint(finding.severity, finding.file, finding.message, finding.line);
+      const fingerprint = generateFingerprint(
+        finding.severity,
+        finding.file,
+        finding.message,
+        finding.line,
+      );
 
       // Build thread body with hidden metadata comment
       const body = [
@@ -102,7 +122,9 @@ export async function postFindingsAsThreads(
       ].join('\n');
 
       // Try diff-bound thread first, fall back to general thread
-      let discussion: Awaited<ReturnType<typeof gitlabService.createMrDiscussion>>;
+      let discussion: Awaited<
+        ReturnType<typeof gitlabService.createMrDiscussion>
+      >;
 
       if (finding.file && finding.line && diffRefs) {
         const position: MrDiscussionPosition = {
@@ -117,7 +139,10 @@ export async function postFindingsAsThreads(
 
         try {
           discussion = await gitlabService.createMrDiscussion(
-            gitlabProjectId, mrIid, body, position,
+            gitlabProjectId,
+            mrIid,
+            body,
+            position,
           );
         } catch {
           // Line not in diff or other position error — fall back to general thread
@@ -125,18 +150,24 @@ export async function postFindingsAsThreads(
             `Diff-bound thread failed for ${finding.file}:${finding.line}, falling back to general thread`,
           );
           discussion = await gitlabService.createMrDiscussion(
-            gitlabProjectId, mrIid, body,
+            gitlabProjectId,
+            mrIid,
+            body,
           );
         }
       } else {
         discussion = await gitlabService.createMrDiscussion(
-          gitlabProjectId, mrIid, body,
+          gitlabProjectId,
+          mrIid,
+          body,
         );
       }
 
       const rootNoteId = discussion.notes?.[0]?.id;
       if (!rootNoteId) {
-        logger.warn(`Discussion created but no root note ID returned — skipping DB save`);
+        logger.warn(
+          `Discussion created but no root note ID returned — skipping DB save`,
+        );
         continue;
       }
       const threadUrl = `${mrWebUrl}#note_${rootNoteId}`;
@@ -229,7 +260,10 @@ export async function resolveThreads(deps: {
       // Resolve in GitLab first — only mark locally if GitLab succeeds
       try {
         await gitlabService.resolveMrDiscussion(
-          gitlabProjectId, mrIid, thread.discussionId, true,
+          gitlabProjectId,
+          mrIid,
+          thread.discussionId,
+          true,
         );
 
         // Mark resolved locally only after GitLab confirms
@@ -243,7 +277,9 @@ export async function resolveThreads(deps: {
         );
       }
     } catch (err) {
-      logger.error(`Failed to resolve FindingThread ${threadId}: ${err.message}`);
+      logger.error(
+        `Failed to resolve FindingThread ${threadId}: ${err.message}`,
+      );
     }
   }
 }
@@ -279,40 +315,74 @@ export async function syncFindingThreads(deps: {
   roundNumber: number;
   findings: FindingForThread[];
 }): Promise<SyncFindingThreadsResult> {
-  const { prisma, gitlabService, issueId, mrIid, gitlabProjectId, agentRole, roundNumber, findings } = deps;
+  const {
+    prisma,
+    gitlabService,
+    issueId,
+    mrIid,
+    gitlabProjectId,
+    agentRole,
+    roundNumber,
+    findings,
+  } = deps;
 
   // 1. Load previous unresolved threads
   const previousThreads = await getUnresolvedThreads({
-    prisma, gitlabService, issueId, mrIid, gitlabProjectId, agentRole,
+    prisma,
+    gitlabService,
+    issueId,
+    mrIid,
+    gitlabProjectId,
+    agentRole,
   });
 
   // 2. Compute fingerprints for current findings
   const currentFingerprints = new Set(
-    findings.map(f => generateFingerprint(f.severity, f.file, f.message, f.line)),
+    findings.map((f) =>
+      generateFingerprint(f.severity, f.file, f.message, f.line),
+    ),
   );
 
   // 3. Resolve threads whose findings are no longer present
-  const resolvedRecords = previousThreads.filter(t => !currentFingerprints.has(t.fingerprint));
+  const resolvedRecords = previousThreads.filter(
+    (t) => !currentFingerprints.has(t.fingerprint),
+  );
   if (resolvedRecords.length > 0) {
     await resolveThreads({
-      prisma, gitlabService, gitlabProjectId, mrIid,
-      threadIds: resolvedRecords.map(t => t.id),
+      prisma,
+      gitlabService,
+      gitlabProjectId,
+      mrIid,
+      threadIds: resolvedRecords.map((t) => t.id),
     });
   }
 
   // 4. Post only NEW findings (not already tracked by fingerprint)
-  const existingFingerprints = new Set(previousThreads.map(t => t.fingerprint));
-  const newFindings = findings.filter(f =>
-    !existingFingerprints.has(generateFingerprint(f.severity, f.file, f.message, f.line)),
+  const existingFingerprints = new Set(
+    previousThreads.map((t) => t.fingerprint),
+  );
+  const newFindings = findings.filter(
+    (f) =>
+      !existingFingerprints.has(
+        generateFingerprint(f.severity, f.file, f.message, f.line),
+      ),
   );
 
   const newThreads = await postFindingsAsThreads({
-    prisma, gitlabService, issueId, mrIid, gitlabProjectId, agentRole, roundNumber,
+    prisma,
+    gitlabService,
+    issueId,
+    mrIid,
+    gitlabProjectId,
+    agentRole,
+    roundNumber,
     findings: newFindings,
   });
 
   // 5. Combine still-unresolved previous + newly created
-  const stillUnresolved = previousThreads.filter(t => currentFingerprints.has(t.fingerprint));
+  const stillUnresolved = previousThreads.filter((t) =>
+    currentFingerprints.has(t.fingerprint),
+  );
   const activeThreads = [...stillUnresolved, ...newThreads];
 
   return { activeThreads, resolvedThreads: resolvedRecords, newThreads };

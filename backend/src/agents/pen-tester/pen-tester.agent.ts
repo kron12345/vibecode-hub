@@ -15,7 +15,11 @@ import { MonitorGateway } from '../../monitor/monitor.gateway';
 import { McpAgentLoopService } from '../../mcp/mcp-agent-loop.service';
 import { McpRegistryService } from '../../mcp/mcp-registry.service';
 import { DualTestService } from '../dual-test.service';
-import { postAgentComment, getAgentCommentHistory, extractLastAgentFindings } from '../agent-comment.utils';
+import {
+  postAgentComment,
+  getAgentCommentHistory,
+  extractLastAgentFindings,
+} from '../agent-comment.utils';
 import {
   syncFindingThreads,
   buildIssueSummaryWithThreadLinks,
@@ -27,11 +31,7 @@ import {
   filterOutOfScopeFindings,
 } from '../agent-scope.utils';
 import { PenTestResult, SecurityFinding } from './pen-test-result.interface';
-import {
-  AgentRole,
-  AgentStatus,
-  AgentTaskStatus,
-} from '@prisma/client';
+import { AgentRole, AgentStatus, AgentTaskStatus } from '@prisma/client';
 
 const execFileAsync = promisify(execFile);
 
@@ -178,19 +178,32 @@ export class PenTesterAgent extends BaseAgent {
     private readonly mcpAgentLoop: McpAgentLoopService,
     private readonly mcpRegistry: McpRegistryService,
   ) {
-    super(prisma, settings, chatService, chatGateway, llmService, monitorGateway);
+    super(
+      prisma,
+      settings,
+      chatService,
+      chatGateway,
+      llmService,
+      monitorGateway,
+    );
   }
 
   /** Get the max warnings threshold from settings (default: 3) */
   private getMaxWarnings(): number {
-    const val = this.settings.get('pentester.maxWarnings', '', String(DEFAULT_MAX_WARNINGS));
+    const val = this.settings.get(
+      'pentester.maxWarnings',
+      '',
+      String(DEFAULT_MAX_WARNINGS),
+    );
     const num = parseInt(val, 10);
     return isNaN(num) ? DEFAULT_MAX_WARNINGS : num;
   }
 
   /** Check if header checks should be skipped (configurable per-project via settings) */
   private shouldSkipHeaderCheck(): boolean {
-    return this.settings.get('pentester.skipHeaderCheck', '', 'false') === 'true';
+    return (
+      this.settings.get('pentester.skipHeaderCheck', '', 'false') === 'true'
+    );
   }
 
   /**
@@ -229,7 +242,10 @@ export class PenTesterAgent extends BaseAgent {
       let auditResult: PenTestResult['auditResult'] | undefined;
 
       if (project?.slug) {
-        const workspace = await this.resolveWorkspace(project.slug, ctx.chatSessionId);
+        const workspace = await this.resolveWorkspace(
+          project.slug,
+          ctx.chatSessionId,
+        );
         const audit = await this.runNpmAudit(workspace);
         auditReport = audit.report;
         auditResult = audit.summary;
@@ -239,9 +255,10 @@ export class PenTesterAgent extends BaseAgent {
       let headerReport = '';
       if (!this.shouldSkipHeaderCheck()) {
         const previewDomain = this.settings.get('preview.domain', '');
-        const previewUrl = project?.previewPort && project?.slug && previewDomain
-          ? `https://${project.slug}.${previewDomain}`
-          : null;
+        const previewUrl =
+          project?.previewPort && project?.slug && previewDomain
+            ? `https://${project.slug}.${previewDomain}`
+            : null;
 
         if (previewUrl) {
           headerReport = await this.checkSecurityHeaders(previewUrl);
@@ -249,19 +266,31 @@ export class PenTesterAgent extends BaseAgent {
       }
 
       // ─── Phase 3: MR Diffs ──────────────────
-      const diffs = await this.fetchDiffsWithRetry(gitlabProjectId, mrIid, 3, 5000);
+      const diffs = await this.fetchDiffsWithRetry(
+        gitlabProjectId,
+        mrIid,
+        3,
+        5000,
+      );
 
       const MAX_DIFFS = 15;
       const MAX_DIFF_CHARS = 1500;
       const reviewDiffs = diffs.slice(0, MAX_DIFFS);
 
-      const diffText = reviewDiffs.map(d => {
-        const prefix = d.new_file ? '[NEW]' : d.deleted_file ? '[DELETED]' : '[MODIFIED]';
-        const truncated = d.diff.length > MAX_DIFF_CHARS
-          ? d.diff.substring(0, MAX_DIFF_CHARS) + '\n... (truncated)'
-          : d.diff;
-        return `### ${prefix} ${d.new_path}\n\`\`\`diff\n${truncated}\n\`\`\``;
-      }).join('\n\n');
+      const diffText = reviewDiffs
+        .map((d) => {
+          const prefix = d.new_file
+            ? '[NEW]'
+            : d.deleted_file
+              ? '[DELETED]'
+              : '[MODIFIED]';
+          const truncated =
+            d.diff.length > MAX_DIFF_CHARS
+              ? d.diff.substring(0, MAX_DIFF_CHARS) + '\n... (truncated)'
+              : d.diff;
+          return `### ${prefix} ${d.new_path}\n\`\`\`diff\n${truncated}\n\`\`\``;
+        })
+        .join('\n\n');
 
       // ─── Phase 4: Build tech stack context ──────
       const techStackContext = this.buildTechStackContext(project);
@@ -271,22 +300,35 @@ export class PenTesterAgent extends BaseAgent {
       const systemPrompt = config.systemPrompt || DEFAULT_SYSTEM_PROMPT;
 
       // Inject previous agent comments as context
-      const commentHistory = await getAgentCommentHistory({ prisma: this.prisma, issueId });
+      const commentHistory = await getAgentCommentHistory({
+        prisma: this.prisma,
+        issueId,
+      });
       const historySection = commentHistory
         ? `\n## Previous Agent Comments on this Issue\n${commentHistory}\n`
         : '';
       const outOfScopeItems = extractArchitectOutOfScopeItems(commentHistory);
-      const scopeGuardSection = buildArchitectScopeGuardSection(outOfScopeItems);
+      const scopeGuardSection =
+        buildArchitectScopeGuardSection(outOfScopeItems);
 
       const maxWarnings = this.getMaxWarnings();
 
       // Build structured previous findings section (Expectation Pattern memory)
-      const previousFindings = extractLastAgentFindings(commentHistory, 'Pen Tester');
-      const previousFindingsSection = previousFindings.length > 0
-        ? `\n## YOUR Previous Security Findings — Re-Evaluate Each One\n${previousFindings.map((f, i) =>
-            `${i + 1}. [${(f.severity ?? 'warning').toUpperCase()}] ${f.file ? `\`${f.file}\`: ` : ''}${f.message}\n   Expected fix: ${f.expectedFix ?? f.suggestion ?? 'not specified'}\n   → NOW CHECK: is this vulnerability still present in the current code?`
-          ).join('\n')}\n\nFor each finding above: if fixed, report in \`resolvedFromPrevious\`. If still present, carry forward with SAME description.\n`
-        : '';
+      const previousFindings = extractLastAgentFindings(
+        commentHistory,
+        'Pen Tester',
+      );
+      const previousFindingsSection =
+        previousFindings.length > 0
+          ? `\n## YOUR Previous Security Findings — Re-Evaluate Each One\n${previousFindings
+              .map(
+                (f, i) =>
+                  `${i + 1}. [${(f.severity ?? 'warning').toUpperCase()}] ${f.file ? `\`${f.file}\`: ` : ''}${f.message}\n   Expected fix: ${f.expectedFix ?? f.suggestion ?? 'not specified'}\n   → NOW CHECK: is this vulnerability still present in the current code?`,
+              )
+              .join(
+                '\n',
+              )}\n\nFor each finding above: if fixed, report in \`resolvedFromPrevious\`. If still present, carry forward with SAME description.\n`
+          : '';
 
       const userPrompt = `Perform a security analysis of this merge request${previousFindings.length > 0 ? ' (Re-test after fix attempt)' : ''}:
 
@@ -307,9 +349,11 @@ ${auditReport ? `## npm audit Results (production dependencies only):\n\n${audit
 
 ${headerReport ? `## Security Headers Check:\n\n${headerReport}` : ''}
 
-${previousFindings.length > 0
-  ? 'IMPORTANT: First address each item in "YOUR Previous Security Findings" above, then check for new vulnerabilities.'
-  : 'Analyze the code for OWASP Top 10 vulnerabilities. Be context-aware: consider the tech stack and project type.'}
+${
+  previousFindings.length > 0
+    ? 'IMPORTANT: First address each item in "YOUR Previous Security Findings" above, then check for new vulnerabilities.'
+    : 'Analyze the code for OWASP Top 10 vulnerabilities. Be context-aware: consider the tech stack and project type.'
+}
 
 IMPORTANT: You MUST end your response with the JSON result in this EXACT format:
 ${COMPLETION_MARKER}
@@ -327,15 +371,21 @@ Do NOT omit the JSON block.`;
       let resultContent: string;
 
       const mcpServers = workspace
-        ? await this.mcpRegistry.resolveServersForRole(
-            AgentRole.PEN_TESTER,
-            { workspace, allowedPaths: [workspace], projectId: ctx.projectId },
-          )
+        ? await this.mcpRegistry.resolveServersForRole(AgentRole.PEN_TESTER, {
+            workspace,
+            allowedPaths: [workspace],
+            projectId: ctx.projectId,
+          })
         : [];
 
       if (mcpServers.length > 0 && workspace) {
-        this.logger.log(`Using MCP agent loop with ${mcpServers.length} servers (workspace: ${workspace})`);
-        await this.sendAgentMessage(ctx, `Running security analysis with shell access (${mcpServers.length} MCP tools — semgrep, trivy, etc.)...`);
+        this.logger.log(
+          `Using MCP agent loop with ${mcpServers.length} servers (workspace: ${workspace})`,
+        );
+        await this.sendAgentMessage(
+          ctx,
+          `Running security analysis with shell access (${mcpServers.length} MCP tools — semgrep, trivy, etc.)...`,
+        );
 
         const mcpResult = await this.mcpAgentLoop.run({
           provider: config.provider,
@@ -352,12 +402,17 @@ Do NOT omit the JSON block.`;
 
         if (mcpResult.finishReason === 'error') {
           await this.sendAgentMessage(ctx, 'Pen Tester MCP loop failed');
-          await this.markFailed(ctx, `MCP agent loop failed: ${mcpResult.errorMessage ?? 'unknown error'}`);
+          await this.markFailed(
+            ctx,
+            `MCP agent loop failed: ${mcpResult.errorMessage ?? 'unknown error'}`,
+          );
           return;
         }
 
         resultContent = mcpResult.content;
-        this.logger.log(`MCP loop: ${mcpResult.iterations} iterations, ${mcpResult.toolCallsExecuted} tool calls`);
+        this.logger.log(
+          `MCP loop: ${mcpResult.iterations} iterations, ${mcpResult.toolCallsExecuted} tool calls`,
+        );
       } else {
         // Fallback: dual LLM call (no shell access)
         const messages: LlmMessage[] = [
@@ -365,32 +420,61 @@ Do NOT omit the JSON block.`;
           { role: 'user', content: userPrompt },
         ];
 
-        const dualResult = await this.dualTestService.callDual(config, messages);
+        const dualResult = await this.dualTestService.callDual(
+          config,
+          messages,
+        );
 
         if (dualResult.primary.finishReason === 'error') {
           await this.sendAgentMessage(ctx, 'Pen Tester LLM call failed');
-          await this.markFailed(ctx, `LLM call failed: ${dualResult.primary.errorMessage ?? 'unknown error'}`);
+          await this.markFailed(
+            ctx,
+            `LLM call failed: ${dualResult.primary.errorMessage ?? 'unknown error'}`,
+          );
           return;
         }
 
         resultContent = dualResult.primary.content;
 
         // Dual-testing: parse secondary and merge/consensus findings
-        if (dualResult.secondary && dualResult.secondary.finishReason !== 'error') {
-          const primaryResult = this.parseTestResult(dualResult.primary.content, issueId, auditResult);
-          const secondaryResult = this.parseTestResult(dualResult.secondary.content, issueId, auditResult);
+        if (
+          dualResult.secondary &&
+          dualResult.secondary.finishReason !== 'error'
+        ) {
+          const primaryResult = this.parseTestResult(
+            dualResult.primary.content,
+            issueId,
+            auditResult,
+          );
+          const secondaryResult = this.parseTestResult(
+            dualResult.secondary.content,
+            issueId,
+            auditResult,
+          );
           if (primaryResult && secondaryResult) {
             const strategy = config.dualStrategy ?? 'merge';
             const { merged, stats } = this.dualTestService.mergeFindings(
               primaryResult.findings,
               secondaryResult.findings,
               strategy,
-              (f: SecurityFinding) => `${f.category}:${f.file ?? ''}:${f.severity}:${f.description.substring(0, 40).toLowerCase()}`,
+              (f: SecurityFinding) =>
+                `${f.category}:${f.file ?? ''}:${f.severity}:${f.description.substring(0, 40).toLowerCase()}`,
             );
 
-            const passed = this.dualTestService.determineApproval(merged, maxWarnings);
-            const mergedTestResult: PenTestResult = { ...primaryResult, findings: merged, passed };
-            const scopedMergedResult = this.applyArchitectScopeFilter(mergedTestResult, outOfScopeItems, maxWarnings);
+            const passed = this.dualTestService.determineApproval(
+              merged,
+              maxWarnings,
+            );
+            const mergedTestResult: PenTestResult = {
+              ...primaryResult,
+              findings: merged,
+              passed,
+            };
+            const scopedMergedResult = this.applyArchitectScopeFilter(
+              mergedTestResult,
+              outOfScopeItems,
+              maxWarnings,
+            );
 
             await this.sendAgentMessage(
               ctx,
@@ -398,24 +482,48 @@ Do NOT omit the JSON block.`;
             );
 
             // Rule-based override: critical findings → always fail
-            const critCount = scopedMergedResult.findings.filter(f => f.severity === 'critical').length;
+            const critCount = scopedMergedResult.findings.filter(
+              (f) => f.severity === 'critical',
+            ).length;
             if (scopedMergedResult.passed && critCount > 0) {
               scopedMergedResult.passed = false;
               scopedMergedResult.summary = `[OVERRIDE] ${critCount} critical finding(s) — auto-failed. ${scopedMergedResult.summary}`;
             }
 
             // ─── Finding Threads for dual-test path ───
-            const dualActiveFindings = scopedMergedResult.findings.filter(f => f.severity !== 'info');
-            const dualFindingsForThreads: FindingForThread[] = dualActiveFindings.map(f => {
-              const parts = [`**${f.severity.toUpperCase()}** [${f.category}]`, '', f.description];
-              if (f.file) parts.push('', `**File:** \`${f.file}${f.line ? `:${f.line}` : ''}\``);
-              if (f.expectedFix) parts.push('', `**Expected Fix:** ${f.expectedFix}`);
-              if (f.exploitScenario) parts.push('', `**Exploit Scenario:** ${f.exploitScenario}`);
-              parts.push('', `**Recommendation:** ${f.recommendation}`);
-              return { severity: f.severity, message: `[${f.category}] ${f.description.substring(0, 80)}`, file: f.file, line: f.line, threadBody: parts.join('\n') };
-            });
+            const dualActiveFindings = scopedMergedResult.findings.filter(
+              (f) => f.severity !== 'info',
+            );
+            const dualFindingsForThreads: FindingForThread[] =
+              dualActiveFindings.map((f) => {
+                const parts = [
+                  `**${f.severity.toUpperCase()}** [${f.category}]`,
+                  '',
+                  f.description,
+                ];
+                if (f.file)
+                  parts.push(
+                    '',
+                    `**File:** \`${f.file}${f.line ? `:${f.line}` : ''}\``,
+                  );
+                if (f.expectedFix)
+                  parts.push('', `**Expected Fix:** ${f.expectedFix}`);
+                if (f.exploitScenario)
+                  parts.push('', `**Exploit Scenario:** ${f.exploitScenario}`);
+                parts.push('', `**Recommendation:** ${f.recommendation}`);
+                return {
+                  severity: f.severity,
+                  message: `[${f.category}] ${f.description.substring(0, 80)}`,
+                  file: f.file,
+                  line: f.line,
+                  threadBody: parts.join('\n'),
+                };
+              });
 
-            const { activeThreads: dualAllThreads, resolvedThreads: dualResolvedRecords } = await syncFindingThreads({
+            const {
+              activeThreads: dualAllThreads,
+              resolvedThreads: dualResolvedRecords,
+            } = await syncFindingThreads({
               prisma: this.prisma,
               gitlabService: this.gitlabService,
               issueId,
@@ -427,19 +535,39 @@ Do NOT omit the JSON block.`;
             });
 
             const testMarkdown = buildIssueSummaryWithThreadLinks({
-              agentName: 'Security Test', approved: scopedMergedResult.passed,
-              summary: scopedMergedResult.summary, threads: dualAllThreads, resolvedThreads: dualResolvedRecords,
+              agentName: 'Security Test',
+              approved: scopedMergedResult.passed,
+              summary: scopedMergedResult.summary,
+              threads: dualAllThreads,
+              resolvedThreads: dualResolvedRecords,
             });
             await postAgentComment({
-              prisma: this.prisma, gitlabService: this.gitlabService,
-              issueId, gitlabProjectId, issueIid: issue.gitlabIid!,
-              agentTaskId: ctx.agentTaskId, authorName: 'Pen Tester', markdownContent: testMarkdown,
+              prisma: this.prisma,
+              gitlabService: this.gitlabService,
+              issueId,
+              gitlabProjectId,
+              issueIid: issue.gitlabIid!,
+              agentTaskId: ctx.agentTaskId,
+              authorName: 'Pen Tester',
+              markdownContent: testMarkdown,
             });
 
             if (scopedMergedResult.passed) {
-              await this.handlePassed(ctx, issueId, mrIid, gitlabProjectId, scopedMergedResult);
+              await this.handlePassed(
+                ctx,
+                issueId,
+                mrIid,
+                gitlabProjectId,
+                scopedMergedResult,
+              );
             } else {
-              await this.handleFailed(ctx, issueId, mrIid, gitlabProjectId, scopedMergedResult);
+              await this.handleFailed(
+                ctx,
+                issueId,
+                mrIid,
+                gitlabProjectId,
+                scopedMergedResult,
+              );
             }
             return;
           }
@@ -447,10 +575,18 @@ Do NOT omit the JSON block.`;
       }
 
       // Parse result (MCP path or single-LLM fallback)
-      let testResult = this.parseTestResult(resultContent, issueId, auditResult);
+      let testResult = this.parseTestResult(
+        resultContent,
+        issueId,
+        auditResult,
+      );
 
       // If parsing returned 0 findings but the response was substantial, retry JSON extraction
-      if (testResult && testResult.findings.length === 0 && resultContent.length > 500) {
+      if (
+        testResult &&
+        testResult.findings.length === 0 &&
+        resultContent.length > 500
+      ) {
         const retryJson = await this.dualTestService.retryJsonExtraction(
           config,
           resultContent,
@@ -459,7 +595,9 @@ Do NOT omit the JSON block.`;
         if (retryJson) {
           const retried = this.parseTestResult(retryJson, issueId, auditResult);
           if (retried && retried.findings.length > 0) {
-            this.logger.log(`JSON retry recovered ${retried.findings.length} security findings`);
+            this.logger.log(
+              `JSON retry recovered ${retried.findings.length} security findings`,
+            );
             testResult = retried;
           }
         }
@@ -475,38 +613,67 @@ Do NOT omit the JSON block.`;
         if (retryJson) {
           testResult = this.parseTestResult(retryJson, issueId, auditResult);
           if (testResult) {
-            this.logger.log(`JSON retry recovered full security result (${testResult.findings.length} findings)`);
+            this.logger.log(
+              `JSON retry recovered full security result (${testResult.findings.length} findings)`,
+            );
           }
         }
       }
 
       if (!testResult) {
-        await this.sendAgentMessage(ctx, 'Could not parse security test result — defaulting to pass');
+        await this.sendAgentMessage(
+          ctx,
+          'Could not parse security test result — defaulting to pass',
+        );
         await this.handlePassed(ctx, issueId, mrIid, gitlabProjectId, {
-          issueId, passed: true, findings: [], summary: 'Parse failed — auto-passed',
+          issueId,
+          passed: true,
+          findings: [],
+          summary: 'Parse failed — auto-passed',
         });
         return;
       }
 
       // Enforce Architect out-of-scope constraints server-side to avoid false FAIL loops.
-      testResult = this.applyArchitectScopeFilter(testResult, outOfScopeItems, maxWarnings);
+      testResult = this.applyArchitectScopeFilter(
+        testResult,
+        outOfScopeItems,
+        maxWarnings,
+      );
 
       // Rule-based override: critical findings → always fail, regardless of LLM opinion
-      const criticalCount = testResult.findings.filter(f => f.severity === 'critical').length;
-      const warningCount = testResult.findings.filter(f => f.severity === 'warning').length;
+      const criticalCount = testResult.findings.filter(
+        (f) => f.severity === 'critical',
+      ).length;
+      const warningCount = testResult.findings.filter(
+        (f) => f.severity === 'warning',
+      ).length;
       if (testResult.passed && criticalCount > 0) {
-        this.logger.warn(`Pen Tester LLM said passed but found ${criticalCount} critical + ${warningCount} warning findings — overriding to FAIL`);
+        this.logger.warn(
+          `Pen Tester LLM said passed but found ${criticalCount} critical + ${warningCount} warning findings — overriding to FAIL`,
+        );
         testResult.passed = false;
         testResult.summary = `[OVERRIDE] ${criticalCount} critical finding(s) detected — auto-failed. ${testResult.summary}`;
       }
 
       // ─── Finding Threads: Post findings as MR discussion threads ───
-      const activeFindings = testResult.findings.filter(f => f.severity !== 'info');
-      const findingsForThreads: FindingForThread[] = activeFindings.map(f => {
-        const parts = [`**${f.severity.toUpperCase()}** [${f.category}]`, '', f.description];
-        if (f.file) parts.push('', `**File:** \`${f.file}${f.line ? `:${f.line}` : ''}\``);
+      const activeFindings = testResult.findings.filter(
+        (f) => f.severity !== 'info',
+      );
+      const findingsForThreads: FindingForThread[] = activeFindings.map((f) => {
+        const parts = [
+          `**${f.severity.toUpperCase()}** [${f.category}]`,
+          '',
+          f.description,
+        ];
+        if (f.file)
+          parts.push(
+            '',
+            `**File:** \`${f.file}${f.line ? `:${f.line}` : ''}\``,
+          );
         if (f.expectedFix) parts.push('', `**Expected Fix:** ${f.expectedFix}`);
-        if (f.exploitScenario) parts.push('', `**Exploit Scenario:** ${f.exploitScenario}`);
+        if (f.exploitScenario)
+          parts.push('', `**Exploit Scenario:** ${f.exploitScenario}`);
         parts.push('', `**Recommendation:** ${f.recommendation}`);
         return {
           severity: f.severity,
@@ -517,7 +684,10 @@ Do NOT omit the JSON block.`;
         };
       });
 
-      const { activeThreads: allActiveThreads, resolvedThreads: resolvedThreadRecords } = await syncFindingThreads({
+      const {
+        activeThreads: allActiveThreads,
+        resolvedThreads: resolvedThreadRecords,
+      } = await syncFindingThreads({
         prisma: this.prisma,
         gitlabService: this.gitlabService,
         issueId,
@@ -547,11 +717,22 @@ Do NOT omit the JSON block.`;
       });
 
       if (testResult.passed) {
-        await this.handlePassed(ctx, issueId, mrIid, gitlabProjectId, testResult);
+        await this.handlePassed(
+          ctx,
+          issueId,
+          mrIid,
+          gitlabProjectId,
+          testResult,
+        );
       } else {
-        await this.handleFailed(ctx, issueId, mrIid, gitlabProjectId, testResult);
+        await this.handleFailed(
+          ctx,
+          issueId,
+          mrIid,
+          gitlabProjectId,
+          testResult,
+        );
       }
-
     } catch (err) {
       this.logger.error(`Security test failed: ${err.message}`, err.stack);
       await this.sendAgentMessage(ctx, `**Pen Tester** error: ${err.message}`);
@@ -571,7 +752,8 @@ Do NOT omit the JSON block.`;
 
     const stack = ts['techStack'] as Record<string, unknown> | undefined;
     if (stack) {
-      if (stack['framework']) parts.push(`- **Framework:** ${stack['framework']}`);
+      if (stack['framework'])
+        parts.push(`- **Framework:** ${stack['framework']}`);
       if (stack['language']) parts.push(`- **Language:** ${stack['language']}`);
       if (stack['backend']) parts.push(`- **Backend:** ${stack['backend']}`);
       if (stack['database']) parts.push(`- **Database:** ${stack['database']}`);
@@ -580,7 +762,8 @@ Do NOT omit the JSON block.`;
     const deploy = ts['deployment'] as Record<string, unknown> | undefined;
     if (deploy) {
       parts.push(`- **Web Project:** ${deploy['isWebProject'] ? 'Yes' : 'No'}`);
-      if (deploy['devServerCommand']) parts.push(`- **Dev Server:** ${deploy['devServerCommand']}`);
+      if (deploy['devServerCommand'])
+        parts.push(`- **Dev Server:** ${deploy['devServerCommand']}`);
     }
 
     if (parts.length === 0) return '_Minimal tech stack info._';
@@ -590,9 +773,19 @@ Do NOT omit the JSON block.`;
     const backend = String(stack?.['backend'] ?? '').toLowerCase();
 
     let projectType = 'Full-Stack Application';
-    if (!backend && (framework.includes('angular') || framework.includes('react') || framework.includes('vue'))) {
+    if (
+      !backend &&
+      (framework.includes('angular') ||
+        framework.includes('react') ||
+        framework.includes('vue'))
+    ) {
       projectType = 'Frontend-Only SPA (no backend)';
-    } else if (!framework && (backend.includes('nest') || backend.includes('express') || backend.includes('fastify'))) {
+    } else if (
+      !framework &&
+      (backend.includes('nest') ||
+        backend.includes('express') ||
+        backend.includes('fastify'))
+    ) {
       projectType = 'Backend API (no frontend)';
     } else if (framework === 'static' || framework === 'html') {
       projectType = 'Static Site';
@@ -611,9 +804,14 @@ Do NOT omit the JSON block.`;
     try {
       // --omit=dev: Only audit production dependencies to reduce false positives
       const { stdout } = await execFileAsync(
-        'npm', ['audit', '--omit=dev', '--json'],
-        { cwd: workspace, timeout: AUDIT_TIMEOUT_MS, maxBuffer: 10 * 1024 * 1024 },
-      ).catch(err => {
+        'npm',
+        ['audit', '--omit=dev', '--json'],
+        {
+          cwd: workspace,
+          timeout: AUDIT_TIMEOUT_MS,
+          maxBuffer: 10 * 1024 * 1024,
+        },
+      ).catch((err) => {
         // npm audit exits with code 1 when vulnerabilities found — still has useful stdout
         if (err.stdout) return { stdout: err.stdout, stderr: err.stderr };
         throw err;
@@ -637,7 +835,8 @@ Do NOT omit the JSON block.`;
       ];
 
       // List top advisories
-      const advisories = auditData.advisories || auditData.vulnerabilities || {};
+      const advisories =
+        auditData.advisories || auditData.vulnerabilities || {};
       const entries = Object.values(advisories).slice(0, 10);
       for (const adv of entries as any[]) {
         const name = adv.name || adv.module_name || 'unknown';
@@ -647,10 +846,12 @@ Do NOT omit the JSON block.`;
       }
 
       return { report: lines.join('\n'), summary };
-
     } catch (err) {
       this.logger.warn(`npm audit failed: ${err.message}`);
-      return { report: `_npm audit failed: ${err.message}_`, summary: undefined };
+      return {
+        report: `_npm audit failed: ${err.message}_`,
+        summary: undefined,
+      };
     }
   }
 
@@ -668,7 +869,12 @@ Do NOT omit the JSON block.`;
       });
       clearTimeout(timeout);
 
-      const lines: string[] = [`**URL:** ${url}`, `**Status:** ${response.status}`, '', '### Security Headers:'];
+      const lines: string[] = [
+        `**URL:** ${url}`,
+        `**Status:** ${response.status}`,
+        '',
+        '### Security Headers:',
+      ];
 
       for (const header of SECURITY_HEADERS) {
         const value = response.headers.get(header);
@@ -679,10 +885,12 @@ Do NOT omit the JSON block.`;
         }
       }
 
-      lines.push('', '_Note: Missing headers on dev/preview servers are typically info-level, not warnings._');
+      lines.push(
+        '',
+        '_Note: Missing headers on dev/preview servers are typically info-level, not warnings._',
+      );
 
       return lines.join('\n');
-
     } catch (err) {
       this.logger.warn(`Header check failed: ${err.message}`);
       return `_Security header check failed: ${err.message}_`;
@@ -732,8 +940,11 @@ Do NOT omit the JSON block.`;
     testResult: PenTestResult,
   ): Promise<void> {
     const findingsText = testResult.findings
-      .filter(f => f.severity !== 'info')
-      .map(f => `- **${f.severity}** [${f.category}]${f.file ? ` \`${f.file}${f.line ? `:${f.line}` : ''}\`` : ''}: ${f.description}`)
+      .filter((f) => f.severity !== 'info')
+      .map(
+        (f) =>
+          `- **${f.severity}** [${f.category}]${f.file ? ` \`${f.file}${f.line ? `:${f.line}` : ''}\`` : ''}: ${f.description}`,
+      )
       .join('\n');
 
     await this.sendAgentMessage(
@@ -752,13 +963,20 @@ Do NOT omit the JSON block.`;
 
     await this.updateStatus(ctx, AgentStatus.IDLE);
 
-    const relevantFindings = testResult.findings.filter(f => f.severity !== 'info');
+    const relevantFindings = testResult.findings.filter(
+      (f) => f.severity !== 'info',
+    );
     const feedback = relevantFindings
       .map((f, i) => {
-        const persist = f.persistsSinceRound ? ` (open since round ${f.persistsSinceRound})` : '';
-        const parts = [`${i + 1}. [${f.severity.toUpperCase()}] [${f.category}]${persist}`];
+        const persist = f.persistsSinceRound
+          ? ` (open since round ${f.persistsSinceRound})`
+          : '';
+        const parts = [
+          `${i + 1}. [${f.severity.toUpperCase()}] [${f.category}]${persist}`,
+        ];
         parts.push(`   Vulnerability: ${f.description}`);
-        if (f.file) parts.push(`   File: ${f.file}${f.line ? `:${f.line}` : ''}`);
+        if (f.file)
+          parts.push(`   File: ${f.file}${f.line ? `:${f.line}` : ''}`);
         if (f.expectedFix) {
           parts.push(`   EXPECTED FIX: ${f.expectedFix}`);
         } else {
@@ -791,12 +1009,14 @@ Do NOT omit the JSON block.`;
 
     if (!content.trim()) return null;
 
-    let cleaned = content.replace(/<think>[\s\S]*?<\/think>/g, '').trim();
+    const cleaned = content.replace(/<think>[\s\S]*?<\/think>/g, '').trim();
 
     const jsonStr = this.extractJson(cleaned);
 
     if (!jsonStr) {
-      this.logger.warn('No JSON found in security test result — building from text');
+      this.logger.warn(
+        'No JSON found in security test result — building from text',
+      );
       return this.buildResultFromText(cleaned, issueId, auditResult);
     }
 
@@ -806,12 +1026,18 @@ Do NOT omit the JSON block.`;
         .replace(/[\x00-\x1F\x7F]/g, ' ');
 
       const parsed = JSON.parse(fixed);
-      const findings = this.parseFindings(parsed.findings || parsed.vulnerabilities || parsed.issues || []);
+      const findings = this.parseFindings(
+        parsed.findings || parsed.vulnerabilities || parsed.issues || [],
+      );
 
       // Apply configurable threshold instead of trusting LLM decision blindly
       const maxWarnings = this.getMaxWarnings();
-      const criticalCount = findings.filter(f => f.severity === 'critical').length;
-      const warningCount = findings.filter(f => f.severity === 'warning').length;
+      const criticalCount = findings.filter(
+        (f) => f.severity === 'critical',
+      ).length;
+      const warningCount = findings.filter(
+        (f) => f.severity === 'warning',
+      ).length;
       const passed = criticalCount === 0 && warningCount <= maxWarnings;
 
       let summary = parsed.summary || '';
@@ -822,7 +1048,8 @@ Do NOT omit the JSON block.`;
       }
 
       // Extract roundNumber and resolvedFromPrevious from LLM output
-      const roundNumber = typeof parsed.roundNumber === 'number' ? parsed.roundNumber : undefined;
+      const roundNumber =
+        typeof parsed.roundNumber === 'number' ? parsed.roundNumber : undefined;
       const resolvedFromPrevious = Array.isArray(parsed.resolvedFromPrevious)
         ? parsed.resolvedFromPrevious
             .filter((r: any) => r && typeof r === 'object')
@@ -842,7 +1069,6 @@ Do NOT omit the JSON block.`;
         roundNumber,
         resolvedFromPrevious,
       };
-
     } catch (err) {
       this.logger.error(`JSON parse failed: ${err.message}`);
       return this.buildResultFromText(cleaned, issueId, auditResult);
@@ -851,9 +1077,11 @@ Do NOT omit the JSON block.`;
 
   private extractJson(content: string): string | null {
     if (content.includes(COMPLETION_MARKER)) {
-      const after = content.substring(
-        content.indexOf(COMPLETION_MARKER) + COMPLETION_MARKER.length,
-      ).trim();
+      const after = content
+        .substring(
+          content.indexOf(COMPLETION_MARKER) + COMPLETION_MARKER.length,
+        )
+        .trim();
       const json = this.findJsonObject(after);
       if (json) return json;
     }
@@ -869,27 +1097,41 @@ Do NOT omit the JSON block.`;
     for (let i = allJson.length - 1; i >= 0; i--) {
       const candidate = allJson[i][0];
       if (candidate.includes('"passed"') || candidate.includes('"findings"')) {
-        try { JSON.parse(candidate); return candidate; } catch { continue; }
+        try {
+          JSON.parse(candidate);
+          return candidate;
+        } catch {
+          continue;
+        }
       }
     }
 
     const greedy = content.match(/\{[\s\S]*"passed"[\s\S]*\}/);
     if (greedy) {
-      try { JSON.parse(greedy[0]); return greedy[0]; } catch { /* skip */ }
+      try {
+        JSON.parse(greedy[0]);
+        return greedy[0];
+      } catch {
+        /* skip */
+      }
     }
 
     return null;
   }
 
   private findJsonObject(str: string): string | null {
-    const stripped = str.replace(/^```(?:json)?\s*\n?/, '').replace(/\n?```\s*$/, '').trim();
+    const stripped = str
+      .replace(/^```(?:json)?\s*\n?/, '')
+      .replace(/\n?```\s*$/, '')
+      .trim();
     const match = stripped.match(/\{[\s\S]*\}/);
     return match ? match[0] : null;
   }
 
   private normalizePass(parsed: any): boolean {
     if (typeof parsed.passed === 'boolean') return parsed.passed;
-    if (typeof parsed.passed === 'string') return parsed.passed.toLowerCase() === 'true';
+    if (typeof parsed.passed === 'string')
+      return parsed.passed.toLowerCase() === 'true';
     if (parsed.status) {
       const s = String(parsed.status).toLowerCase();
       return s === 'pass' || s === 'passed' || s === 'secure';
@@ -904,22 +1146,36 @@ Do NOT omit the JSON block.`;
       .map((f: any) => ({
         category: String(f.category ?? f.owasp ?? f.type ?? 'Unknown'),
         severity: this.normalizeSeverity(f.severity),
-        description: String(f.description ?? f.message ?? f.details ?? 'No details'),
+        description: String(
+          f.description ?? f.message ?? f.details ?? 'No details',
+        ),
         file: f.file ? String(f.file) : undefined,
         line: typeof f.line === 'number' ? f.line : undefined,
-        recommendation: String(f.recommendation ?? f.fix ?? f.suggestion ?? 'Review and fix'),
+        recommendation: String(
+          f.recommendation ?? f.fix ?? f.suggestion ?? 'Review and fix',
+        ),
         expectedFix: f.expectedFix ? String(f.expectedFix) : undefined,
-        exploitScenario: f.exploitScenario ? String(f.exploitScenario) : undefined,
-        verificationMethod: f.verificationMethod ? String(f.verificationMethod) : undefined,
-        persistsSinceRound: typeof f.persistsSinceRound === 'number' ? f.persistsSinceRound : undefined,
-        status: ['new', 'resolved', 'unresolved', 'blocked'].includes(f.status) ? f.status : undefined,
+        exploitScenario: f.exploitScenario
+          ? String(f.exploitScenario)
+          : undefined,
+        verificationMethod: f.verificationMethod
+          ? String(f.verificationMethod)
+          : undefined,
+        persistsSinceRound:
+          typeof f.persistsSinceRound === 'number'
+            ? f.persistsSinceRound
+            : undefined,
+        status: ['new', 'resolved', 'unresolved', 'blocked'].includes(f.status)
+          ? f.status
+          : undefined,
       }));
   }
 
   private normalizeSeverity(raw: any): 'info' | 'warning' | 'critical' {
     if (!raw) return 'warning';
     const s = String(raw).toLowerCase();
-    if (['critical', 'error', 'high', 'major', 'blocker'].includes(s)) return 'critical';
+    if (['critical', 'error', 'high', 'major', 'blocker'].includes(s))
+      return 'critical';
     if (['warning', 'warn', 'medium', 'minor'].includes(s)) return 'warning';
     return 'info';
   }
@@ -933,10 +1189,15 @@ Do NOT omit the JSON block.`;
     const lastLines = lower.split('\n').slice(-10).join(' ');
 
     // Only fail on strong evidence of critical security issues
-    const strongFail = /\b(critical\s+vulnerabilit|sql\s+injection\s+found|xss\s+exploit|rce\s+found|result:\s*fail|verdict:\s*fail)\b/.test(lastLines);
+    const strongFail =
+      /\b(critical\s+vulnerabilit|sql\s+injection\s+found|xss\s+exploit|rce\s+found|result:\s*fail|verdict:\s*fail)\b/.test(
+        lastLines,
+      );
     const passed = !strongFail;
 
-    this.logger.log(`buildResultFromText: strongFail=${strongFail}, passed=${passed}`);
+    this.logger.log(
+      `buildResultFromText: strongFail=${strongFail}, passed=${passed}`,
+    );
 
     return {
       issueId,
@@ -947,43 +1208,6 @@ Do NOT omit the JSON block.`;
         : 'Security test passed (no critical vulnerabilities detected — defaulting to pass)',
       auditResult,
     };
-  }
-
-  // ─── Markdown Builder ────────────────────────────────────────
-
-  private buildTestMarkdown(result: PenTestResult): string {
-    const icon = result.passed ? '✅' : '❌';
-    const status = result.passed ? 'PASSED' : 'FAILED';
-
-    const parts = [
-      `## ${icon} Security Test: ${status}`,
-      '',
-      result.summary,
-    ];
-
-    if (result.auditResult) {
-      parts.push('', '### Dependency Audit (production only):');
-      parts.push(`- Vulnerabilities: ${result.auditResult.vulnerabilities}`);
-      parts.push(`- Critical: ${result.auditResult.critical}`);
-      parts.push(`- High: ${result.auditResult.high}`);
-    }
-
-    if (result.findings.length > 0) {
-      parts.push('', '### Security Findings:');
-      for (const f of result.findings) {
-        const fIcon = f.severity === 'critical' ? '🔴' : f.severity === 'warning' ? '🟡' : '🔵';
-        parts.push(`${fIcon} **${f.severity}** [${f.category}]`);
-        if (f.file) {
-          parts.push(`  File: \`${f.file}${f.line ? `:${f.line}` : ''}\``);
-        }
-        parts.push(`  ${f.description}`);
-        parts.push(`  💡 ${f.recommendation}`);
-        parts.push('');
-      }
-    }
-
-    parts.push('---', '_Tested by Pen Tester Agent_');
-    return parts.join('\n');
   }
 
   // ─── Diff Fetching ──────────────────────────────────────
@@ -1000,13 +1224,18 @@ Do NOT omit the JSON block.`;
     const { filtered, removedCount } = filterOutOfScopeFindings(
       testResult.findings,
       outOfScopeItems,
-      (f) => `${f.category} ${f.description} ${f.recommendation} ${f.file ?? ''}`,
+      (f) =>
+        `${f.category} ${f.description} ${f.recommendation} ${f.file ?? ''}`,
     );
 
     if (removedCount === 0) return testResult;
 
-    const criticalCount = filtered.filter((f) => f.severity === 'critical').length;
-    const warningCount = filtered.filter((f) => f.severity === 'warning').length;
+    const criticalCount = filtered.filter(
+      (f) => f.severity === 'critical',
+    ).length;
+    const warningCount = filtered.filter(
+      (f) => f.severity === 'warning',
+    ).length;
     const passed = criticalCount === 0 && warningCount <= maxWarnings;
 
     this.logger.log(
@@ -1033,12 +1262,22 @@ Do NOT omit the JSON block.`;
     delayMs: number,
   ): Promise<any[]> {
     for (let attempt = 1; attempt <= maxRetries; attempt++) {
-      const diffs = await this.gitlabService.getMergeRequestDiffs(gitlabProjectId, mrIid);
-      if (diffs.length > 0) return diffs;
+      try {
+        const diffs = await this.gitlabService.getMergeRequestDiffs(
+          gitlabProjectId,
+          mrIid,
+        );
+        if (diffs.length > 0) return diffs;
+      } catch (err) {
+        this.logger.warn(
+          `Diff fetch attempt ${attempt}/${maxRetries} failed for MR !${mrIid}: ${err.message}`,
+        );
+      }
       if (attempt < maxRetries) {
-        await new Promise(resolve => setTimeout(resolve, delayMs));
+        await new Promise((resolve) => setTimeout(resolve, delayMs));
       }
     }
+    this.logger.warn(`MR !${mrIid} still has no diffs after ${maxRetries} attempts`);
     return [];
   }
 
@@ -1051,7 +1290,11 @@ Do NOT omit the JSON block.`;
         data: { status: AgentTaskStatus.FAILED, completedAt: new Date() },
       });
       await this.updateStatus(ctx, AgentStatus.ERROR);
-      await this.log(ctx.agentTaskId, 'ERROR', `Security test failed: ${reason}`);
+      await this.log(
+        ctx.agentTaskId,
+        'ERROR',
+        `Security test failed: ${reason}`,
+      );
     } catch (err) {
       this.logger.error(`Failed to mark task as failed: ${err.message}`);
     }

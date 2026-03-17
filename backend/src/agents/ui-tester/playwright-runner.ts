@@ -56,7 +56,9 @@ export class PlaywrightRunner {
       this.playwright = await import('playwright');
       return true;
     } catch {
-      logger.warn('Playwright not installed — UI tests will use LLM-only fallback');
+      logger.warn(
+        'Playwright not installed — UI tests will use LLM-only fallback',
+      );
       return false;
     }
   }
@@ -64,7 +66,10 @@ export class PlaywrightRunner {
   /**
    * Capture screenshots + DOM + console errors for each route.
    */
-  async capturePages(baseUrl: string, routes: string[]): Promise<PageCapture[]> {
+  async capturePages(
+    baseUrl: string,
+    routes: string[],
+  ): Promise<PageCapture[]> {
     if (!this.playwright) return [];
 
     const browser = await this.playwright.chromium.launch({ headless: true });
@@ -121,7 +126,10 @@ export class PlaywrightRunner {
   /**
    * Check accessibility using axe-core (injected via Playwright).
    */
-  async checkAccessibility(baseUrl: string, route: string): Promise<A11yResult | null> {
+  async checkAccessibility(
+    baseUrl: string,
+    route: string,
+  ): Promise<A11yResult | null> {
     if (!this.playwright) return null;
 
     const browser = await this.playwright.chromium.launch({ headless: true });
@@ -162,7 +170,10 @@ export class PlaywrightRunner {
   /**
    * Capture screenshots at multiple viewports for responsive testing.
    */
-  async checkResponsive(baseUrl: string, route: string): Promise<ResponsiveResult | null> {
+  async checkResponsive(
+    baseUrl: string,
+    route: string,
+  ): Promise<ResponsiveResult | null> {
     if (!this.playwright) return null;
 
     const browser = await this.playwright.chromium.launch({ headless: true });
@@ -188,7 +199,9 @@ export class PlaywrightRunner {
             screenshotBase64: screenshot.toString('base64'),
           });
         } catch (err) {
-          logger.warn(`Responsive check failed for ${route} @ ${vp.name}: ${err.message}`);
+          logger.warn(
+            `Responsive check failed for ${route} @ ${vp.name}: ${err.message}`,
+          );
         } finally {
           await page.close();
           await context.close();
@@ -210,7 +223,10 @@ export class PlaywrightRunner {
     issueId: string,
     pageCaptures: PageCapture[],
     responsiveResult: ResponsiveResult | null,
-  ): Promise<{ dir: string; files: Array<{ file: string; route: string; viewport: string }> }> {
+  ): Promise<{
+    dir: string;
+    files: Array<{ file: string; route: string; viewport: string }>;
+  }> {
     const dir = path.join(workspace, '.ui-screenshots', issueId);
     await fs.mkdir(dir, { recursive: true });
 
@@ -219,20 +235,39 @@ export class PlaywrightRunner {
     // Save page captures (desktop viewport)
     for (const capture of pageCaptures) {
       if (!capture.screenshotBase64) continue;
-      const safeName = capture.route.replace(/[^a-zA-Z0-9]/g, '-').replace(/^-|-$/g, '') || 'root';
+      const safeName =
+        capture.route.replace(/[^a-zA-Z0-9]/g, '-').replace(/^-|-$/g, '') ||
+        'root';
       const fileName = `${safeName}-desktop.png`;
-      await fs.writeFile(path.join(dir, fileName), Buffer.from(capture.screenshotBase64, 'base64'));
-      files.push({ file: fileName, route: capture.route, viewport: 'desktop (1440x900)' });
+      await fs.writeFile(
+        path.join(dir, fileName),
+        Buffer.from(capture.screenshotBase64, 'base64'),
+      );
+      files.push({
+        file: fileName,
+        route: capture.route,
+        viewport: 'desktop (1440x900)',
+      });
     }
 
     // Save responsive captures
     if (responsiveResult?.captures) {
       for (const rc of responsiveResult.captures) {
         if (!rc.screenshotBase64) continue;
-        const safeName = responsiveResult.route.replace(/[^a-zA-Z0-9]/g, '-').replace(/^-|-$/g, '') || 'root';
+        const safeName =
+          responsiveResult.route
+            .replace(/[^a-zA-Z0-9]/g, '-')
+            .replace(/^-|-$/g, '') || 'root';
         const fileName = `${safeName}-${rc.viewport}.png`;
-        await fs.writeFile(path.join(dir, fileName), Buffer.from(rc.screenshotBase64, 'base64'));
-        files.push({ file: fileName, route: responsiveResult.route, viewport: `${rc.viewport} (${rc.width}x${rc.height})` });
+        await fs.writeFile(
+          path.join(dir, fileName),
+          Buffer.from(rc.screenshotBase64, 'base64'),
+        );
+        files.push({
+          file: fileName,
+          route: responsiveResult.route,
+          viewport: `${rc.viewport} (${rc.width}x${rc.height})`,
+        });
       }
     }
 

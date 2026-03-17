@@ -8,7 +8,12 @@ import { ChatGateway } from '../chat/chat.gateway';
 import { LlmService } from '../llm/llm.service';
 import { LlmMessage, LlmCompletionResult } from '../llm/llm.interfaces';
 import { MonitorGateway } from '../monitor/monitor.gateway';
-import { AgentRole, AgentStatus, ChatSessionType, MessageRole } from '@prisma/client';
+import {
+  AgentRole,
+  AgentStatus,
+  ChatSessionType,
+  MessageRole,
+} from '@prisma/client';
 
 export const KNOWLEDGE_BASE_FILE = 'PROJECT_KNOWLEDGE.md';
 export const ENVIRONMENT_FILE = 'ENVIRONMENT.md';
@@ -28,7 +33,11 @@ export function getSessionWorktreePath(
   branch: string,
 ): string {
   const sanitized = branch.replace(/[^a-zA-Z0-9_-]/g, '-');
-  return path.resolve(devopsWorkspacePath, '.session-worktrees', `${projectSlug}--${sanitized}`);
+  return path.resolve(
+    devopsWorkspacePath,
+    '.session-worktrees',
+    `${projectSlug}--${sanitized}`,
+  );
 }
 
 export interface AgentContext {
@@ -61,10 +70,7 @@ export abstract class BaseAgent {
   }
 
   /** Send a message as AGENT and broadcast via WebSocket */
-  protected async sendAgentMessage(
-    ctx: AgentContext,
-    content: string,
-  ) {
+  protected async sendAgentMessage(ctx: AgentContext, content: string) {
     const message = await this.chatService.addMessage({
       chatSessionId: ctx.chatSessionId,
       role: MessageRole.AGENT,
@@ -72,11 +78,7 @@ export abstract class BaseAgent {
       agentTaskId: ctx.agentTaskId,
     });
 
-    this.chatGateway.emitToSession(
-      ctx.chatSessionId,
-      'newMessage',
-      message,
-    );
+    this.chatGateway.emitToSession(ctx.chatSessionId, 'newMessage', message);
 
     return message;
   }
@@ -108,7 +110,12 @@ export abstract class BaseAgent {
   /** Call the LLM with the configured provider/model for this role */
   protected async callLlm(
     messages: LlmMessage[],
-    overrides?: { temperature?: number; maxTokens?: number; timeoutMs?: number; enableReasoning?: boolean },
+    overrides?: {
+      temperature?: number;
+      maxTokens?: number;
+      timeoutMs?: number;
+      enableReasoning?: boolean;
+    },
   ) {
     const config = this.getRoleConfig();
 
@@ -123,10 +130,10 @@ export abstract class BaseAgent {
     });
   }
 
-  /** Get CLI tool timeout from pipeline config (minutes → ms), default 30 min */
+  /** Get CLI tool timeout from pipeline config (minutes → ms), default 90 min */
   private getCliTimeoutMs(): number {
     const cfg = this.settings.getPipelineConfig();
-    const minutes = cfg.cliTimeoutMinutes ?? 30;
+    const minutes = cfg.cliTimeoutMinutes ?? 90;
     return minutes * 60 * 1000;
   }
 
@@ -137,7 +144,11 @@ export abstract class BaseAgent {
   protected async callLlmStreaming(
     ctx: AgentContext,
     messages: LlmMessage[],
-    overrides?: { temperature?: number; maxTokens?: number; enableReasoning?: boolean },
+    overrides?: {
+      temperature?: number;
+      maxTokens?: number;
+      enableReasoning?: boolean;
+    },
   ): Promise<LlmCompletionResult> {
     const config = this.getRoleConfig();
 
@@ -184,10 +195,7 @@ export abstract class BaseAgent {
   }
 
   /** Update agent instance status + broadcast via WebSocket */
-  protected async updateStatus(
-    ctx: AgentContext,
-    status: AgentStatus,
-  ) {
+  protected async updateStatus(ctx: AgentContext, status: AgentStatus) {
     await this.prisma.agentInstance.update({
       where: { id: ctx.agentInstanceId },
       data: { status },
@@ -321,7 +329,10 @@ export abstract class BaseAgent {
   ): Promise<string> {
     if (wikiReader && gitlabProjectId) {
       try {
-        const content = await wikiReader.getWikiPageContent(gitlabProjectId, 'PROJECT_KNOWLEDGE');
+        const content = await wikiReader.getWikiPageContent(
+          gitlabProjectId,
+          'PROJECT_KNOWLEDGE',
+        );
         if (content) {
           this.logger.debug('Knowledge read from wiki');
           return content.length > maxChars
@@ -347,7 +358,10 @@ export abstract class BaseAgent {
   ): Promise<string> {
     if (wikiReader && gitlabProjectId) {
       try {
-        const content = await wikiReader.getWikiPageContent(gitlabProjectId, 'ENVIRONMENT');
+        const content = await wikiReader.getWikiPageContent(
+          gitlabProjectId,
+          'ENVIRONMENT',
+        );
         if (content) {
           this.logger.debug('Environment doc read from wiki');
           return content.length > maxChars
@@ -397,7 +411,10 @@ export abstract class BaseAgent {
           session.branch,
         );
       } else {
-        workspace = path.resolve(this.settings.devopsWorkspacePath, projectSlug);
+        workspace = path.resolve(
+          this.settings.devopsWorkspacePath,
+          projectSlug,
+        );
       }
     } else {
       workspace = path.resolve(this.settings.devopsWorkspacePath, projectSlug);
@@ -422,12 +439,21 @@ export abstract class BaseAgent {
       // Only create if workspace dir exists (it might not exist yet during setup)
       try {
         await fs.access(workspace);
-        await fs.writeFile(pkgPath, JSON.stringify({
-          name: path.basename(workspace),
-          version: '0.0.0',
-          private: true,
-        }, null, 2) + '\n');
-        this.logger.debug(`Workspace fence: created sentinel package.json in ${workspace}`);
+        await fs.writeFile(
+          pkgPath,
+          JSON.stringify(
+            {
+              name: path.basename(workspace),
+              version: '0.0.0',
+              private: true,
+            },
+            null,
+            2,
+          ) + '\n',
+        );
+        this.logger.debug(
+          `Workspace fence: created sentinel package.json in ${workspace}`,
+        );
       } catch {
         // Workspace doesn't exist yet — skip
       }

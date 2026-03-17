@@ -14,9 +14,15 @@ import { LlmMessage } from '../../llm/llm.interfaces';
 import { BaseAgent, AgentContext, KNOWLEDGE_BASE_FILE } from '../agent-base';
 import { MonitorGateway } from '../../monitor/monitor.gateway';
 import { DualTestService } from '../dual-test.service';
-import { postAgentComment, getAgentCommentHistory } from '../agent-comment.utils';
+import {
+  postAgentComment,
+  getAgentCommentHistory,
+} from '../agent-comment.utils';
 import { DocumenterResult, DocFile } from './documenter-result.interface';
-import { ScreenshotManifest, ScreenshotEntry } from '../ui-tester/ui-test-result.interface';
+import {
+  ScreenshotManifest,
+  ScreenshotEntry,
+} from '../ui-tester/ui-test-result.interface';
 import {
   AgentRole,
   AgentStatus,
@@ -27,8 +33,6 @@ import {
 const execFileAsync = promisify(execFile);
 
 const COMPLETION_MARKER = ':::DOCS_COMPLETE:::';
-/** Fallback git timeout — overridden by pipeline config gitTimeoutSeconds */
-const _FALLBACK_GIT_TIMEOUT_MS = 30_000;
 
 const DEFAULT_SYSTEM_PROMPT = `You are the Documenter Agent for VibCode Hub — an AI development team platform.
 
@@ -98,7 +102,14 @@ export class DocumenterAgent extends BaseAgent {
     private readonly eventEmitter: EventEmitter2,
     private readonly dualTestService: DualTestService,
   ) {
-    super(prisma, settings, chatService, chatGateway, llmService, monitorGateway);
+    super(
+      prisma,
+      settings,
+      chatService,
+      chatGateway,
+      llmService,
+      monitorGateway,
+    );
   }
 
   /**
@@ -126,6 +137,10 @@ export class DocumenterAgent extends BaseAgent {
 
       const project = issue.project;
 
+      if (!issue.gitlabIid) {
+        this.logger.warn(`Issue ${issueId} has no GitLab IID — skipping GitLab operations`);
+      }
+
       // Check if this issue belongs to a dev session
       const issueSession = issue.chatSessionId
         ? await this.prisma.chatSession.findUnique({
@@ -145,7 +160,12 @@ export class DocumenterAgent extends BaseAgent {
       );
 
       // Get MR diffs
-      const diffs = await this.fetchDiffsWithRetry(gitlabProjectId, mrIid, 3, 5000);
+      const diffs = await this.fetchDiffsWithRetry(
+        gitlabProjectId,
+        mrIid,
+        3,
+        5000,
+      );
 
       // Read existing docs from workspace
       const existingDocs = await this.readExistingDocs(workspace);
@@ -155,9 +175,14 @@ export class DocumenterAgent extends BaseAgent {
 
       // Checkout the feature branch
       try {
-        await execFileAsync('git', ['checkout', branchName], { cwd: workspace, timeout: this.getGitTimeoutMs() });
+        await execFileAsync('git', ['checkout', branchName], {
+          cwd: workspace,
+          timeout: this.getGitTimeoutMs(),
+        });
       } catch {
-        this.logger.warn(`Could not checkout ${branchName} — working on current branch`);
+        this.logger.warn(
+          `Could not checkout ${branchName} — working on current branch`,
+        );
       }
 
       // Build LLM prompt
@@ -168,20 +193,36 @@ export class DocumenterAgent extends BaseAgent {
       const MAX_DIFF_CHARS = 2000;
       const reviewDiffs = diffs.slice(0, MAX_DIFFS);
 
-      const diffText = reviewDiffs.map((d: any) => {
-        const prefix = d.new_file ? '[NEW]' : d.deleted_file ? '[DELETED]' : '[MODIFIED]';
-        const truncated = d.diff.length > MAX_DIFF_CHARS
-          ? d.diff.substring(0, MAX_DIFF_CHARS) + '\n... (truncated)'
-          : d.diff;
-        return `### ${prefix} ${d.new_path}\n\`\`\`diff\n${truncated}\n\`\`\``;
-      }).join('\n\n');
+      const diffText = reviewDiffs
+        .map((d: any) => {
+          const prefix = d.new_file
+            ? '[NEW]'
+            : d.deleted_file
+              ? '[DELETED]'
+              : '[MODIFIED]';
+          const truncated =
+            d.diff.length > MAX_DIFF_CHARS
+              ? d.diff.substring(0, MAX_DIFF_CHARS) + '\n... (truncated)'
+              : d.diff;
+          return `### ${prefix} ${d.new_path}\n\`\`\`diff\n${truncated}\n\`\`\``;
+        })
+        .join('\n\n');
 
-      const docsText = existingDocs.length > 0
-        ? existingDocs.map(d => `### ${d.path}\n\`\`\`\n${d.content.substring(0, 3000)}\n\`\`\``).join('\n\n')
-        : '_No existing documentation found._';
+      const docsText =
+        existingDocs.length > 0
+          ? existingDocs
+              .map(
+                (d) =>
+                  `### ${d.path}\n\`\`\`\n${d.content.substring(0, 3000)}\n\`\`\``,
+              )
+              .join('\n\n')
+          : '_No existing documentation found._';
 
       // Inject previous agent comments as context
-      const commentHistory = await getAgentCommentHistory({ prisma: this.prisma, issueId });
+      const commentHistory = await getAgentCommentHistory({
+        prisma: this.prisma,
+        issueId,
+      });
       const historySection = commentHistory
         ? `\n## Previous Agent Comments on this Issue\n${commentHistory}\n`
         : '';
@@ -222,7 +263,9 @@ For code-level docs (README, API, JSDoc), keep \`wikiPage: false\` or omit it.`;
       if (!docResult || docResult.files.length === 0) {
         await this.sendAgentMessage(ctx, 'No documentation changes needed');
         await this.handleComplete(ctx, issueId, mrIid, gitlabProjectId, {
-          issueId, filesUpdated: [], summary: 'No documentation changes needed',
+          issueId,
+          filesUpdated: [],
+          summary: 'No documentation changes needed',
         });
         return;
       }
@@ -234,7 +277,7 @@ For code-level docs (README, API, JSDoc), keep \`wikiPage: false\` or omit it.`;
           const filePath = path.resolve(workspace, file.path);
 
           // Security: ensure path stays within workspace
-          if (!filePath.startsWith(workspace)) {
+          if (filePath !== workspace && !filePath.startsWith(workspace + path.sep)) {
             this.logger.warn(`Skipping file outside workspace: ${file.path}`);
             continue;
           }
@@ -250,9 +293,14 @@ For code-level docs (README, API, JSDoc), keep \`wikiPage: false\` or omit it.`;
       }
 
       if (writtenFiles.length === 0) {
-        await this.sendAgentMessage(ctx, 'No documentation files could be written');
+        await this.sendAgentMessage(
+          ctx,
+          'No documentation files could be written',
+        );
         await this.handleComplete(ctx, issueId, mrIid, gitlabProjectId, {
-          issueId, filesUpdated: [], summary: 'No files written',
+          issueId,
+          filesUpdated: [],
+          summary: 'No files written',
         });
         return;
       }
@@ -264,6 +312,7 @@ For code-level docs (README, API, JSDoc), keep \`wikiPage: false\` or omit it.`;
           workspace,
           branchName,
           `docs: update documentation for #${issue.gitlabIid ?? issueId}`,
+          writtenFiles,
         );
       } catch (err) {
         this.logger.warn(`Git commit/push failed: ${err.message}`);
@@ -273,11 +322,18 @@ For code-level docs (README, API, JSDoc), keep \`wikiPage: false\` or omit it.`;
       let screenshotWikiContent = '';
       const screenshotWikiImages: string[] = [];
       try {
-        const screenshotResult = await this.processScreenshots(workspace, issueId, gitlabProjectId, issue.title);
+        const screenshotResult = await this.processScreenshots(
+          workspace,
+          issueId,
+          gitlabProjectId,
+          issue.title,
+        );
         if (screenshotResult) {
           screenshotWikiContent = screenshotResult.wikiContent;
           screenshotWikiImages.push(...screenshotResult.uploadedFiles);
-          this.logger.log(`Screenshots processed: ${screenshotResult.uploadedFiles.length} uploaded`);
+          this.logger.log(
+            `Screenshots processed: ${screenshotResult.uploadedFiles.length} uploaded`,
+          );
         }
       } catch (err) {
         this.logger.warn(`Screenshot processing failed: ${err.message}`);
@@ -285,12 +341,16 @@ For code-level docs (README, API, JSDoc), keep \`wikiPage: false\` or omit it.`;
 
       // ─── Wiki Sync — Hierarchical Pages ──────────────────────
       // Sync all markdown files to wiki + create feature subpage + update home/sidebar
-      const wikiFiles = docResult.files.filter(f => f.path.endsWith('.md'));
+      const wikiFiles = docResult.files.filter((f) => f.path.endsWith('.md'));
       const wikiPages: string[] = [];
       for (const wf of wikiFiles) {
         try {
           const title = wf.path.replace(/\.md$/i, '').replace(/\//g, '-');
-          await this.gitlabService.upsertWikiPage(gitlabProjectId, title, wf.content);
+          await this.gitlabService.upsertWikiPage(
+            gitlabProjectId,
+            title,
+            wf.content,
+          );
           wikiPages.push(title);
           this.logger.log(`Wiki page synced: ${title}`);
         } catch (err) {
@@ -313,7 +373,11 @@ For code-level docs (README, API, JSDoc), keep \`wikiPage: false\` or omit it.`;
             diffs,
             screenshotWikiContent,
           );
-          await this.gitlabService.upsertWikiPage(gitlabProjectId, featureTitle, featureContent);
+          await this.gitlabService.upsertWikiPage(
+            gitlabProjectId,
+            featureTitle,
+            featureContent,
+          );
           wikiPages.push(featureTitle);
           this.logger.log(`Feature wiki page created: ${featureTitle}`);
         } catch (err) {
@@ -325,7 +389,11 @@ For code-level docs (README, API, JSDoc), keep \`wikiPage: false\` or omit it.`;
       if (screenshotWikiContent) {
         try {
           const screenshotTitle = `UI-Screenshots/Issue-${issueIid || issueId}`;
-          await this.gitlabService.upsertWikiPage(gitlabProjectId, screenshotTitle, screenshotWikiContent);
+          await this.gitlabService.upsertWikiPage(
+            gitlabProjectId,
+            screenshotTitle,
+            screenshotWikiContent,
+          );
           wikiPages.push(screenshotTitle);
           this.logger.log(`Screenshot wiki page created: ${screenshotTitle}`);
         } catch (err) {
@@ -334,19 +402,27 @@ For code-level docs (README, API, JSDoc), keep \`wikiPage: false\` or omit it.`;
       }
 
       // Update home page — add feature link
-      await this.updateWikiHome(gitlabProjectId, project.name, issueIid, issue.title, featureSlug);
+      await this.updateWikiHome(
+        gitlabProjectId,
+        project.name,
+        issueIid,
+        issue.title,
+        featureSlug,
+      );
 
       // Regenerate sidebar from all existing wiki pages
       await this.regenerateWikiSidebar(gitlabProjectId, project.name);
 
       // Post unified comment (same rich markdown for local + GitLab)
-      const filesListText = writtenFiles.map(f => `- \`${f}\``).join('\n');
-      const wikiNote = wikiPages.length > 0
-        ? `\n\n### Wiki Pages Updated:\n${wikiPages.map(p => `- ${p}`).join('\n')}`
-        : '';
-      const screenshotNote = screenshotWikiImages.length > 0
-        ? `\n\n### Screenshots Uploaded:\n${screenshotWikiImages.map(f => `- ${f}`).join('\n')}`
-        : '';
+      const filesListText = writtenFiles.map((f) => `- \`${f}\``).join('\n');
+      const wikiNote =
+        wikiPages.length > 0
+          ? `\n\n### Wiki Pages Updated:\n${wikiPages.map((p) => `- ${p}`).join('\n')}`
+          : '';
+      const screenshotNote =
+        screenshotWikiImages.length > 0
+          ? `\n\n### Screenshots Uploaded:\n${screenshotWikiImages.map((f) => `- ${f}`).join('\n')}`
+          : '';
 
       const docComment = [
         `## 📝 Documentation Updated`,
@@ -361,18 +437,22 @@ For code-level docs (README, API, JSDoc), keep \`wikiPage: false\` or omit it.`;
         '',
         '---',
         '_Updated by Documenter Agent_',
-      ].filter(Boolean).join('\n');
+      ]
+        .filter(Boolean)
+        .join('\n');
 
-      await postAgentComment({
-        prisma: this.prisma,
-        gitlabService: this.gitlabService,
-        issueId,
-        gitlabProjectId,
-        issueIid: issue.gitlabIid!,
-        agentTaskId: ctx.agentTaskId,
-        authorName: 'Documenter',
-        markdownContent: docComment,
-      });
+      if (issue.gitlabIid) {
+        await postAgentComment({
+          prisma: this.prisma,
+          gitlabService: this.gitlabService,
+          issueId,
+          gitlabProjectId,
+          issueIid: issue.gitlabIid,
+          agentTaskId: ctx.agentTaskId,
+          authorName: 'Documenter',
+          markdownContent: docComment,
+        });
+      }
 
       await this.handleComplete(ctx, issueId, mrIid, gitlabProjectId, {
         issueId,
@@ -380,7 +460,6 @@ For code-level docs (README, API, JSDoc), keep \`wikiPage: false\` or omit it.`;
         summary: docResult.summary,
         commitSha,
       });
-
     } catch (err) {
       this.logger.error(`Documentation failed: ${err.message}`, err.stack);
       await this.sendAgentMessage(ctx, `**Documenter** error: ${err.message}`);
@@ -397,9 +476,10 @@ For code-level docs (README, API, JSDoc), keep \`wikiPage: false\` or omit it.`;
     gitlabProjectId: number,
     result: DocumenterResult,
   ): Promise<void> {
-    const filesText = result.filesUpdated.length > 0
-      ? `Updated: ${result.filesUpdated.join(', ')}`
-      : 'No files changed';
+    const filesText =
+      result.filesUpdated.length > 0
+        ? `Updated: ${result.filesUpdated.join(', ')}`
+        : 'No files changed';
 
     await this.sendAgentMessage(
       ctx,
@@ -414,7 +494,9 @@ For code-level docs (README, API, JSDoc), keep \`wikiPage: false\` or omit it.`;
 
     // Sync status label + close in GitLab
     if (doneIssue.gitlabIid) {
-      await this.gitlabService.syncStatusLabel(gitlabProjectId, doneIssue.gitlabIid, 'DONE').catch(() => {});
+      await this.gitlabService
+        .syncStatusLabel(gitlabProjectId, doneIssue.gitlabIid, 'DONE')
+        .catch(() => {});
     }
 
     // Cleanup screenshots — images have been uploaded to GitLab, no longer needed locally
@@ -453,7 +535,12 @@ For code-level docs (README, API, JSDoc), keep \`wikiPage: false\` or omit it.`;
     gitlabProjectId: number,
     issueTitle: string,
   ): Promise<{ wikiContent: string; uploadedFiles: string[] } | null> {
-    const manifestPath = path.join(workspace, '.ui-screenshots', issueId, 'manifest.json');
+    const manifestPath = path.join(
+      workspace,
+      '.ui-screenshots',
+      issueId,
+      'manifest.json',
+    );
 
     try {
       await fs.access(manifestPath);
@@ -509,7 +596,9 @@ For code-level docs (README, API, JSDoc), keep \`wikiPage: false\` or omit it.`;
           wikiSections.push('');
         }
       } catch (err) {
-        this.logger.warn(`Failed to upload screenshot ${entry.file}: ${err.message}`);
+        this.logger.warn(
+          `Failed to upload screenshot ${entry.file}: ${err.message}`,
+        );
       }
     }
 
@@ -523,9 +612,19 @@ For code-level docs (README, API, JSDoc), keep \`wikiPage: false\` or omit it.`;
 
   // ─── File System ──────────────────────────────────────────
 
-  private async readExistingDocs(workspace: string): Promise<{ path: string; content: string }[]> {
+  private async readExistingDocs(
+    workspace: string,
+  ): Promise<{ path: string; content: string }[]> {
     const docFiles: { path: string; content: string }[] = [];
-    const candidates = [KNOWLEDGE_BASE_FILE, 'README.md', 'CHANGELOG.md', 'CONTRIBUTING.md', 'docs/README.md', 'docs/api.md', 'docs/API.md'];
+    const candidates = [
+      KNOWLEDGE_BASE_FILE,
+      'README.md',
+      'CHANGELOG.md',
+      'CONTRIBUTING.md',
+      'docs/README.md',
+      'docs/api.md',
+      'docs/API.md',
+    ];
 
     for (const candidate of candidates) {
       try {
@@ -542,12 +641,22 @@ For code-level docs (README, API, JSDoc), keep \`wikiPage: false\` or omit it.`;
 
   // ─── Git Operations ──────────────────────────────────────
 
-  private async gitCommitAndPush(cwd: string, branch: string, message: string): Promise<string> {
-    await execFileAsync('git', ['add', '.'], { cwd, timeout: this.getGitTimeoutMs() });
+  private async gitCommitAndPush(
+    cwd: string,
+    branch: string,
+    message: string,
+    filesToAdd: string[] = [],
+  ): Promise<string> {
+    const addArgs = filesToAdd.length > 0 ? filesToAdd : ['.'];
+    await execFileAsync('git', ['add', ...addArgs], {
+      cwd,
+      timeout: this.getGitTimeoutMs(),
+    });
 
     // Check if there are staged changes
     const { stdout: status } = await execFileAsync(
-      'git', ['status', '--porcelain'],
+      'git',
+      ['status', '--porcelain'],
       { cwd, timeout: this.getGitTimeoutMs() },
     );
 
@@ -556,14 +665,20 @@ For code-level docs (README, API, JSDoc), keep \`wikiPage: false\` or omit it.`;
       return '';
     }
 
-    await execFileAsync('git', ['commit', '-m', message], { cwd, timeout: this.getGitTimeoutMs() });
-    const { stdout } = await execFileAsync('git', ['rev-parse', 'HEAD'], { cwd, timeout: this.getGitTimeoutMs() });
+    await execFileAsync('git', ['commit', '-m', message], {
+      cwd,
+      timeout: this.getGitTimeoutMs(),
+    });
+    const { stdout } = await execFileAsync('git', ['rev-parse', 'HEAD'], {
+      cwd,
+      timeout: this.getGitTimeoutMs(),
+    });
     const commitSha = stdout.trim();
 
-    await execFileAsync(
-      'git', ['push', '-u', 'origin', branch],
-      { cwd, timeout: this.getGitTimeoutMs() },
-    );
+    await execFileAsync('git', ['push', '-u', 'origin', branch], {
+      cwd,
+      timeout: this.getGitTimeoutMs(),
+    });
 
     return commitSha;
   }
@@ -572,7 +687,7 @@ For code-level docs (README, API, JSDoc), keep \`wikiPage: false\` or omit it.`;
 
   private async parseDocResult(
     content: string,
-    issueId: string,
+    _issueId: string,
   ): Promise<{ summary: string; files: DocFile[] } | null> {
     this.logger.debug(`Parsing documenter result (${content.length} chars)`);
 
@@ -609,7 +724,9 @@ For code-level docs (README, API, JSDoc), keep \`wikiPage: false\` or omit it.`;
       if (retryJson) {
         const parsed = this.tryParseDocJson(retryJson);
         if (parsed) {
-          this.logger.log(`JSON retry recovered ${parsed.files.length} doc files`);
+          this.logger.log(
+            `JSON retry recovered ${parsed.files.length} doc files`,
+          );
           return parsed;
         }
       }
@@ -618,7 +735,9 @@ For code-level docs (README, API, JSDoc), keep \`wikiPage: false\` or omit it.`;
     // Strategy 4: Text fallback — extract documentation from markdown blocks
     const fallback = this.textFallbackParse(cleaned);
     if (fallback && fallback.files.length > 0) {
-      this.logger.log(`Text fallback extracted ${fallback.files.length} doc files`);
+      this.logger.log(
+        `Text fallback extracted ${fallback.files.length} doc files`,
+      );
       return fallback;
     }
 
@@ -629,10 +748,12 @@ For code-level docs (README, API, JSDoc), keep \`wikiPage: false\` or omit it.`;
   /**
    * Try parsing a JSON string into a DocResult, with common fixups.
    */
-  private tryParseDocJson(jsonStr: string): { summary: string; files: DocFile[] } | null {
+  private tryParseDocJson(
+    jsonStr: string,
+  ): { summary: string; files: DocFile[] } | null {
     try {
       const fixed = jsonStr
-        .replace(/,\s*([}\]])/g, '$1')                       // trailing commas
+        .replace(/,\s*([}\]])/g, '$1') // trailing commas
         .replace(/[\x00-\x08\x0B\x0C\x0E-\x1F\x7F]/g, ' '); // control chars (keep \n \r \t)
 
       const parsed = JSON.parse(fixed);
@@ -711,9 +832,11 @@ For code-level docs (README, API, JSDoc), keep \`wikiPage: false\` or omit it.`;
   private extractJson(content: string): string | null {
     // Strategy A: Look for completion marker first
     if (content.includes(COMPLETION_MARKER)) {
-      const after = content.substring(
-        content.indexOf(COMPLETION_MARKER) + COMPLETION_MARKER.length,
-      ).trim();
+      const after = content
+        .substring(
+          content.indexOf(COMPLETION_MARKER) + COMPLETION_MARKER.length,
+        )
+        .trim();
       const json = this.extractBalancedJson(after);
       if (json) return json;
     }
@@ -723,7 +846,10 @@ For code-level docs (README, API, JSDoc), keep \`wikiPage: false\` or omit it.`;
     const candidates = this.findAllBalancedJsonObjects(content);
     // Prefer objects that have both "summary" and "files" keys
     for (let i = candidates.length - 1; i >= 0; i--) {
-      if (candidates[i].includes('"files"') && candidates[i].includes('"summary"')) {
+      if (
+        candidates[i].includes('"files"') &&
+        candidates[i].includes('"summary"')
+      ) {
         return candidates[i];
       }
     }
@@ -814,11 +940,14 @@ For code-level docs (README, API, JSDoc), keep \`wikiPage: false\` or omit it.`;
    * Text fallback: when JSON extraction fails entirely, look for markdown-formatted
    * documentation blocks and extract them as files.
    */
-  private textFallbackParse(content: string): { summary: string; files: DocFile[] } | null {
+  private textFallbackParse(
+    content: string,
+  ): { summary: string; files: DocFile[] } | null {
     const files: DocFile[] = [];
 
     // Look for patterns like "### README.md" or "## docs/api.md" followed by code fences
-    const fileBlockRegex = /#{2,4}\s+(`?([a-zA-Z0-9_\-./]+\.(?:md|txt|json|yaml|yml))`?)\s*\n+```(?:\w*)\s*\n([\s\S]*?)\n```/g;
+    const fileBlockRegex =
+      /#{2,4}\s+(`?([a-zA-Z0-9_\-./]+\.(?:md|txt|json|yaml|yml))`?)\s*\n+```(?:\w*)\s*\n([\s\S]*?)\n```/g;
     let match: RegExpExecArray | null;
 
     while ((match = fileBlockRegex.exec(content)) !== null) {
@@ -850,7 +979,9 @@ For code-level docs (README, API, JSDoc), keep \`wikiPage: false\` or omit it.`;
     if (files.length === 0) return null;
 
     // Extract a summary sentence
-    const summaryMatch = content.match(/(?:summary|documentation)[:\s]*([^\n]{10,100})/i);
+    const summaryMatch = content.match(
+      /(?:summary|documentation)[:\s]*([^\n]{10,100})/i,
+    );
     const summary = summaryMatch
       ? summaryMatch[1].trim()
       : `Documentation updated (${files.length} file(s) extracted from text fallback)`;
@@ -865,12 +996,22 @@ For code-level docs (README, API, JSDoc), keep \`wikiPage: false\` or omit it.`;
     delayMs: number,
   ): Promise<any[]> {
     for (let attempt = 1; attempt <= maxRetries; attempt++) {
-      const diffs = await this.gitlabService.getMergeRequestDiffs(gitlabProjectId, mrIid);
-      if (diffs.length > 0) return diffs;
+      try {
+        const diffs = await this.gitlabService.getMergeRequestDiffs(
+          gitlabProjectId,
+          mrIid,
+        );
+        if (diffs.length > 0) return diffs;
+      } catch (err) {
+        this.logger.warn(
+          `Diff fetch attempt ${attempt}/${maxRetries} failed for MR !${mrIid}: ${err.message}`,
+        );
+      }
       if (attempt < maxRetries) {
-        await new Promise(resolve => setTimeout(resolve, delayMs));
+        await new Promise((resolve) => setTimeout(resolve, delayMs));
       }
     }
+    this.logger.warn(`MR !${mrIid} still has no diffs after ${maxRetries} attempts`);
     return [];
   }
 
@@ -928,10 +1069,18 @@ For code-level docs (README, API, JSDoc), keep \`wikiPage: false\` or omit it.`;
     }
 
     if (screenshotContent) {
-      sections.push('## Screenshots', '', `See [UI Screenshots](../UI-Screenshots/Issue-${issueIid})`, '');
+      sections.push(
+        '## Screenshots',
+        '',
+        `See [UI Screenshots](../UI-Screenshots/Issue-${issueIid})`,
+        '',
+      );
     }
 
-    sections.push('---', `_Documented by VibCode Hub — ${new Date().toISOString().split('T')[0]}_`);
+    sections.push(
+      '---',
+      `_Documented by VibCode Hub — ${new Date().toISOString().split('T')[0]}_`,
+    );
     return sections.join('\n');
   }
 
@@ -948,7 +1097,10 @@ For code-level docs (README, API, JSDoc), keep \`wikiPage: false\` or omit it.`;
     if (!issueIid) return;
 
     try {
-      const existing = await this.gitlabService.getWikiPageContent(gitlabProjectId, 'home');
+      const existing = await this.gitlabService.getWikiPageContent(
+        gitlabProjectId,
+        'home',
+      );
       if (!existing) return; // No home page to update
 
       const featureLink = `- [#${issueIid} ${issueTitle}](Features/Issue-${issueIid}-${featureSlug})`;
@@ -963,7 +1115,10 @@ For code-level docs (README, API, JSDoc), keep \`wikiPage: false\` or omit it.`;
       let updated: string;
       if (existing.includes('_No features implemented yet._')) {
         // Replace placeholder with first feature
-        updated = existing.replace('_No features implemented yet._', featureLink);
+        updated = existing.replace(
+          '_No features implemented yet._',
+          featureLink,
+        );
       } else if (existing.includes('## Features')) {
         // Append after the last feature link in the Features section
         const featuresIdx = existing.indexOf('## Features');
@@ -974,7 +1129,12 @@ For code-level docs (README, API, JSDoc), keep \`wikiPage: false\` or omit it.`;
           ? featuresIdx + 14 + nextSectionMatch.index!
           : existing.length;
 
-        updated = existing.substring(0, insertPos).trimEnd() + '\n' + featureLink + '\n' + existing.substring(insertPos);
+        updated =
+          existing.substring(0, insertPos).trimEnd() +
+          '\n' +
+          featureLink +
+          '\n' +
+          existing.substring(insertPos);
       } else {
         // No Features section — append at end
         updated = existing + '\n\n## Features\n\n' + featureLink + '\n';
@@ -1001,7 +1161,10 @@ For code-level docs (README, API, JSDoc), keep \`wikiPage: false\` or omit it.`;
 
       // Group pages by top-level directory
       const topLevel: string[] = [];
-      const grouped: Record<string, Array<{ slug: string; title: string }>> = {};
+      const grouped: Record<
+        string,
+        Array<{ slug: string; title: string }>
+      > = {};
 
       for (const page of pages) {
         if (page.slug === '_sidebar') continue; // Skip sidebar itself
@@ -1012,14 +1175,14 @@ For code-level docs (README, API, JSDoc), keep \`wikiPage: false\` or omit it.`;
         } else {
           const dir = parts[0];
           if (!grouped[dir]) grouped[dir] = [];
-          grouped[dir].push({ slug: page.slug, title: parts.slice(1).join('/') });
+          grouped[dir].push({
+            slug: page.slug,
+            title: parts.slice(1).join('/'),
+          });
         }
       }
 
-      const lines: string[] = [
-        `**${projectName}**`,
-        '',
-      ];
+      const lines: string[] = [`**${projectName}**`, ''];
 
       // Top-level pages
       for (const slug of topLevel) {
@@ -1030,7 +1193,8 @@ For code-level docs (README, API, JSDoc), keep \`wikiPage: false\` or omit it.`;
       // Grouped sections
       for (const [dir, subpages] of Object.entries(grouped)) {
         lines.push('', `**${dir}**`, '');
-        for (const sub of subpages.slice(0, 30)) { // Limit to 30 per section
+        for (const sub of subpages.slice(0, 30)) {
+          // Limit to 30 per section
           const displayName = sub.title.replace(/-/g, ' ');
           lines.push(`- [${displayName}](${sub.slug})`);
         }
@@ -1039,10 +1203,16 @@ For code-level docs (README, API, JSDoc), keep \`wikiPage: false\` or omit it.`;
         }
       }
 
-      await this.gitlabService.upsertWikiPage(gitlabProjectId, '_sidebar', lines.join('\n'));
+      await this.gitlabService.upsertWikiPage(
+        gitlabProjectId,
+        '_sidebar',
+        lines.join('\n'),
+      );
       this.logger.log('Wiki sidebar regenerated');
     } catch (err) {
-      this.logger.warn(`Wiki sidebar regeneration failed (non-fatal): ${err.message}`);
+      this.logger.warn(
+        `Wiki sidebar regeneration failed (non-fatal): ${err.message}`,
+      );
     }
   }
 
@@ -1092,7 +1262,9 @@ For code-level docs (README, API, JSDoc), keep \`wikiPage: false\` or omit it.`;
         // Parent removal is best-effort
       }
     } catch (err) {
-      this.logger.warn(`Screenshot cleanup failed for issue ${issueId}: ${err.message}`);
+      this.logger.warn(
+        `Screenshot cleanup failed for issue ${issueId}: ${err.message}`,
+      );
     }
   }
 
@@ -1105,7 +1277,11 @@ For code-level docs (README, API, JSDoc), keep \`wikiPage: false\` or omit it.`;
         data: { status: AgentTaskStatus.FAILED, completedAt: new Date() },
       });
       await this.updateStatus(ctx, AgentStatus.ERROR);
-      await this.log(ctx.agentTaskId, 'ERROR', `Documentation failed: ${reason}`);
+      await this.log(
+        ctx.agentTaskId,
+        'ERROR',
+        `Documentation failed: ${reason}`,
+      );
     } catch (err) {
       this.logger.error(`Failed to mark task as failed: ${err.message}`);
     }

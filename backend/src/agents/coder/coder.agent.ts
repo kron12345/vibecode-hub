@@ -51,7 +51,14 @@ export class CoderAgent extends BaseAgent {
     private readonly mcpAgentLoop: McpAgentLoopService,
     private readonly mcpRegistry: McpRegistryService,
   ) {
-    super(prisma, settings, chatService, chatGateway, llmService, monitorGateway);
+    super(
+      prisma,
+      settings,
+      chatService,
+      chatGateway,
+      llmService,
+      monitorGateway,
+    );
   }
 
   // ─── Main Entry: Milestone Coding ──────────────────────────
@@ -69,7 +76,10 @@ export class CoderAgent extends BaseAgent {
         where: { id: ctx.projectId },
       });
       if (!project?.gitlabProjectId) {
-        await this.sendAgentMessage(ctx, '❌ Project has no GitLab repo linked');
+        await this.sendAgentMessage(
+          ctx,
+          '❌ Project has no GitLab repo linked',
+        );
         await this.markFailed(ctx, 'No GitLab repo linked');
         return;
       }
@@ -89,7 +99,10 @@ export class CoderAgent extends BaseAgent {
       }
 
       // Resolve workspace — dev sessions use git worktrees
-      const workspace = await this.resolveWorkspace(project.slug, ctx.chatSessionId);
+      const workspace = await this.resolveWorkspace(
+        project.slug,
+        ctx.chatSessionId,
+      );
 
       // Pull latest on workspace
       await this.gitPull(workspace);
@@ -110,7 +123,11 @@ export class CoderAgent extends BaseAgent {
         },
         include: {
           issues: {
-            where: { parentId: null, status: IssueStatus.OPEN, ...chatSessionFilter },
+            where: {
+              parentId: null,
+              status: IssueStatus.OPEN,
+              ...chatSessionFilter,
+            },
             include: {
               subIssues: { orderBy: { sortOrder: 'asc' } },
             },
@@ -133,7 +150,12 @@ export class CoderAgent extends BaseAgent {
 
       // Count remaining open issues for context
       const remainingCount = await this.prisma.issue.count({
-        where: { projectId: ctx.projectId, status: IssueStatus.OPEN, parentId: null, ...chatSessionFilter },
+        where: {
+          projectId: ctx.projectId,
+          status: IssueStatus.OPEN,
+          parentId: null,
+          ...chatSessionFilter,
+        },
       });
 
       await this.sendAgentMessage(
@@ -142,7 +164,9 @@ export class CoderAgent extends BaseAgent {
       );
 
       // Get the base branch: prefer project.workBranch (e.g. "develop"), fallback to GitLab default
-      const glProject = await this.gitlabService.getProject(project.gitlabProjectId);
+      const glProject = await this.gitlabService.getProject(
+        project.gitlabProjectId,
+      );
       const defaultBranch = project.workBranch || glProject.default_branch;
 
       // Check if this session has its own branch (session-based branching)
@@ -153,11 +177,25 @@ export class CoderAgent extends BaseAgent {
             select: { branch: true, type: true },
           })
         : null;
-      const sessionBranch = chatSession?.type === 'DEV_SESSION' ? chatSession.branch : null;
+      const sessionBranch =
+        chatSession?.type === 'DEV_SESSION' ? chatSession.branch : null;
 
-      const issueResult = await this.processIssue(ctx, issue, workspace, project.gitlabProjectId, defaultBranch, glProject.path_with_namespace, sessionBranch);
+      const issueResult = await this.processIssue(
+        ctx,
+        issue,
+        workspace,
+        project.gitlabProjectId,
+        defaultBranch,
+        glProject.path_with_namespace,
+        sessionBranch,
+      );
 
-      const statusEmoji = issueResult.status === 'success' ? '✅' : issueResult.status === 'failed' ? '❌' : '⏭️';
+      const statusEmoji =
+        issueResult.status === 'success'
+          ? '✅'
+          : issueResult.status === 'failed'
+            ? '❌'
+            : '⏭️';
       await this.sendAgentMessage(
         ctx,
         `${statusEmoji} Issue #${issue.gitlabIid ?? '?'} ${issueResult.status}${issueResult.mrIid ? ` — MR !${issueResult.mrIid}` : ''} (${remainingCount - 1} issues remaining)`,
@@ -175,10 +213,12 @@ export class CoderAgent extends BaseAgent {
       }
 
       await this.updateStatus(ctx, AgentStatus.IDLE);
-
     } catch (err) {
       this.logger.error(`Milestone coding crashed: ${err.message}`, err.stack);
-      await this.sendAgentMessage(ctx, `❌ **Coder Agent** error: ${err.message}`);
+      await this.sendAgentMessage(
+        ctx,
+        `❌ **Coder Agent** error: ${err.message}`,
+      );
       await this.markFailed(ctx, err.message);
     }
   }
@@ -212,7 +252,9 @@ export class CoderAgent extends BaseAgent {
 
     try {
       // Update issue status
-      await this.issuesService.update(issue.id, { status: IssueStatus.IN_PROGRESS });
+      await this.issuesService.update(issue.id, {
+        status: IssueStatus.IN_PROGRESS,
+      });
 
       // Link orchestrator task to this issue
       await this.prisma.agentTask.update({
@@ -248,20 +290,34 @@ export class CoderAgent extends BaseAgent {
       const prompt = this.buildCodingPrompt(issue);
 
       // Run MCP agent loop (LLM + filesystem tools)
-      await this.log(agentTask.id, 'INFO', `Running MCP agent loop for issue: ${issue.title}`);
-      await this.runMcpAgentLoop(workspace, prompt, agentTask.id, ctx.projectId);
+      await this.log(
+        agentTask.id,
+        'INFO',
+        `Running MCP agent loop for issue: ${issue.title}`,
+      );
+      await this.runMcpAgentLoop(
+        workspace,
+        prompt,
+        agentTask.id,
+        ctx.projectId,
+      );
 
       // Check what changed (includes both uncommitted AND committed changes vs base)
       const changedFiles = await this.getChangedFiles(workspace, baseBranch);
       result.filesChanged = changedFiles;
 
       if (changedFiles.length === 0) {
-        await this.sendAgentMessage(ctx, `⚠️ Agent produced no file changes for #${issue.gitlabIid ?? '?'} — marking for manual review`);
+        await this.sendAgentMessage(
+          ctx,
+          `⚠️ Agent produced no file changes for #${issue.gitlabIid ?? '?'} — marking for manual review`,
+        );
         result.status = 'skipped';
         await this.gitCheckout(workspace, baseBranch);
 
         // Reset issue status so it doesn't stay orphaned in IN_PROGRESS
-        await this.issuesService.update(issue.id, { status: IssueStatus.NEEDS_REVIEW });
+        await this.issuesService.update(issue.id, {
+          status: IssueStatus.NEEDS_REVIEW,
+        });
 
         await this.prisma.agentTask.update({
           where: { id: agentTask.id },
@@ -293,12 +349,15 @@ export class CoderAgent extends BaseAgent {
       // Create MR — always create, targeting session branch for sessions or default for infra
       if (gitlabProjectId) {
         try {
-          const mr = await this.gitlabService.createMergeRequest(gitlabProjectId, {
-            source_branch: branchName,
-            target_branch: baseBranch,
-            title: `feat: ${issue.title}`,
-            description: `Closes #${issue.gitlabIid ?? ''}\n\n---\n_Automatically created by Coder Agent_\n\n**Changed files:** ${changedFiles.length}\n${changedFiles.map(f => `- \`${f}\``).join('\n')}`,
-          });
+          const mr = await this.gitlabService.createMergeRequest(
+            gitlabProjectId,
+            {
+              source_branch: branchName,
+              target_branch: baseBranch,
+              title: `feat: ${issue.title}`,
+              description: `Closes #${issue.gitlabIid ?? ''}\n\n---\n_Automatically created by Coder Agent_\n\n**Changed files:** ${changedFiles.length}\n${changedFiles.map((f) => `- \`${f}\``).join('\n')}`,
+            },
+          );
           result.mrIid = mr.iid;
           result.mrUrl = mr.web_url;
 
@@ -309,9 +368,18 @@ export class CoderAgent extends BaseAgent {
           });
         } catch (mrErr) {
           // Handle 409 Conflict — MR already exists for this branch
-          if (mrErr?.response?.status === 409 || mrErr?.message?.includes('409')) {
-            this.logger.log(`MR already exists for ${branchName}, looking up existing MR`);
-            const existingMr = await this.gitlabService.findMergeRequestByBranch(gitlabProjectId, branchName);
+          if (
+            mrErr?.response?.status === 409 ||
+            mrErr?.message?.includes('409')
+          ) {
+            this.logger.log(
+              `MR already exists for ${branchName}, looking up existing MR`,
+            );
+            const existingMr =
+              await this.gitlabService.findMergeRequestByBranch(
+                gitlabProjectId,
+                branchName,
+              );
             if (existingMr) {
               result.mrIid = existingMr.iid;
               result.mrUrl = existingMr.web_url;
@@ -319,20 +387,34 @@ export class CoderAgent extends BaseAgent {
                 where: { id: agentTask.id },
                 data: { gitlabMrIid: existingMr.iid },
               });
-              this.logger.log(`Found existing MR !${existingMr.iid} for ${branchName}`);
+              this.logger.log(
+                `Found existing MR !${existingMr.iid} for ${branchName}`,
+              );
             } else {
-              this.logger.warn(`MR creation failed with 409 but no existing MR found for ${branchName}`);
-              await this.log(agentTask.id, 'WARN', `MR creation failed: ${mrErr.message}`);
+              this.logger.warn(
+                `MR creation failed with 409 but no existing MR found for ${branchName}`,
+              );
+              await this.log(
+                agentTask.id,
+                'WARN',
+                `MR creation failed: ${mrErr.message}`,
+              );
             }
           } else {
             this.logger.warn(`MR creation failed: ${mrErr.message}`);
-            await this.log(agentTask.id, 'WARN', `MR creation failed: ${mrErr.message}`);
+            await this.log(
+              agentTask.id,
+              'WARN',
+              `MR creation failed: ${mrErr.message}`,
+            );
           }
         }
       }
 
       // Update issue status → IN_REVIEW
-      await this.issuesService.update(issue.id, { status: IssueStatus.IN_REVIEW });
+      await this.issuesService.update(issue.id, {
+        status: IssueStatus.IN_REVIEW,
+      });
 
       // Build commit URL for GitLab
       const gitlabBaseUrl = this.settings.gitlabUrl;
@@ -350,11 +432,13 @@ export class CoderAgent extends BaseAgent {
           `**Branch:** \`${branchName}\``,
           result.mrUrl ? `**MR:** [!${result.mrIid}](${result.mrUrl})` : '',
           `**Changed files (${changedFiles.length}):**`,
-          ...changedFiles.map(f => `- \`${f}\``),
+          ...changedFiles.map((f) => `- \`${f}\``),
           '',
           '---',
           '_Implemented by Coder Agent_',
-        ].filter(Boolean).join('\n');
+        ]
+          .filter(Boolean)
+          .join('\n');
 
         await postAgentComment({
           prisma: this.prisma,
@@ -392,16 +476,19 @@ export class CoderAgent extends BaseAgent {
         branch: branchName,
       });
       if (!result.mrIid) {
-        this.logger.warn(`No MR created for issue ${issue.gitlabIid} — codingComplete emitted without MR`);
+        this.logger.warn(
+          `No MR created for issue ${issue.gitlabIid} — codingComplete emitted without MR`,
+        );
       }
 
       // Switch back to base branch (session branch for sessions, default for infra)
       await this.gitCheckout(workspace, baseBranch);
 
       return result;
-
     } catch (err) {
-      this.logger.error(`processIssue failed for ${issue.title}: ${err.message}`);
+      this.logger.error(
+        `processIssue failed for ${issue.title}: ${err.message}`,
+      );
       result.error = err.message;
       result.status = 'failed';
       result.durationMs = Date.now() - start;
@@ -410,9 +497,15 @@ export class CoderAgent extends BaseAgent {
       try {
         await this.prisma.agentTask.update({
           where: { id: agentTask.id },
-          data: { status: AgentTaskStatus.FAILED, completedAt: new Date(), output: result as any },
+          data: {
+            status: AgentTaskStatus.FAILED,
+            completedAt: new Date(),
+            output: result as any,
+          },
         });
-      } catch { /* best effort */ }
+      } catch {
+        /* best effort */
+      }
 
       await this.sendAgentMessage(
         ctx,
@@ -422,7 +515,9 @@ export class CoderAgent extends BaseAgent {
       // Reset issue status so it can be retried
       try {
         await this.issuesService.update(issue.id, { status: IssueStatus.OPEN });
-      } catch { /* best effort */ }
+      } catch {
+        /* best effort */
+      }
 
       // Try to switch back to base branch
       try {
@@ -456,13 +551,22 @@ export class CoderAgent extends BaseAgent {
       const issue = await this.prisma.issue.findUnique({
         where: { id: issueId },
         include: {
-          project: { select: { id: true, slug: true, gitlabProjectId: true, workBranch: true } },
+          project: {
+            select: {
+              id: true,
+              slug: true,
+              gitlabProjectId: true,
+              workBranch: true,
+            },
+          },
           subIssues: { orderBy: { sortOrder: 'asc' } },
         },
       });
 
       if (!issue || !issue.project.gitlabProjectId) {
-        this.logger.warn(`fixIssue: issue ${issueId} not found or no GitLab project`);
+        this.logger.warn(
+          `fixIssue: issue ${issueId} not found or no GitLab project`,
+        );
         await this.updateStatus(ctx, AgentStatus.IDLE);
         return;
       }
@@ -476,13 +580,19 @@ export class CoderAgent extends BaseAgent {
         : null;
       const isSessionIssue = issueSession?.type === ChatSessionType.DEV_SESSION;
 
-      const workspace = isSessionIssue && issueSession?.branch
-        ? await this.resolveWorkspace(issue.project.slug, issue.chatSessionId!)
-        : path.resolve(this.settings.devopsWorkspacePath, issue.project.slug);
+      const workspace =
+        isSessionIssue && issueSession?.branch
+          ? await this.resolveWorkspace(
+              issue.project.slug,
+              issue.chatSessionId!,
+            )
+          : path.resolve(this.settings.devopsWorkspacePath, issue.project.slug);
       const branchName = `feature/${issue.gitlabIid ?? issue.id}-${this.slugify(issue.title)}`;
 
       // Update issue status
-      await this.issuesService.update(issueId, { status: IssueStatus.IN_PROGRESS });
+      await this.issuesService.update(issueId, {
+        status: IssueStatus.IN_PROGRESS,
+      });
 
       // Update orchestrator task with fix details
       await this.prisma.agentTask.update({
@@ -490,9 +600,12 @@ export class CoderAgent extends BaseAgent {
         data: { input: { feedback, feedbackSource } as any },
       });
 
-      const sourceLabel = feedbackSource === 'review' ? 'Code Review'
-        : feedbackSource === 'pipeline' ? 'CI/CD Pipeline'
-        : 'User Feedback';
+      const sourceLabel =
+        feedbackSource === 'review'
+          ? 'Code Review'
+          : feedbackSource === 'pipeline'
+            ? 'CI/CD Pipeline'
+            : 'User Feedback';
 
       await this.sendAgentMessage(
         ctx,
@@ -521,20 +634,36 @@ export class CoderAgent extends BaseAgent {
       const fixPrompt = this.buildFixPrompt(issue, feedback, feedbackSource);
 
       // Fetch GitLab project info (needed for default branch detection + commit URL)
-      const glProject = await this.gitlabService.getProject(issue.project.gitlabProjectId);
+      const glProject = await this.gitlabService.getProject(
+        issue.project.gitlabProjectId,
+      );
       const gitlabBaseUrl = this.settings.gitlabUrl;
-      const fixDefaultBranch = issue.project.workBranch || glProject?.default_branch || 'main';
+      const fixDefaultBranch =
+        issue.project.workBranch || glProject?.default_branch || 'main';
 
       // Run MCP agent loop (LLM + filesystem tools)
-      await this.runMcpAgentLoop(workspace, fixPrompt, agentTask.id, ctx.projectId);
+      await this.runMcpAgentLoop(
+        workspace,
+        fixPrompt,
+        agentTask.id,
+        ctx.projectId,
+      );
 
       // Check changes (includes both uncommitted AND committed changes vs base branch)
-      const sessionBaseBranch = isSessionIssue && issueSession?.branch ? issueSession.branch : fixDefaultBranch;
-      const changedFiles = await this.getChangedFiles(workspace, sessionBaseBranch);
+      const sessionBaseBranch =
+        isSessionIssue && issueSession?.branch
+          ? issueSession.branch
+          : fixDefaultBranch;
+      const changedFiles = await this.getChangedFiles(
+        workspace,
+        sessionBaseBranch,
+      );
 
       // If no files were changed, the fix attempt was a no-op — signal failure
       if (changedFiles.length === 0) {
-        this.logger.warn(`Fix attempt produced 0 code changes for issue ${issueId}`);
+        this.logger.warn(
+          `Fix attempt produced 0 code changes for issue ${issueId}`,
+        );
         await this.sendAgentMessage(
           ctx,
           `⚠️ Fix attempt produced no code changes for #${issue.gitlabIid ?? '?'} — skipping review`,
@@ -544,7 +673,11 @@ export class CoderAgent extends BaseAgent {
           where: { id: agentTask.id },
           data: {
             status: AgentTaskStatus.COMPLETED,
-            output: { changedFiles: [], feedbackSource, noChanges: true } as any,
+            output: {
+              changedFiles: [],
+              feedbackSource,
+              noChanges: true,
+            } as any,
             completedAt: new Date(),
           },
         });
@@ -583,7 +716,9 @@ export class CoderAgent extends BaseAgent {
       const commitShort = commitSha?.substring(0, 8);
 
       // Update issue → IN_REVIEW
-      await this.issuesService.update(issueId, { status: IssueStatus.IN_REVIEW });
+      await this.issuesService.update(issueId, {
+        status: IssueStatus.IN_REVIEW,
+      });
 
       // Complete task
       await this.prisma.agentTask.update({
@@ -600,13 +735,17 @@ export class CoderAgent extends BaseAgent {
         const fixComment = [
           `## ✅ Fix Applied (${sourceLabel})`,
           '',
-          commitUrl ? `**Commit:** [\`${commitShort}\`](${commitUrl}) — [View Diff](${commitUrl})` : '',
+          commitUrl
+            ? `**Commit:** [\`${commitShort}\`](${commitUrl}) — [View Diff](${commitUrl})`
+            : '',
           `**Changed files (${changedFiles.length}):**`,
-          ...changedFiles.map(f => `- \`${f}\``),
+          ...changedFiles.map((f) => `- \`${f}\``),
           '',
           '---',
           '_Fixed by Coder Agent_',
-        ].filter(Boolean).join('\n');
+        ]
+          .filter(Boolean)
+          .join('\n');
 
         await postAgentComment({
           prisma: this.prisma,
@@ -644,15 +783,19 @@ export class CoderAgent extends BaseAgent {
         branch: branchName,
       });
       if (!mrIid) {
-        this.logger.warn(`No MR found for fixIssue ${issueId} — codingComplete emitted without MR`);
+        this.logger.warn(
+          `No MR found for fixIssue ${issueId} — codingComplete emitted without MR`,
+        );
       }
 
       // Switch back to base branch (session branch for sessions, default for infra)
-      const baseForCheckout = isSessionIssue && issueSession?.branch ? issueSession.branch : glProject.default_branch;
+      const baseForCheckout =
+        isSessionIssue && issueSession?.branch
+          ? issueSession.branch
+          : glProject.default_branch;
       await this.gitCheckout(workspace, baseForCheckout);
 
       await this.updateStatus(ctx, AgentStatus.IDLE);
-
     } catch (err) {
       this.logger.error(`fixIssue failed: ${err.message}`, err.stack);
 
@@ -662,7 +805,9 @@ export class CoderAgent extends BaseAgent {
           where: { id: agentTask.id },
           data: { status: AgentTaskStatus.FAILED, completedAt: new Date() },
         });
-      } catch { /* best effort */ }
+      } catch {
+        /* best effort */
+      }
 
       // Do NOT reset issue to OPEN — that causes it to fall out of the pipeline.
       // Instead, emit codingFailed so the orchestrator can retrigger or move to NEEDS_REVIEW.
@@ -688,7 +833,12 @@ export class CoderAgent extends BaseAgent {
    * The LLM reads, writes, and edits files via MCP server.
    * Returns the final LLM summary.
    */
-  private async runMcpAgentLoop(workspace: string, prompt: string, agentTaskId: string, projectId?: string): Promise<string> {
+  private async runMcpAgentLoop(
+    workspace: string,
+    prompt: string,
+    agentTaskId: string,
+    projectId?: string,
+  ): Promise<string> {
     const config = this.getRoleConfig();
     const model = config.model || 'qwen3.5:35b';
 
@@ -706,7 +856,11 @@ export class CoderAgent extends BaseAgent {
       });
       gitlabProjectId = proj?.gitlabProjectId ?? null;
     }
-    const knowledgeSection = await this.buildKnowledgeSectionWiki(this.gitlabService, gitlabProjectId, workspace);
+    const knowledgeSection = await this.buildKnowledgeSectionWiki(
+      this.gitlabService,
+      gitlabProjectId,
+      workspace,
+    );
 
     const systemPrompt = [
       'You are a skilled software developer. Your task is to implement features by reading and modifying files in the project.',
@@ -754,7 +908,9 @@ export class CoderAgent extends BaseAgent {
       knowledgeSection,
     ].join('\n');
 
-    this.logger.log(`Starting MCP agent loop in ${workspace} with model ${model}`);
+    this.logger.log(
+      `Starting MCP agent loop in ${workspace} with model ${model}`,
+    );
 
     const result = await this.mcpAgentLoop.run({
       provider: config.provider,
@@ -768,7 +924,9 @@ export class CoderAgent extends BaseAgent {
       agentTaskId,
       cwd: workspace,
       onToolCall: (name, args) => {
-        this.logger.debug(`Tool call: ${name}(${JSON.stringify(args).substring(0, 150)})`);
+        this.logger.debug(
+          `Tool call: ${name}(${JSON.stringify(args).substring(0, 150)})`,
+        );
       },
       onIteration: (iteration) => {
         this.logger.debug(`Agent loop iteration ${iteration}`);
@@ -780,7 +938,10 @@ export class CoderAgent extends BaseAgent {
     );
 
     if (result.finishReason === 'error' && result.toolCallsExecuted === 0) {
-      throw new Error(result.errorMessage || 'MCP agent loop failed — LLM returned no usable output');
+      throw new Error(
+        result.errorMessage ||
+          'MCP agent loop failed — LLM returned no usable output',
+      );
     }
 
     return result.content;
@@ -800,7 +961,9 @@ export class CoderAgent extends BaseAgent {
     if (issue.subIssues?.length > 0) {
       parts.push('', '## Sub-tasks:');
       for (const sub of issue.subIssues) {
-        parts.push(`- ${sub.title}${sub.description ? `: ${sub.description}` : ''}`);
+        parts.push(
+          `- ${sub.title}${sub.description ? `: ${sub.description}` : ''}`,
+        );
       }
     }
 
@@ -809,12 +972,12 @@ export class CoderAgent extends BaseAgent {
 
   private buildFixPrompt(issue: any, feedback: string, source: string): string {
     const sourceLabel: Record<string, string> = {
-      'review': 'Code Review',
+      review: 'Code Review',
       'functional-test': 'Functional Test',
       'ui-test': 'UI Test',
-      'security': 'Security/Pen Test',
-      'pipeline': 'Pipeline',
-      'user': 'User Feedback',
+      security: 'Security/Pen Test',
+      pipeline: 'Pipeline',
+      user: 'User Feedback',
     };
 
     const parts: string[] = [
@@ -868,7 +1031,10 @@ export class CoderAgent extends BaseAgent {
 
   private async gitPull(cwd: string): Promise<void> {
     try {
-      await execFileAsync('git', ['pull', '--ff-only'], { cwd, timeout: this.getGitTimeoutMs() });
+      await execFileAsync('git', ['pull', '--ff-only'], {
+        cwd,
+        timeout: this.getGitTimeoutMs(),
+      });
     } catch (err) {
       this.logger.debug(`git pull failed (non-fatal): ${err.message}`);
     }
@@ -877,30 +1043,66 @@ export class CoderAgent extends BaseAgent {
   private async gitCheckout(cwd: string, branch: string): Promise<void> {
     // Stash any uncommitted AND untracked changes before switching branches
     try {
-      const { stdout: status } = await execFileAsync('git', ['status', '--porcelain'], { cwd, timeout: this.getGitTimeoutMs() });
+      const { stdout: status } = await execFileAsync(
+        'git',
+        ['status', '--porcelain'],
+        { cwd, timeout: this.getGitTimeoutMs() },
+      );
       if (status.trim()) {
-        this.logger.debug(`Stashing ${status.trim().split('\n').length} changes (incl. untracked) before checkout ${branch}`);
-        await execFileAsync('git', ['stash', 'push', '--include-untracked', '-m', `auto-stash before checkout ${branch}`], { cwd, timeout: this.getGitTimeoutMs() });
+        this.logger.debug(
+          `Stashing ${status.trim().split('\n').length} changes (incl. untracked) before checkout ${branch}`,
+        );
+        await execFileAsync(
+          'git',
+          [
+            'stash',
+            'push',
+            '--include-untracked',
+            '-m',
+            `auto-stash before checkout ${branch}`,
+          ],
+          { cwd, timeout: this.getGitTimeoutMs() },
+        );
       }
     } catch (stashErr) {
       this.logger.warn(`git stash failed: ${stashErr.message}`);
     }
     try {
-      await execFileAsync('git', ['checkout', branch], { cwd, timeout: this.getGitTimeoutMs() });
+      await execFileAsync('git', ['checkout', branch], {
+        cwd,
+        timeout: this.getGitTimeoutMs(),
+      });
     } catch (checkoutErr) {
       // Handle "branch already checked out in another worktree" error
       // CLI tools (Codex, Claude) can leave stale /tmp worktrees referencing the branch
-      if (checkoutErr.message?.includes('Arbeitsverzeichnis') || checkoutErr.message?.includes('worktree')) {
-        this.logger.warn(`Branch ${branch} locked by another worktree — pruning stale worktrees and retrying`);
+      if (
+        checkoutErr.message?.includes('Arbeitsverzeichnis') ||
+        checkoutErr.message?.includes('worktree')
+      ) {
+        this.logger.warn(
+          `Branch ${branch} locked by another worktree — pruning stale worktrees and retrying`,
+        );
         try {
-          await execFileAsync('git', ['worktree', 'prune'], { cwd, timeout: this.getGitTimeoutMs() });
-          await execFileAsync('git', ['checkout', branch], { cwd, timeout: this.getGitTimeoutMs() });
+          await execFileAsync('git', ['worktree', 'prune'], {
+            cwd,
+            timeout: this.getGitTimeoutMs(),
+          });
+          await execFileAsync('git', ['checkout', branch], {
+            cwd,
+            timeout: this.getGitTimeoutMs(),
+          });
           return;
         } catch (retryErr) {
-          this.logger.warn(`Worktree prune didn't help — force-removing stale worktree locks`);
+          this.logger.warn(
+            `Worktree prune didn't help — force-removing stale worktree locks`,
+          );
           // Find and remove the stale worktree
           try {
-            const { stdout: worktreeList } = await execFileAsync('git', ['worktree', 'list', '--porcelain'], { cwd, timeout: this.getGitTimeoutMs() });
+            const { stdout: worktreeList } = await execFileAsync(
+              'git',
+              ['worktree', 'list', '--porcelain'],
+              { cwd, timeout: this.getGitTimeoutMs() },
+            );
             const lines = worktreeList.split('\n');
             for (let i = 0; i < lines.length; i++) {
               if (lines[i].startsWith('branch refs/heads/' + branch)) {
@@ -908,14 +1110,25 @@ export class CoderAgent extends BaseAgent {
                 const pathLine = lines[i - 2] || '';
                 const wtPath = pathLine.replace('worktree ', '').trim();
                 if (wtPath && wtPath.startsWith('/tmp/')) {
-                  this.logger.log(`Removing stale worktree at ${wtPath} for branch ${branch}`);
-                  await execFileAsync('git', ['worktree', 'remove', '--force', wtPath], { cwd, timeout: this.getGitTimeoutMs() }).catch(() => {});
-                  await execFileAsync('git', ['checkout', branch], { cwd, timeout: this.getGitTimeoutMs() });
+                  this.logger.log(
+                    `Removing stale worktree at ${wtPath} for branch ${branch}`,
+                  );
+                  await execFileAsync(
+                    'git',
+                    ['worktree', 'remove', '--force', wtPath],
+                    { cwd, timeout: this.getGitTimeoutMs() },
+                  ).catch(() => {});
+                  await execFileAsync('git', ['checkout', branch], {
+                    cwd,
+                    timeout: this.getGitTimeoutMs(),
+                  });
                   return;
                 }
               }
             }
-          } catch { /* fall through to original error */ }
+          } catch {
+            /* fall through to original error */
+          }
         }
         throw checkoutErr;
       }
@@ -925,10 +1138,16 @@ export class CoderAgent extends BaseAgent {
 
   private async gitCreateBranch(cwd: string, branch: string): Promise<void> {
     try {
-      await execFileAsync('git', ['checkout', '-b', branch], { cwd, timeout: this.getGitTimeoutMs() });
+      await execFileAsync('git', ['checkout', '-b', branch], {
+        cwd,
+        timeout: this.getGitTimeoutMs(),
+      });
     } catch {
       // Branch may already exist — try to check it out
-      await execFileAsync('git', ['checkout', branch], { cwd, timeout: this.getGitTimeoutMs() });
+      await execFileAsync('git', ['checkout', branch], {
+        cwd,
+        timeout: this.getGitTimeoutMs(),
+      });
     }
   }
 
@@ -937,24 +1156,31 @@ export class CoderAgent extends BaseAgent {
    * committed changes vs default branch (git diff). CLI providers like Codex
    * commit changes directly, so git status alone returns empty.
    */
-  private async getChangedFiles(cwd: string, defaultBranch = 'main'): Promise<string[]> {
+  private async getChangedFiles(
+    cwd: string,
+    defaultBranch = 'main',
+  ): Promise<string[]> {
     const files = new Set<string>();
 
     // 1. Uncommitted changes (for MCP/API providers that don't commit)
     try {
-      const { stdout } = await execFileAsync(
-        'git', ['status', '--porcelain'],
-        { cwd, timeout: this.getGitTimeoutMs(), maxBuffer: 10 * 1024 * 1024 },
-      );
+      const { stdout } = await execFileAsync('git', ['status', '--porcelain'], {
+        cwd,
+        timeout: this.getGitTimeoutMs(),
+        maxBuffer: 10 * 1024 * 1024,
+      });
       for (const line of stdout.trim().split('\n')) {
         if (line.trim()) files.add(line.substring(3).trim());
       }
-    } catch { /* ignore */ }
+    } catch {
+      /* ignore */
+    }
 
     // 2. Committed changes vs default branch (for CLI providers that auto-commit)
     try {
       const { stdout } = await execFileAsync(
-        'git', ['diff', '--name-only', defaultBranch + '...HEAD'],
+        'git',
+        ['diff', '--name-only', defaultBranch + '...HEAD'],
         { cwd, timeout: this.getGitTimeoutMs(), maxBuffer: 10 * 1024 * 1024 },
       );
       for (const line of stdout.trim().split('\n')) {
@@ -972,28 +1198,51 @@ export class CoderAgent extends BaseAgent {
    * CLI providers may already have committed — in that case we skip the commit
    * and just push their commits.
    */
-  private async gitCommitAndPush(cwd: string, branch: string, message: string): Promise<string> {
+  private async gitCommitAndPush(
+    cwd: string,
+    branch: string,
+    message: string,
+  ): Promise<string> {
     // Stage and commit any uncommitted changes (may be empty for CLI providers)
-    await execFileAsync('git', ['add', '.'], { cwd, timeout: this.getGitTimeoutMs(), maxBuffer: 10 * 1024 * 1024 });
+    await execFileAsync('git', ['add', '.'], {
+      cwd,
+      timeout: this.getGitTimeoutMs(),
+      maxBuffer: 10 * 1024 * 1024,
+    });
     try {
-      await execFileAsync('git', ['commit', '-m', message], { cwd, timeout: this.getGitTimeoutMs(), maxBuffer: 10 * 1024 * 1024 });
+      await execFileAsync('git', ['commit', '-m', message], {
+        cwd,
+        timeout: this.getGitTimeoutMs(),
+        maxBuffer: 10 * 1024 * 1024,
+      });
     } catch (commitErr) {
       // "nothing to commit" is fine — CLI provider already committed
       // Check message, stdout, AND stderr since Node distributes the text across properties
-      const errText = [commitErr.message, commitErr.stdout, commitErr.stderr].filter(Boolean).join(' ');
-      if (!errText.includes('nothing to commit') && !errText.includes('nichts zu committen')) {
+      const errText = [commitErr.message, commitErr.stdout, commitErr.stderr]
+        .filter(Boolean)
+        .join(' ');
+      if (
+        !errText.includes('nothing to commit') &&
+        !errText.includes('nichts zu committen')
+      ) {
         throw commitErr;
       }
-      this.logger.debug('No uncommitted changes to commit — CLI provider likely already committed');
+      this.logger.debug(
+        'No uncommitted changes to commit — CLI provider likely already committed',
+      );
     }
 
-    const { stdout } = await execFileAsync('git', ['rev-parse', 'HEAD'], { cwd, timeout: this.getGitTimeoutMs() });
+    const { stdout } = await execFileAsync('git', ['rev-parse', 'HEAD'], {
+      cwd,
+      timeout: this.getGitTimeoutMs(),
+    });
     const commitSha = stdout.trim();
 
-    await execFileAsync(
-      'git', ['push', '-u', 'origin', branch],
-      { cwd, timeout: this.getGitTimeoutMs(), maxBuffer: 10 * 1024 * 1024 },
-    );
+    await execFileAsync('git', ['push', '-u', 'origin', branch], {
+      cwd,
+      timeout: this.getGitTimeoutMs(),
+      maxBuffer: 10 * 1024 * 1024,
+    });
     return commitSha;
   }
 

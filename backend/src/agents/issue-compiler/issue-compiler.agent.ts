@@ -10,7 +10,11 @@ import { IssuesService } from '../../issues/issues.service';
 import { LlmMessage } from '../../llm/llm.interfaces';
 import { BaseAgent, AgentContext } from '../agent-base';
 import { MonitorGateway } from '../../monitor/monitor.gateway';
-import { InterviewResult, FeatureInterviewResult, InterviewFeature } from '../interviewer/interview-result.interface';
+import {
+  InterviewResult,
+  FeatureInterviewResult,
+  InterviewFeature,
+} from '../interviewer/interview-result.interface';
 import {
   CompiledIssue,
   CompiledMilestone,
@@ -221,14 +225,24 @@ export class IssueCompilerAgent extends BaseAgent {
     monitorGateway: MonitorGateway,
     private readonly eventEmitter: EventEmitter2,
   ) {
-    super(prisma, settings, chatService, chatGateway, llmService, monitorGateway);
+    super(
+      prisma,
+      settings,
+      chatService,
+      chatGateway,
+      llmService,
+      monitorGateway,
+    );
   }
 
   /** Run the full issue compilation pipeline */
   async runCompilation(ctx: AgentContext): Promise<void> {
     try {
       await this.updateStatus(ctx, AgentStatus.WORKING);
-      await this.sendAgentMessage(ctx, '📋 **Issue Compiler** starting — analyzing features and creating issues...');
+      await this.sendAgentMessage(
+        ctx,
+        '📋 **Issue Compiler** starting — analyzing features and creating issues...',
+      );
 
       // Step 1: Load project data
       const projectData = await this.loadProjectData(ctx);
@@ -246,7 +260,6 @@ export class IssueCompilerAgent extends BaseAgent {
 
       // Step 5: Finalize
       await this.finalize(ctx, compiledResult);
-
     } catch (err) {
       this.logger.error(`Issue compilation crashed: ${err.message}`, err.stack);
       await this.sendAgentMessage(
@@ -292,25 +305,34 @@ export class IssueCompilerAgent extends BaseAgent {
           select: { output: true },
         });
 
-        const featureResult = featureTask?.output as unknown as FeatureInterviewResult;
+        const featureResult =
+          featureTask?.output as unknown as FeatureInterviewResult;
         if (!featureResult?.features?.length) {
           throw new Error('No features found in feature interview result');
         }
 
         // Build InterviewResult-compatible object from FeatureInterviewResult + project.techStack
-        const projectTechStack = (project.techStack as unknown as InterviewResult) || {};
+        const projectTechStack =
+          (project.techStack as unknown as InterviewResult) || {};
         interviewResult = {
-          description: featureResult.sessionGoal || projectTechStack.description || '',
+          description:
+            featureResult.sessionGoal || projectTechStack.description || '',
           techStack: projectTechStack.techStack || {},
           features: featureResult.features,
         };
 
         // Also read ENVIRONMENT.md for tech context (Wiki-First)
-        const workspace = await this.resolveWorkspace(project.slug, ctx.chatSessionId);
-        const envDoc = await this.readEnvironment(this.gitlabService, project.gitlabProjectId, workspace);
+        const workspace = await this.resolveWorkspace(
+          project.slug,
+          ctx.chatSessionId,
+        );
+        const envDoc = await this.readEnvironment(
+          this.gitlabService,
+          project.gitlabProjectId,
+          workspace,
+        );
         if (envDoc) {
-          interviewResult.description =
-            `${featureResult.sessionGoal}\n\n## Environment Context\n${envDoc.substring(0, 3000)}`;
+          interviewResult.description = `${featureResult.sessionGoal}\n\n## Environment Context\n${envDoc.substring(0, 3000)}`;
         }
       } else {
         // Infrastructure: use project.techStack from initial interview
@@ -323,7 +345,9 @@ export class IssueCompilerAgent extends BaseAgent {
       let gitlabProjectPath: string | null = null;
       if (project.gitlabProjectId) {
         try {
-          const glProject = await this.gitlabService.getProject(project.gitlabProjectId);
+          const glProject = await this.gitlabService.getProject(
+            project.gitlabProjectId,
+          );
           gitlabProjectPath = glProject.path_with_namespace;
         } catch (err) {
           this.logger.warn(`Could not load GitLab project: ${err.message}`);
@@ -344,7 +368,10 @@ export class IssueCompilerAgent extends BaseAgent {
         chatSessionId,
       };
     } catch (err) {
-      await this.sendAgentMessage(ctx, `❌ Failed to load project data: ${err.message}`);
+      await this.sendAgentMessage(
+        ctx,
+        `❌ Failed to load project data: ${err.message}`,
+      );
       await this.markFailed(ctx, err.message);
       return null;
     }
@@ -371,7 +398,9 @@ export class IssueCompilerAgent extends BaseAgent {
         const parts = [`${i + 1}. **${f.title}** [${f.priority ?? 'medium'}]`];
         if (f.description) parts.push(`   ${f.description}`);
         if (f.acceptanceCriteria?.length) {
-          parts.push(`   Acceptance Criteria: ${f.acceptanceCriteria.join('; ')}`);
+          parts.push(
+            `   Acceptance Criteria: ${f.acceptanceCriteria.join('; ')}`,
+          );
         }
         return parts.join('\n');
       })
@@ -385,7 +414,9 @@ export class IssueCompilerAgent extends BaseAgent {
       interviewResult.techStack?.additional?.length
         ? `Additional: ${interviewResult.techStack.additional.join(', ')}`
         : null,
-    ].filter(Boolean).join('\n');
+    ]
+      .filter(Boolean)
+      .join('\n');
 
     const userPrompt = `Please compile the following project features into structured GitLab issues with sub-tasks, grouped into milestones (development phases).
 
@@ -407,7 +438,10 @@ IMPORTANT: Respond with ONLY the JSON object. No prose, no explanation, no markd
       { role: 'user', content: userPrompt },
     ];
 
-    await this.sendAgentMessage(ctx, `🤖 Analyzing ${interviewResult.features.length} features...`);
+    await this.sendAgentMessage(
+      ctx,
+      `🤖 Analyzing ${interviewResult.features.length} features...`,
+    );
 
     const MAX_RETRIES = 3;
     for (let attempt = 1; attempt <= MAX_RETRIES; attempt++) {
@@ -415,8 +449,13 @@ IMPORTANT: Respond with ONLY the JSON object. No prose, no explanation, no markd
 
       if (result.finishReason === 'error') {
         if (attempt < MAX_RETRIES) {
-          this.logger.warn(`LLM call failed (attempt ${attempt}/${MAX_RETRIES}), retrying...`);
-          await this.sendAgentMessage(ctx, `⚠️ LLM call failed (attempt ${attempt}/${MAX_RETRIES}), retrying...`);
+          this.logger.warn(
+            `LLM call failed (attempt ${attempt}/${MAX_RETRIES}), retrying...`,
+          );
+          await this.sendAgentMessage(
+            ctx,
+            `⚠️ LLM call failed (attempt ${attempt}/${MAX_RETRIES}), retrying...`,
+          );
           continue;
         }
         await this.sendAgentMessage(
@@ -429,19 +468,26 @@ IMPORTANT: Respond with ONLY the JSON object. No prose, no explanation, no markd
 
       // Parse completion
       if (!result.content.includes(COMPLETION_MARKER)) {
-        this.logger.warn('LLM response missing completion marker, attempting JSON extraction');
+        this.logger.warn(
+          'LLM response missing completion marker, attempting JSON extraction',
+        );
       }
 
       try {
         let jsonPart = result.content.includes(COMPLETION_MARKER)
-          ? result.content.substring(result.content.indexOf(COMPLETION_MARKER) + COMPLETION_MARKER.length)
+          ? result.content.substring(
+              result.content.indexOf(COMPLETION_MARKER) +
+                COMPLETION_MARKER.length,
+            )
           : result.content;
 
         // Strip thinking tags that local LLMs (qwen3.5) often wrap around output
         jsonPart = jsonPart.replace(/<think>[\s\S]*?<\/think>/g, '').trim();
 
         // Strip Markdown code fences (```json ... ``` or ``` ... ```)
-        const codeFenceMatch = jsonPart.match(/```(?:json)?\s*\n?([\s\S]*?)```/);
+        const codeFenceMatch = jsonPart.match(
+          /```(?:json)?\s*\n?([\s\S]*?)```/,
+        );
         if (codeFenceMatch) {
           jsonPart = codeFenceMatch[1].trim();
         }
@@ -462,7 +508,9 @@ IMPORTANT: Respond with ONLY the JSON object. No prose, no explanation, no markd
           return JSON.parse(jsonStr);
         } catch (firstErr) {
           // Attempt bracket-balanced extraction from the beginning
-          this.logger.warn(`First JSON parse failed (${firstErr.message}), trying bracket-balanced extraction`);
+          this.logger.warn(
+            `First JSON parse failed (${firstErr.message}), trying bracket-balanced extraction`,
+          );
           const balanced = this.extractBalancedJson(jsonStr);
           if (balanced) {
             const cleaned = balanced.replace(/,\s*([}\]])/g, '$1');
@@ -471,14 +519,25 @@ IMPORTANT: Respond with ONLY the JSON object. No prose, no explanation, no markd
           throw firstErr;
         }
       } catch (err) {
-        this.logger.error(`Failed to parse compilation result (attempt ${attempt}/${MAX_RETRIES}): ${err.message}`);
-        this.logger.debug(`LLM response (first 500 chars): ${result.content.substring(0, 500)}`);
+        this.logger.error(
+          `Failed to parse compilation result (attempt ${attempt}/${MAX_RETRIES}): ${err.message}`,
+        );
+        this.logger.debug(
+          `LLM response (first 500 chars): ${result.content.substring(0, 500)}`,
+        );
         if (attempt < MAX_RETRIES) {
-          await this.sendAgentMessage(ctx, `⚠️ JSON parse failed (attempt ${attempt}/${MAX_RETRIES}), retrying...`);
+          await this.sendAgentMessage(
+            ctx,
+            `⚠️ JSON parse failed (attempt ${attempt}/${MAX_RETRIES}), retrying...`,
+          );
           // Add a hint to the messages for the retry to be more explicit about JSON format
           messages.push(
             { role: 'assistant', content: result.content.substring(0, 200) },
-            { role: 'user', content: 'Your response was not valid JSON. Please respond with ONLY the JSON object (no prose, no explanation). Start with { and end with }. Use the exact format from the instructions.' },
+            {
+              role: 'user',
+              content:
+                'Your response was not valid JSON. Please respond with ONLY the JSON object (no prose, no explanation). Start with { and end with }. Use the exact format from the instructions.',
+            },
           );
           continue;
         }
@@ -549,7 +608,12 @@ IMPORTANT: Respond with ONLY the JSON object. No prose, no explanation, no markd
     };
 
     // Try to extract milestones
-    let rawMilestones: any[] | undefined = pick('milestones', 'phases', 'versions', 'sprints');
+    const rawMilestones: any[] | undefined = pick(
+      'milestones',
+      'phases',
+      'versions',
+      'sprints',
+    );
 
     let milestones: CompiledMilestone[];
 
@@ -562,16 +626,19 @@ IMPORTANT: Respond with ONLY the JSON object. No prose, no explanation, no markd
       }));
     } else {
       // Fallback: flat issues list → wrap in single milestone
-      const flatIssues = pick('issues', 'items', 'tickets', 'compiled_issues') ?? [];
-      milestones = [{
-        title: 'v0.1 — MVP',
-        description: 'All project issues',
-        issues: this.normalizeIssues(flatIssues),
-      }];
+      const flatIssues =
+        pick('issues', 'items', 'tickets', 'compiled_issues') ?? [];
+      milestones = [
+        {
+          title: 'v0.1 — MVP',
+          description: 'All project issues',
+          issues: this.normalizeIssues(flatIssues),
+        },
+      ];
     }
 
     // Build flat issues array from milestones
-    const allIssues = milestones.flatMap(m => m.issues);
+    const allIssues = milestones.flatMap((m) => m.issues);
     const totalTasks = allIssues.reduce((sum, i) => sum + i.tasks.length, 0);
 
     this.logger.debug(
@@ -607,21 +674,38 @@ IMPORTANT: Respond with ONLY the JSON object. No prose, no explanation, no markd
       labels = labels.map((l: string) => l.toLowerCase());
 
       // Normalize tasks
-      let tasks: CompiledTask[] = (raw.tasks ?? raw.subtasks ?? raw.sub_tasks ?? raw.children ?? [])
-        .map((t: any) => ({
-          title: t.title ?? t.name ?? t.summary ?? 'Untitled Task',
-          description: t.description ?? t.body ?? t.details ?? '',
-        }));
+      const tasks: CompiledTask[] = (
+        raw.tasks ??
+        raw.subtasks ??
+        raw.sub_tasks ??
+        raw.children ??
+        []
+      ).map((t: any) => ({
+        title: t.title ?? t.name ?? t.summary ?? 'Untitled Task',
+        description: t.description ?? t.body ?? t.details ?? '',
+      }));
 
       // Ensure at least 2 tasks
       if (tasks.length < 2) {
-        tasks.push({ title: `Implement ${title}`, description: 'Core implementation' });
+        tasks.push({
+          title: `Implement ${title}`,
+          description: 'Core implementation',
+        });
         if (tasks.length < 2) {
-          tasks.push({ title: `Test ${title}`, description: 'Write tests and verify' });
+          tasks.push({
+            title: `Test ${title}`,
+            description: 'Write tests and verify',
+          });
         }
       }
 
-      return { title, description, priority: priority as CompiledIssue['priority'], labels, tasks };
+      return {
+        title,
+        description,
+        priority: priority as CompiledIssue['priority'],
+        labels,
+        tasks,
+      };
     });
   }
 
@@ -637,7 +721,8 @@ IMPORTANT: Respond with ONLY the JSON object. No prose, no explanation, no markd
     },
     compiledResult: IssueCompilerResult,
   ): Promise<void> {
-    const { project, gitlabProjectId, gitlabProjectPath, chatSessionId } = projectData;
+    const { project, gitlabProjectId, gitlabProjectPath, chatSessionId } =
+      projectData;
     let createdIssues = 0;
     let createdTasks = 0;
     let failedTasks = 0;
@@ -649,16 +734,26 @@ IMPORTANT: Respond with ONLY the JSON object. No prose, no explanation, no markd
       let gitlabMilestoneId: number | undefined;
       if (gitlabProjectId) {
         try {
-          const glMilestone = await this.gitlabService.createMilestone(gitlabProjectId, {
-            title: milestone.title,
-            description: milestone.description,
-          });
+          const glMilestone = await this.gitlabService.createMilestone(
+            gitlabProjectId,
+            {
+              title: milestone.title,
+              description: milestone.description,
+            },
+          );
           gitlabMilestoneId = glMilestone.id;
         } catch (err) {
-          this.logger.warn(`GitLab milestone creation failed for "${milestone.title}": ${err.message}`);
-          await this.log(ctx.agentTaskId, 'WARN', `GitLab milestone failed: ${milestone.title}`, {
-            error: err.message,
-          });
+          this.logger.warn(
+            `GitLab milestone creation failed for "${milestone.title}": ${err.message}`,
+          );
+          await this.log(
+            ctx.agentTaskId,
+            'WARN',
+            `GitLab milestone failed: ${milestone.title}`,
+            {
+              error: err.message,
+            },
+          );
         }
       }
 
@@ -676,10 +771,17 @@ IMPORTANT: Respond with ONLY the JSON object. No prose, no explanation, no markd
         });
         dbMilestoneId = dbMilestone.id;
       } catch (err) {
-        this.logger.warn(`DB milestone creation failed for "${milestone.title}": ${err.message}`);
-        await this.log(ctx.agentTaskId, 'WARN', `DB milestone failed: ${milestone.title}`, {
-          error: err.message,
-        });
+        this.logger.warn(
+          `DB milestone creation failed for "${milestone.title}": ${err.message}`,
+        );
+        await this.log(
+          ctx.agentTaskId,
+          'WARN',
+          `DB milestone failed: ${milestone.title}`,
+          {
+            error: err.message,
+          },
+        );
       }
 
       await this.sendAgentMessage(ctx, `🏁 Milestone: **${milestone.title}**`);
@@ -693,9 +795,14 @@ IMPORTANT: Respond with ONLY the JSON object. No prose, no explanation, no markd
             where: { projectId: project.id, title: compiledIssue.title },
           });
           if (existing) {
-            await this.log(ctx.agentTaskId, 'INFO', `Skipped duplicate issue: ${compiledIssue.title}`, {
-              existingIssueId: existing.id,
-            });
+            await this.log(
+              ctx.agentTaskId,
+              'INFO',
+              `Skipped duplicate issue: ${compiledIssue.title}`,
+              {
+                existingIssueId: existing.id,
+              },
+            );
             continue;
           }
 
@@ -713,11 +820,16 @@ IMPORTANT: Respond with ONLY the JSON object. No prose, no explanation, no markd
           });
 
           createdIssues++;
-          await this.log(ctx.agentTaskId, 'INFO', `Created issue: ${compiledIssue.title}`, {
-            issueId: issue.id,
-            gitlabIid: issue.gitlabIid,
-            milestone: milestone.title,
-          });
+          await this.log(
+            ctx.agentTaskId,
+            'INFO',
+            `Created issue: ${compiledIssue.title}`,
+            {
+              issueId: issue.id,
+              gitlabIid: issue.gitlabIid,
+              milestone: milestone.title,
+            },
+          );
 
           // Create tasks as children
           for (const task of compiledIssue.tasks) {
@@ -735,10 +847,11 @@ IMPORTANT: Respond with ONLY the JSON object. No prose, no explanation, no markd
               // Create as GitLab Task (child of issue) if GitLab is available
               if (gitlabProjectPath && issue.gitlabIid && gitlabProjectId) {
                 try {
-                  const parentWorkItemId = await this.gitlabService.getWorkItemId(
-                    gitlabProjectPath,
-                    issue.gitlabIid,
-                  );
+                  const parentWorkItemId =
+                    await this.gitlabService.getWorkItemId(
+                      gitlabProjectPath,
+                      issue.gitlabIid,
+                    );
 
                   const workItem = await this.gitlabService.createTask(
                     gitlabProjectPath,
@@ -754,34 +867,52 @@ IMPORTANT: Respond with ONLY the JSON object. No prose, no explanation, no markd
                     });
                   }
                 } catch (glErr) {
-                  this.logger.warn(`GitLab task creation failed for "${task.title}": ${glErr.message}`);
-                  await this.log(ctx.agentTaskId, 'WARN', `GitLab task failed: ${task.title}`, {
-                    error: glErr.message,
-                  });
+                  this.logger.warn(
+                    `GitLab task creation failed for "${task.title}": ${glErr.message}`,
+                  );
+                  await this.log(
+                    ctx.agentTaskId,
+                    'WARN',
+                    `GitLab task failed: ${task.title}`,
+                    {
+                      error: glErr.message,
+                    },
+                  );
                   failedTasks++;
                 }
               }
 
               createdTasks++;
             } catch (taskErr) {
-              this.logger.warn(`Task creation failed for "${task.title}": ${taskErr.message}`);
+              this.logger.warn(
+                `Task creation failed for "${task.title}": ${taskErr.message}`,
+              );
               failedTasks++;
             }
           }
 
           // Progress update every few issues
-          if (createdIssues % 3 === 0 || createdIssues === compiledResult.totalIssues) {
+          if (
+            createdIssues % 3 === 0 ||
+            createdIssues === compiledResult.totalIssues
+          ) {
             await this.sendAgentMessage(
               ctx,
               `📝 Progress: ${createdIssues}/${compiledResult.totalIssues} issues created (${createdTasks} tasks)...`,
             );
           }
-
         } catch (issueErr) {
-          this.logger.error(`Issue creation failed for "${compiledIssue.title}": ${issueErr.message}`);
-          await this.log(ctx.agentTaskId, 'ERROR', `Issue creation failed: ${compiledIssue.title}`, {
-            error: issueErr.message,
-          });
+          this.logger.error(
+            `Issue creation failed for "${compiledIssue.title}": ${issueErr.message}`,
+          );
+          await this.log(
+            ctx.agentTaskId,
+            'ERROR',
+            `Issue creation failed: ${compiledIssue.title}`,
+            {
+              error: issueErr.message,
+            },
+          );
         }
       }
     }
@@ -795,7 +926,10 @@ IMPORTANT: Respond with ONLY the JSON object. No prose, no explanation, no markd
 
   // ─── Step 5: Finalize ───────────────────────────────────────
 
-  private async finalize(ctx: AgentContext, result: IssueCompilerResult): Promise<void> {
+  private async finalize(
+    ctx: AgentContext,
+    result: IssueCompilerResult,
+  ): Promise<void> {
     await this.prisma.agentTask.update({
       where: { id: ctx.agentTaskId },
       data: {
@@ -821,12 +955,16 @@ IMPORTANT: Respond with ONLY the JSON object. No prose, no explanation, no markd
       summaryLines.push(`| # | Issue | Priority | Tasks |`);
       summaryLines.push(`|---|-------|----------|-------|`);
       milestone.issues.forEach((issue, i) => {
-        summaryLines.push(`| ${i + 1} | ${issue.title} | ${issue.priority} | ${issue.tasks.length} |`);
+        summaryLines.push(
+          `| ${i + 1} | ${issue.title} | ${issue.priority} | ${issue.tasks.length} |`,
+        );
       });
     }
 
     summaryLines.push('');
-    summaryLines.push('Issues are synced to GitLab with milestones and parent-child task hierarchy.');
+    summaryLines.push(
+      'Issues are synced to GitLab with milestones and parent-child task hierarchy.',
+    );
 
     await this.sendAgentMessage(ctx, summaryLines.join('\n'));
     await this.updateStatus(ctx, AgentStatus.IDLE);
@@ -848,11 +986,16 @@ IMPORTANT: Respond with ONLY the JSON object. No prose, no explanation, no markd
   /** Map our priority strings to Prisma IssuePriority enum */
   private mapPriority(priority: string): IssuePriority {
     switch (priority.toUpperCase()) {
-      case 'LOW': return IssuePriority.LOW;
-      case 'MEDIUM': return IssuePriority.MEDIUM;
-      case 'HIGH': return IssuePriority.HIGH;
-      case 'CRITICAL': return IssuePriority.CRITICAL;
-      default: return IssuePriority.MEDIUM;
+      case 'LOW':
+        return IssuePriority.LOW;
+      case 'MEDIUM':
+        return IssuePriority.MEDIUM;
+      case 'HIGH':
+        return IssuePriority.HIGH;
+      case 'CRITICAL':
+        return IssuePriority.CRITICAL;
+      default:
+        return IssuePriority.MEDIUM;
     }
   }
 

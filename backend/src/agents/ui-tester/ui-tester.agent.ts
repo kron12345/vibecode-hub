@@ -12,7 +12,11 @@ import { MonitorGateway } from '../../monitor/monitor.gateway';
 import { McpAgentLoopService } from '../../mcp/mcp-agent-loop.service';
 import { McpRegistryService } from '../../mcp/mcp-registry.service';
 import { DualTestService } from '../dual-test.service';
-import { postAgentComment, getAgentCommentHistory, extractLastAgentFindings } from '../agent-comment.utils';
+import {
+  postAgentComment,
+  getAgentCommentHistory,
+  extractLastAgentFindings,
+} from '../agent-comment.utils';
 import {
   syncFindingThreads,
   buildIssueSummaryWithThreadLinks,
@@ -23,15 +27,16 @@ import {
   extractArchitectOutOfScopeItems,
   filterOutOfScopeFindings,
 } from '../agent-scope.utils';
-import { UiTestResult, UiTestFinding, ScreenshotManifest, ScreenshotEntry } from './ui-test-result.interface';
+import {
+  UiTestResult,
+  UiTestFinding,
+  ScreenshotManifest,
+  ScreenshotEntry,
+} from './ui-test-result.interface';
 import { PlaywrightRunner, PageCapture, A11yResult } from './playwright-runner';
 import * as fs from 'fs/promises';
 import * as path from 'path';
-import {
-  AgentRole,
-  AgentStatus,
-  AgentTaskStatus,
-} from '@prisma/client';
+import { AgentRole, AgentStatus, AgentTaskStatus } from '@prisma/client';
 
 const COMPLETION_MARKER = ':::UI_TEST_COMPLETE:::';
 
@@ -140,7 +145,14 @@ export class UiTesterAgent extends BaseAgent {
     private readonly mcpAgentLoop: McpAgentLoopService,
     private readonly mcpRegistry: McpRegistryService,
   ) {
-    super(prisma, settings, chatService, chatGateway, llmService, monitorGateway);
+    super(
+      prisma,
+      settings,
+      chatService,
+      chatGateway,
+      llmService,
+      monitorGateway,
+    );
   }
 
   /**
@@ -191,13 +203,19 @@ export class UiTesterAgent extends BaseAgent {
       );
 
       // Get MR diffs
-      const diffs = await this.fetchDiffsWithRetry(gitlabProjectId, mrIid, 3, 5000);
+      const diffs = await this.fetchDiffsWithRetry(
+        gitlabProjectId,
+        mrIid,
+        3,
+        5000,
+      );
 
       // Determine preview URL
       const previewDomain = this.settings.get('preview.domain', '');
-      const previewUrl = project?.previewPort && project?.slug && previewDomain
-        ? `https://${project.slug}.${previewDomain}`
-        : null;
+      const previewUrl =
+        project?.previewPort && project?.slug && previewDomain
+          ? `https://${project.slug}.${previewDomain}`
+          : null;
 
       let browserData = '';
       let screenshotImages: Array<{ base64: string; label: string }> = [];
@@ -208,7 +226,10 @@ export class UiTesterAgent extends BaseAgent {
         const runner = await this.ensurePlaywright();
 
         if (runner) {
-          await this.sendAgentMessage(ctx, `Running browser tests against ${previewUrl}...`);
+          await this.sendAgentMessage(
+            ctx,
+            `Running browser tests against ${previewUrl}...`,
+          );
 
           // Extract routes from diffs (look for route definitions in changed files)
           const routes = this.extractRoutesFromDiffs(diffs);
@@ -221,7 +242,10 @@ export class UiTesterAgent extends BaseAgent {
           const a11y = await runner.checkAccessibility(previewUrl, routes[0]);
 
           // Responsive check on main route
-          const responsive = await runner.checkResponsive(previewUrl, routes[0]);
+          const responsive = await runner.checkResponsive(
+            previewUrl,
+            routes[0],
+          );
 
           browserData = this.formatBrowserData(captures, a11y, responsive);
 
@@ -231,7 +255,12 @@ export class UiTesterAgent extends BaseAgent {
             : '';
           if (resolvedWorkspace) {
             try {
-              const saved = await runner.saveScreenshots(resolvedWorkspace, issueId, captures, responsive);
+              const saved = await runner.saveScreenshots(
+                resolvedWorkspace,
+                issueId,
+                captures,
+                responsive,
+              );
 
               // Collect images for multimodal LLM analysis (limit to 6 images to avoid token explosion)
               for (const capture of captures) {
@@ -268,8 +297,13 @@ export class UiTesterAgent extends BaseAgent {
                   description: '', // Will be filled by LLM
                 })),
               };
-              await fs.writeFile(screenshotManifestPath, JSON.stringify(manifest, null, 2));
-              this.logger.log(`Screenshots saved: ${saved.files.length} files, manifest at ${screenshotManifestPath}`);
+              await fs.writeFile(
+                screenshotManifestPath,
+                JSON.stringify(manifest, null, 2),
+              );
+              this.logger.log(
+                `Screenshots saved: ${saved.files.length} files, manifest at ${screenshotManifestPath}`,
+              );
             } catch (err) {
               this.logger.warn(`Failed to save screenshots: ${err.message}`);
             }
@@ -278,7 +312,10 @@ export class UiTesterAgent extends BaseAgent {
       }
 
       if (!browserData && screenshotImages.length === 0) {
-        await this.sendAgentMessage(ctx, 'No preview available — running code-only UI analysis');
+        await this.sendAgentMessage(
+          ctx,
+          'No preview available — running code-only UI analysis',
+        );
       }
 
       // Build LLM prompt
@@ -288,35 +325,58 @@ export class UiTesterAgent extends BaseAgent {
       const MAX_DIFFS = 20;
       const MAX_DIFF_CHARS = 2000;
       const reviewDiffs = diffs
-        .filter(d => /\.(html|css|scss|tsx|jsx|ts|js|vue|svelte|java)$/.test(d.new_path))
+        .filter((d) =>
+          /\.(html|css|scss|tsx|jsx|ts|js|vue|svelte|java)$/.test(d.new_path),
+        )
         .slice(0, MAX_DIFFS);
 
-      const diffText = reviewDiffs.map(d => {
-        const prefix = d.new_file ? '[NEW]' : d.deleted_file ? '[DELETED]' : '[MODIFIED]';
-        const truncated = d.diff.length > MAX_DIFF_CHARS
-          ? d.diff.substring(0, MAX_DIFF_CHARS) + '\n... (truncated)'
-          : d.diff;
-        return `### ${prefix} ${d.new_path}\n\`\`\`diff\n${truncated}\n\`\`\``;
-      }).join('\n\n');
+      const diffText = reviewDiffs
+        .map((d) => {
+          const prefix = d.new_file
+            ? '[NEW]'
+            : d.deleted_file
+              ? '[DELETED]'
+              : '[MODIFIED]';
+          const truncated =
+            d.diff.length > MAX_DIFF_CHARS
+              ? d.diff.substring(0, MAX_DIFF_CHARS) + '\n... (truncated)'
+              : d.diff;
+          return `### ${prefix} ${d.new_path}\n\`\`\`diff\n${truncated}\n\`\`\``;
+        })
+        .join('\n\n');
 
       // Inject previous agent comments as context
-      const commentHistory = await getAgentCommentHistory({ prisma: this.prisma, issueId });
+      const commentHistory = await getAgentCommentHistory({
+        prisma: this.prisma,
+        issueId,
+      });
       const historySection = commentHistory
         ? `\n## Previous Agent Comments on this Issue\n${commentHistory}\n`
         : '';
       const outOfScopeItems = extractArchitectOutOfScopeItems(commentHistory);
-      const scopeGuardSection = buildArchitectScopeGuardSection(outOfScopeItems);
+      const scopeGuardSection =
+        buildArchitectScopeGuardSection(outOfScopeItems);
 
       // ─── Visual Analysis: send screenshots to multimodal LLM ──────
       let visualAnalysis = '';
       if (screenshotImages.length > 0) {
         try {
-          await this.sendAgentMessage(ctx, `Analyzing ${screenshotImages.length} screenshots visually...`);
-          visualAnalysis = await this.analyzeScreenshots(config, screenshotImages, issue.title);
+          await this.sendAgentMessage(
+            ctx,
+            `Analyzing ${screenshotImages.length} screenshots visually...`,
+          );
+          visualAnalysis = await this.analyzeScreenshots(
+            config,
+            screenshotImages,
+            issue.title,
+          );
 
           // Update manifest with descriptions from visual analysis
           if (screenshotManifestPath) {
-            await this.updateManifestDescriptions(screenshotManifestPath, visualAnalysis);
+            await this.updateManifestDescriptions(
+              screenshotManifestPath,
+              visualAnalysis,
+            );
           }
         } catch (err) {
           this.logger.warn(`Visual screenshot analysis failed: ${err.message}`);
@@ -324,12 +384,21 @@ export class UiTesterAgent extends BaseAgent {
       }
 
       // Build structured previous findings section (Expectation Pattern memory)
-      const previousFindings = extractLastAgentFindings(commentHistory, 'UI Tester');
-      const previousFindingsSection = previousFindings.length > 0
-        ? `\n## YOUR Previous UI Test Findings — Re-Evaluate Each One\n${previousFindings.map((f, i) =>
-            `${i + 1}. [${(f.severity ?? 'warning').toUpperCase()}] ${f.message}\n   → NOW CHECK: is this still present in the current code/screenshots?`
-          ).join('\n')}\n\nFor each finding above: if fixed, report in \`resolvedFromPrevious\`. If still present, carry forward with SAME description.\n`
-        : '';
+      const previousFindings = extractLastAgentFindings(
+        commentHistory,
+        'UI Tester',
+      );
+      const previousFindingsSection =
+        previousFindings.length > 0
+          ? `\n## YOUR Previous UI Test Findings — Re-Evaluate Each One\n${previousFindings
+              .map(
+                (f, i) =>
+                  `${i + 1}. [${(f.severity ?? 'warning').toUpperCase()}] ${f.message}\n   → NOW CHECK: is this still present in the current code/screenshots?`,
+              )
+              .join(
+                '\n',
+              )}\n\nFor each finding above: if fixed, report in \`resolvedFromPrevious\`. If still present, carry forward with SAME description.\n`
+          : '';
 
       const userPrompt = `Analyze the UI changes in this merge request${previousFindings.length > 0 ? ' (Re-test after fix attempt)' : ''}:
 
@@ -345,9 +414,11 @@ ${diffText || '_No UI-related files changed._'}
 ${browserData ? `## Browser Test Results:\n\n${browserData}` : ''}
 ${visualAnalysis ? `## Visual Screenshot Analysis:\n\n${visualAnalysis}` : ''}
 
-${previousFindings.length > 0
-  ? 'IMPORTANT: First address each item in "YOUR Previous UI Test Findings" above, then check for new issues.'
-  : 'Analyze the UI changes for layout, responsiveness, accessibility, visual quality, and interactions.'}
+${
+  previousFindings.length > 0
+    ? 'IMPORTANT: First address each item in "YOUR Previous UI Test Findings" above, then check for new issues.'
+    : 'Analyze the UI changes for layout, responsiveness, accessibility, visual quality, and interactions.'
+}
 
 IMPORTANT: You MUST end your response with the JSON result in this EXACT format:
 ${COMPLETION_MARKER}
@@ -365,15 +436,21 @@ Do NOT omit the JSON block.`;
       let resultContent: string;
 
       const mcpServers = workspace
-        ? await this.mcpRegistry.resolveServersForRole(
-            AgentRole.UI_TESTER,
-            { workspace, allowedPaths: [workspace], projectId: ctx.projectId },
-          )
+        ? await this.mcpRegistry.resolveServersForRole(AgentRole.UI_TESTER, {
+            workspace,
+            allowedPaths: [workspace],
+            projectId: ctx.projectId,
+          })
         : [];
 
       if (mcpServers.length > 0 && workspace) {
-        this.logger.log(`Using MCP agent loop with ${mcpServers.length} servers (workspace: ${workspace})`);
-        await this.sendAgentMessage(ctx, `Running UI tests with shell access (${mcpServers.length} MCP tools)...`);
+        this.logger.log(
+          `Using MCP agent loop with ${mcpServers.length} servers (workspace: ${workspace})`,
+        );
+        await this.sendAgentMessage(
+          ctx,
+          `Running UI tests with shell access (${mcpServers.length} MCP tools)...`,
+        );
 
         const mcpResult = await this.mcpAgentLoop.run({
           provider: config.provider,
@@ -390,12 +467,17 @@ Do NOT omit the JSON block.`;
 
         if (mcpResult.finishReason === 'error') {
           await this.sendAgentMessage(ctx, 'UI Tester MCP loop failed');
-          await this.markFailed(ctx, `MCP agent loop failed: ${mcpResult.errorMessage ?? 'unknown error'}`);
+          await this.markFailed(
+            ctx,
+            `MCP agent loop failed: ${mcpResult.errorMessage ?? 'unknown error'}`,
+          );
           return;
         }
 
         resultContent = mcpResult.content;
-        this.logger.log(`MCP loop: ${mcpResult.iterations} iterations, ${mcpResult.toolCallsExecuted} tool calls`);
+        this.logger.log(
+          `MCP loop: ${mcpResult.iterations} iterations, ${mcpResult.toolCallsExecuted} tool calls`,
+        );
       } else {
         // Fallback: dual LLM call (no shell access)
         const messages: LlmMessage[] = [
@@ -403,27 +485,43 @@ Do NOT omit the JSON block.`;
           { role: 'user', content: userPrompt },
         ];
 
-        const dualResult = await this.dualTestService.callDual(config, messages);
+        const dualResult = await this.dualTestService.callDual(
+          config,
+          messages,
+        );
 
         if (dualResult.primary.finishReason === 'error') {
           await this.sendAgentMessage(ctx, 'UI Tester LLM call failed');
-          await this.markFailed(ctx, `LLM call failed: ${dualResult.primary.errorMessage ?? 'unknown error'}`);
+          await this.markFailed(
+            ctx,
+            `LLM call failed: ${dualResult.primary.errorMessage ?? 'unknown error'}`,
+          );
           return;
         }
 
         resultContent = dualResult.primary.content;
 
         // Dual-testing: parse secondary and merge findings
-        if (dualResult.secondary && dualResult.secondary.finishReason !== 'error') {
-          const primaryResult = this.parseTestResult(dualResult.primary.content, issueId);
-          const secondaryResult = this.parseTestResult(dualResult.secondary.content, issueId);
+        if (
+          dualResult.secondary &&
+          dualResult.secondary.finishReason !== 'error'
+        ) {
+          const primaryResult = this.parseTestResult(
+            dualResult.primary.content,
+            issueId,
+          );
+          const secondaryResult = this.parseTestResult(
+            dualResult.secondary.content,
+            issueId,
+          );
           if (primaryResult && secondaryResult) {
             const strategy = config.dualStrategy ?? 'merge';
             const { merged, stats } = this.dualTestService.mergeFindings(
               primaryResult.findings,
               secondaryResult.findings,
               strategy,
-              (f: UiTestFinding) => `${f.type}:${f.page}:${f.description.substring(0, 40).toLowerCase()}`,
+              (f: UiTestFinding) =>
+                `${f.type}:${f.page}:${f.description.substring(0, 40).toLowerCase()}`,
             );
 
             const passed = this.dualTestService.determineApproval(merged, 3);
@@ -432,9 +530,15 @@ Do NOT omit the JSON block.`;
               ...primaryResult,
               findings: merged,
               passed,
-              pagesChecked: Math.max(primaryResult.pagesChecked, secondaryResult.pagesChecked),
+              pagesChecked: Math.max(
+                primaryResult.pagesChecked,
+                secondaryResult.pagesChecked,
+              ),
             };
-            const scopedMergedResult = this.applyArchitectScopeFilter(mergedTestResult, outOfScopeItems);
+            const scopedMergedResult = this.applyArchitectScopeFilter(
+              mergedTestResult,
+              outOfScopeItems,
+            );
 
             await this.sendAgentMessage(
               ctx,
@@ -442,15 +546,31 @@ Do NOT omit the JSON block.`;
             );
 
             // ─── Finding Threads for dual-test path ───
-            const dualActiveFindings = scopedMergedResult.findings.filter(f => f.severity !== 'info');
-            const dualFindingsForThreads: FindingForThread[] = dualActiveFindings.map(f => {
-              const parts = [`**${f.severity.toUpperCase()}** [${f.type}] — \`${f.page}\``, '', f.description];
-              if (f.expectedState) parts.push('', `**Expected:** ${f.expectedState}`);
-              if (f.observedState) parts.push('', `**Observed:** ${f.observedState}`);
-              return { severity: f.severity, message: `[${f.type}] ${f.page}: ${f.description.substring(0, 80)}`, threadBody: parts.join('\n') };
-            });
+            const dualActiveFindings = scopedMergedResult.findings.filter(
+              (f) => f.severity !== 'info',
+            );
+            const dualFindingsForThreads: FindingForThread[] =
+              dualActiveFindings.map((f) => {
+                const parts = [
+                  `**${f.severity.toUpperCase()}** [${f.type}] — \`${f.page}\``,
+                  '',
+                  f.description,
+                ];
+                if (f.expectedState)
+                  parts.push('', `**Expected:** ${f.expectedState}`);
+                if (f.observedState)
+                  parts.push('', `**Observed:** ${f.observedState}`);
+                return {
+                  severity: f.severity,
+                  message: `[${f.type}] ${f.page}: ${f.description.substring(0, 80)}`,
+                  threadBody: parts.join('\n'),
+                };
+              });
 
-            const { activeThreads: dualAllThreads, resolvedThreads: dualResolvedRecords } = await syncFindingThreads({
+            const {
+              activeThreads: dualAllThreads,
+              resolvedThreads: dualResolvedRecords,
+            } = await syncFindingThreads({
               prisma: this.prisma,
               gitlabService: this.gitlabService,
               issueId,
@@ -462,19 +582,39 @@ Do NOT omit the JSON block.`;
             });
 
             const testMarkdown = buildIssueSummaryWithThreadLinks({
-              agentName: 'UI Test', approved: scopedMergedResult.passed,
-              summary: scopedMergedResult.summary, threads: dualAllThreads, resolvedThreads: dualResolvedRecords,
+              agentName: 'UI Test',
+              approved: scopedMergedResult.passed,
+              summary: scopedMergedResult.summary,
+              threads: dualAllThreads,
+              resolvedThreads: dualResolvedRecords,
             });
             await postAgentComment({
-              prisma: this.prisma, gitlabService: this.gitlabService,
-              issueId, gitlabProjectId, issueIid: issue.gitlabIid!,
-              agentTaskId: ctx.agentTaskId, authorName: 'UI Tester', markdownContent: testMarkdown,
+              prisma: this.prisma,
+              gitlabService: this.gitlabService,
+              issueId,
+              gitlabProjectId,
+              issueIid: issue.gitlabIid!,
+              agentTaskId: ctx.agentTaskId,
+              authorName: 'UI Tester',
+              markdownContent: testMarkdown,
             });
 
             if (scopedMergedResult.passed) {
-              await this.handlePassed(ctx, issueId, mrIid, gitlabProjectId, scopedMergedResult);
+              await this.handlePassed(
+                ctx,
+                issueId,
+                mrIid,
+                gitlabProjectId,
+                scopedMergedResult,
+              );
             } else {
-              await this.handleFailed(ctx, issueId, mrIid, gitlabProjectId, scopedMergedResult);
+              await this.handleFailed(
+                ctx,
+                issueId,
+                mrIid,
+                gitlabProjectId,
+                scopedMergedResult,
+              );
             }
             return;
           }
@@ -485,7 +625,11 @@ Do NOT omit the JSON block.`;
       let testResult = this.parseTestResult(resultContent, issueId);
 
       // Retry JSON extraction if parsing returned 0 findings but response was substantial
-      if (testResult && testResult.findings.length === 0 && resultContent.length > 500) {
+      if (
+        testResult &&
+        testResult.findings.length === 0 &&
+        resultContent.length > 500
+      ) {
         const retryJson = await this.dualTestService.retryJsonExtraction(
           config,
           resultContent,
@@ -494,7 +638,9 @@ Do NOT omit the JSON block.`;
         if (retryJson) {
           const retried = this.parseTestResult(retryJson, issueId);
           if (retried && retried.findings.length > 0) {
-            this.logger.log(`JSON retry recovered ${retried.findings.length} UI findings`);
+            this.logger.log(
+              `JSON retry recovered ${retried.findings.length} UI findings`,
+            );
             testResult = retried;
           }
         }
@@ -510,15 +656,24 @@ Do NOT omit the JSON block.`;
         if (retryJson) {
           testResult = this.parseTestResult(retryJson, issueId);
           if (testResult) {
-            this.logger.log(`JSON retry recovered full UI result (${testResult.findings.length} findings)`);
+            this.logger.log(
+              `JSON retry recovered full UI result (${testResult.findings.length} findings)`,
+            );
           }
         }
       }
 
       if (!testResult) {
-        await this.sendAgentMessage(ctx, 'Could not parse UI test result — defaulting to pass');
+        await this.sendAgentMessage(
+          ctx,
+          'Could not parse UI test result — defaulting to pass',
+        );
         await this.handlePassed(ctx, issueId, mrIid, gitlabProjectId, {
-          issueId, passed: true, findings: [], summary: 'Parse failed — auto-passed', pagesChecked: 0,
+          issueId,
+          passed: true,
+          findings: [],
+          summary: 'Parse failed — auto-passed',
+          pagesChecked: 0,
         });
         return;
       }
@@ -527,12 +682,19 @@ Do NOT omit the JSON block.`;
       testResult = this.applyArchitectScopeFilter(testResult, outOfScopeItems);
 
       // ─── Finding Threads: Post findings as MR discussion threads ───
-      const activeFindings = testResult.findings.filter(f => f.severity !== 'info');
-      const findingsForThreads: FindingForThread[] = activeFindings.map(f => {
-        const parts = [`**${f.severity.toUpperCase()}** [${f.type}] — \`${f.page}\``, '', f.description];
+      const activeFindings = testResult.findings.filter(
+        (f) => f.severity !== 'info',
+      );
+      const findingsForThreads: FindingForThread[] = activeFindings.map((f) => {
+        const parts = [
+          `**${f.severity.toUpperCase()}** [${f.type}] — \`${f.page}\``,
+          '',
+          f.description,
+        ];
         if (f.expectedState) parts.push('', `**Expected:** ${f.expectedState}`);
         if (f.observedState) parts.push('', `**Observed:** ${f.observedState}`);
-        if (f.verifiableFromCode === false) parts.push('', '_⚠️ Needs browser verification_');
+        if (f.verifiableFromCode === false)
+          parts.push('', '_⚠️ Needs browser verification_');
         return {
           severity: f.severity,
           message: `[${f.type}] ${f.page}: ${f.description.substring(0, 80)}`,
@@ -540,7 +702,10 @@ Do NOT omit the JSON block.`;
         };
       });
 
-      const { activeThreads: allActiveThreads, resolvedThreads: resolvedThreadRecords } = await syncFindingThreads({
+      const {
+        activeThreads: allActiveThreads,
+        resolvedThreads: resolvedThreadRecords,
+      } = await syncFindingThreads({
         prisma: this.prisma,
         gitlabService: this.gitlabService,
         issueId,
@@ -570,11 +735,22 @@ Do NOT omit the JSON block.`;
       });
 
       if (testResult.passed) {
-        await this.handlePassed(ctx, issueId, mrIid, gitlabProjectId, testResult);
+        await this.handlePassed(
+          ctx,
+          issueId,
+          mrIid,
+          gitlabProjectId,
+          testResult,
+        );
       } else {
-        await this.handleFailed(ctx, issueId, mrIid, gitlabProjectId, testResult);
+        await this.handleFailed(
+          ctx,
+          issueId,
+          mrIid,
+          gitlabProjectId,
+          testResult,
+        );
       }
-
     } catch (err) {
       this.logger.error(`UI test failed: ${err.message}`, err.stack);
       await this.sendAgentMessage(ctx, `**UI Tester** error: ${err.message}`);
@@ -597,13 +773,17 @@ Do NOT omit the JSON block.`;
       for (const c of captures) {
         parts.push(`**${c.route}**`);
         if (c.consoleErrors.length > 0) {
-          parts.push(`- Console Errors: ${c.consoleErrors.slice(0, 5).join('; ')}`);
+          parts.push(
+            `- Console Errors: ${c.consoleErrors.slice(0, 5).join('; ')}`,
+          );
         } else {
           parts.push('- No console errors');
         }
         // Include a DOM summary (first 2000 chars)
         const domSummary = c.domSnapshot.substring(0, 2000);
-        parts.push(`- DOM snapshot (first 2000 chars):\n\`\`\`html\n${domSummary}\n\`\`\``);
+        parts.push(
+          `- DOM snapshot (first 2000 chars):\n\`\`\`html\n${domSummary}\n\`\`\``,
+        );
         parts.push('');
       }
     }
@@ -615,7 +795,9 @@ Do NOT omit the JSON block.`;
       parts.push(`- Passes: ${a11y.passes}`);
       parts.push(`- Violations: ${a11y.violations.length}`);
       for (const v of a11y.violations.slice(0, 10)) {
-        parts.push(`  - **${v.impact}**: ${v.description} (${v.nodes} element(s)) — ${v.id}`);
+        parts.push(
+          `  - **${v.impact}**: ${v.description} (${v.nodes} element(s)) — ${v.id}`,
+        );
       }
       parts.push('');
     }
@@ -624,7 +806,9 @@ Do NOT omit the JSON block.`;
     if (responsive?.captures?.length > 0) {
       parts.push('### Responsive Check:');
       for (const rc of responsive.captures) {
-        parts.push(`- ${rc.viewport} (${rc.width}x${rc.height}): Screenshot captured`);
+        parts.push(
+          `- ${rc.viewport} (${rc.width}x${rc.height}): Screenshot captured`,
+        );
       }
       parts.push('');
     }
@@ -646,7 +830,9 @@ Do NOT omit the JSON block.`;
       // Look for component file paths that suggest pages
       const pathMatch = d.new_path.match(/pages?\/([^/]+)/);
       if (pathMatch) {
-        routes.add(`/${pathMatch[1].replace(/\.(component|page)\.(ts|tsx|vue|svelte)$/, '')}`);
+        routes.add(
+          `/${pathMatch[1].replace(/\.(component|page)\.(ts|tsx|vue|svelte)$/, '')}`,
+        );
       }
     }
 
@@ -696,8 +882,8 @@ Do NOT omit the JSON block.`;
     testResult: UiTestResult,
   ): Promise<void> {
     const findingsText = testResult.findings
-      .filter(f => f.severity !== 'info')
-      .map(f => `- **${f.severity}** [${f.type}] ${f.page}: ${f.description}`)
+      .filter((f) => f.severity !== 'info')
+      .map((f) => `- **${f.severity}** [${f.type}] ${f.page}: ${f.description}`)
       .join('\n');
 
     await this.sendAgentMessage(
@@ -716,12 +902,19 @@ Do NOT omit the JSON block.`;
 
     await this.updateStatus(ctx, AgentStatus.IDLE);
 
-    const relevantFindings = testResult.findings.filter(f => f.severity !== 'info');
+    const relevantFindings = testResult.findings.filter(
+      (f) => f.severity !== 'info',
+    );
     const feedback = relevantFindings
       .map((f, i) => {
-        const persist = f.persistsSinceRound ? ` (open since round ${f.persistsSinceRound})` : '';
-        const verifiable = f.verifiableFromCode === false ? ' [needs browser verification]' : '';
-        const parts = [`${i + 1}. [${f.severity.toUpperCase()}] [${f.type}] ${f.page}${persist}${verifiable}`];
+        const persist = f.persistsSinceRound
+          ? ` (open since round ${f.persistsSinceRound})`
+          : '';
+        const verifiable =
+          f.verifiableFromCode === false ? ' [needs browser verification]' : '';
+        const parts = [
+          `${i + 1}. [${f.severity.toUpperCase()}] [${f.type}] ${f.page}${persist}${verifiable}`,
+        ];
         parts.push(`   Problem: ${f.description}`);
         if (f.expectedState) parts.push(`   Expected: ${f.expectedState}`);
         if (f.observedState) parts.push(`   Observed: ${f.observedState}`);
@@ -742,12 +935,15 @@ Do NOT omit the JSON block.`;
 
   // ─── Parsing ──────────────────────────────────────────────
 
-  private parseTestResult(content: string, issueId: string): UiTestResult | null {
+  private parseTestResult(
+    content: string,
+    issueId: string,
+  ): UiTestResult | null {
     this.logger.debug(`Parsing UI test result (${content.length} chars)`);
 
     if (!content.trim()) return null;
 
-    let cleaned = content.replace(/<think>[\s\S]*?<\/think>/g, '').trim();
+    const cleaned = content.replace(/<think>[\s\S]*?<\/think>/g, '').trim();
 
     const jsonStr = this.extractJson(cleaned);
 
@@ -763,13 +959,15 @@ Do NOT omit the JSON block.`;
 
       const parsed = JSON.parse(fixed);
       const passed = this.normalizePass(parsed);
-      const findings = this.parseFindings(parsed.findings || parsed.issues || []);
+      const findings = this.parseFindings(
+        parsed.findings || parsed.issues || [],
+      );
 
       let summary = parsed.summary || '';
       if (!summary || summary.length < 5) {
         summary = passed
           ? `UI test passed (${findings.length} finding(s))`
-          : `UI test failed (${findings.filter(f => f.severity !== 'info').length} issue(s))`;
+          : `UI test failed (${findings.filter((f) => f.severity !== 'info').length} issue(s))`;
       }
 
       const result: UiTestResult = {
@@ -796,7 +994,6 @@ Do NOT omit the JSON block.`;
       }
 
       return result;
-
     } catch (err) {
       this.logger.error(`JSON parse failed: ${err.message}`);
       return this.buildResultFromText(cleaned, issueId);
@@ -805,9 +1002,11 @@ Do NOT omit the JSON block.`;
 
   private extractJson(content: string): string | null {
     if (content.includes(COMPLETION_MARKER)) {
-      const after = content.substring(
-        content.indexOf(COMPLETION_MARKER) + COMPLETION_MARKER.length,
-      ).trim();
+      const after = content
+        .substring(
+          content.indexOf(COMPLETION_MARKER) + COMPLETION_MARKER.length,
+        )
+        .trim();
       const json = this.findJsonObject(after);
       if (json) return json;
     }
@@ -833,14 +1032,18 @@ Do NOT omit the JSON block.`;
   }
 
   private findJsonObject(str: string): string | null {
-    const stripped = str.replace(/^```(?:json)?\s*\n?/, '').replace(/\n?```\s*$/, '').trim();
+    const stripped = str
+      .replace(/^```(?:json)?\s*\n?/, '')
+      .replace(/\n?```\s*$/, '')
+      .trim();
     const match = stripped.match(/\{[\s\S]*\}/);
     return match ? match[0] : null;
   }
 
   private normalizePass(parsed: any): boolean {
     if (typeof parsed.passed === 'boolean') return parsed.passed;
-    if (typeof parsed.passed === 'string') return parsed.passed.toLowerCase() === 'true';
+    if (typeof parsed.passed === 'string')
+      return parsed.passed.toLowerCase() === 'true';
     if (parsed.status) {
       const s = String(parsed.status).toLowerCase();
       return s === 'pass' || s === 'passed' || s === 'success';
@@ -850,26 +1053,43 @@ Do NOT omit the JSON block.`;
 
   private parseFindings(raw: any): UiTestFinding[] {
     if (!Array.isArray(raw)) return [];
-    const validTypes = ['layout', 'responsive', 'accessibility', 'visual', 'interaction'];
+    const validTypes = [
+      'layout',
+      'responsive',
+      'accessibility',
+      'visual',
+      'interaction',
+    ];
     return raw
       .filter((f: any) => f && typeof f === 'object')
       .map((f: any) => ({
         type: validTypes.includes(f.type) ? f.type : 'visual',
         page: String(f.page ?? f.route ?? f.url ?? '/'),
-        description: String(f.description ?? f.message ?? f.details ?? 'No details'),
+        description: String(
+          f.description ?? f.message ?? f.details ?? 'No details',
+        ),
         severity: this.normalizeSeverity(f.severity),
-        verifiableFromCode: typeof f.verifiableFromCode === 'boolean' ? f.verifiableFromCode : undefined,
+        verifiableFromCode:
+          typeof f.verifiableFromCode === 'boolean'
+            ? f.verifiableFromCode
+            : undefined,
         expectedState: f.expectedState ? String(f.expectedState) : undefined,
         observedState: f.observedState ? String(f.observedState) : undefined,
-        persistsSinceRound: typeof f.persistsSinceRound === 'number' ? f.persistsSinceRound : undefined,
-        status: ['new', 'resolved', 'unresolved', 'blocked'].includes(f.status) ? f.status : undefined,
+        persistsSinceRound:
+          typeof f.persistsSinceRound === 'number'
+            ? f.persistsSinceRound
+            : undefined,
+        status: ['new', 'resolved', 'unresolved', 'blocked'].includes(f.status)
+          ? f.status
+          : undefined,
       }));
   }
 
   private normalizeSeverity(raw: any): 'info' | 'warning' | 'critical' {
     if (!raw) return 'warning';
     const s = String(raw).toLowerCase();
-    if (['critical', 'error', 'high', 'major', 'blocker'].includes(s)) return 'critical';
+    if (['critical', 'error', 'high', 'major', 'blocker'].includes(s))
+      return 'critical';
     if (['warning', 'warn', 'medium', 'minor'].includes(s)) return 'warning';
     return 'info';
   }
@@ -878,11 +1098,16 @@ Do NOT omit the JSON block.`;
     const lower = text.toLowerCase();
     const lastLines = lower.split('\n').slice(-10).join(' ');
 
-    const strongFail = /\b(test(s)?\s+(have\s+)?failed|result:\s*fail|verdict:\s*fail|overall:\s*fail|critical\s+issue)\b/.test(lastLines);
+    const strongFail =
+      /\b(test(s)?\s+(have\s+)?failed|result:\s*fail|verdict:\s*fail|overall:\s*fail|critical\s+issue)\b/.test(
+        lastLines,
+      );
     // Default to pass if no clear failure signal (prevents infinite loops)
     const passed = !strongFail;
 
-    this.logger.log(`buildResultFromText: strongFail=${strongFail}, passed=${passed}`);
+    this.logger.log(
+      `buildResultFromText: strongFail=${strongFail}, passed=${passed}`,
+    );
 
     return {
       issueId,
@@ -893,33 +1118,6 @@ Do NOT omit the JSON block.`;
         : 'UI test passed (no clear failure detected — defaulting to pass)',
       pagesChecked: 0,
     };
-  }
-
-  // ─── Markdown Builder ────────────────────────────────────────
-
-  private buildTestMarkdown(result: UiTestResult): string {
-    const icon = result.passed ? '✅' : '❌';
-    const status = result.passed ? 'PASSED' : 'FAILED';
-
-    const parts = [
-      `## ${icon} UI Test: ${status}`,
-      '',
-      result.summary,
-      `_Pages checked: ${result.pagesChecked}_`,
-    ];
-
-    if (result.findings.length > 0) {
-      parts.push('', '### Findings:');
-      for (const f of result.findings) {
-        const fIcon = f.severity === 'critical' ? '🔴' : f.severity === 'warning' ? '🟡' : '🔵';
-        parts.push(`${fIcon} **${f.severity}** [${f.type}] — \`${f.page}\``);
-        parts.push(`  ${f.description}`);
-        parts.push('');
-      }
-    }
-
-    parts.push('---', '_Tested by UI Tester Agent_');
-    return parts.join('\n');
   }
 
   // ─── Visual Screenshot Analysis ─────────────────────────
@@ -940,8 +1138,12 @@ Do NOT omit the JSON block.`;
 
     if (removedCount === 0) return testResult;
 
-    const criticalCount = filtered.filter((f) => f.severity === 'critical').length;
-    const warningCount = filtered.filter((f) => f.severity === 'warning').length;
+    const criticalCount = filtered.filter(
+      (f) => f.severity === 'critical',
+    ).length;
+    const warningCount = filtered.filter(
+      (f) => f.severity === 'warning',
+    ).length;
     const passed = criticalCount === 0 && warningCount <= 3;
 
     this.logger.log(
@@ -995,38 +1197,56 @@ Use this exact format for each:
     ];
 
     for (const img of images) {
-      contentParts.push({ type: 'text', text: `\n--- Screenshot: ${img.label} ---` });
-      contentParts.push({ type: 'image', mediaType: 'image/png', base64: img.base64 });
+      contentParts.push({
+        type: 'text',
+        text: `\n--- Screenshot: ${img.label} ---`,
+      });
+      contentParts.push({
+        type: 'image',
+        mediaType: 'image/png',
+        base64: img.base64,
+      });
     }
 
     // Use the configured provider — but only if it supports multimodal.
     // CLI providers (CLAUDE_CODE, CODEX_CLI, etc.) don't support inline images.
     // Fallback chain: ANTHROPIC > GOOGLE > OPENAI > configured provider
     let provider = config.provider;
-    const cliProviders = ['CLAUDE_CODE', 'CODEX_CLI', 'GEMINI_CLI', 'QWEN3_CODER'];
+    const cliProviders = [
+      'CLAUDE_CODE',
+      'CODEX_CLI',
+      'GEMINI_CLI',
+      'QWEN3_CODER',
+    ];
     if (cliProviders.includes(provider)) {
       // Try cloud providers that support multimodal
       for (const fallback of ['ANTHROPIC', 'GOOGLE', 'OPENAI']) {
-        const fbConfig = this.settings.get(`llm.${fallback.toLowerCase()}.apiKey`, undefined, '');
+        const fbConfig = this.settings.get(
+          `llm.${fallback.toLowerCase()}.apiKey`,
+          undefined,
+          '',
+        );
         if (fbConfig) {
           provider = fallback;
-          this.logger.log(`Visual analysis: CLI provider ${config.provider} doesn't support images, falling back to ${provider}`);
+          this.logger.log(
+            `Visual analysis: CLI provider ${config.provider} doesn't support images, falling back to ${provider}`,
+          );
           break;
         }
       }
       // If no cloud provider available, fall back to Ollama (supports images with multimodal models)
       if (cliProviders.includes(provider)) {
         provider = 'OLLAMA';
-        this.logger.log('Visual analysis: falling back to OLLAMA for multimodal');
+        this.logger.log(
+          'Visual analysis: falling back to OLLAMA for multimodal',
+        );
       }
     }
 
     const result = await this.llmService.complete({
       provider,
       model: config.model,
-      messages: [
-        { role: 'user', content: contentParts },
-      ],
+      messages: [{ role: 'user', content: contentParts }],
       temperature: 0.2,
       maxTokens: config.parameters.maxTokens,
     });
@@ -1036,7 +1256,9 @@ Use this exact format for each:
       return '';
     }
 
-    this.logger.log(`Visual analysis: ${result.content.length} chars from ${provider}/${config.model}`);
+    this.logger.log(
+      `Visual analysis: ${result.content.length} chars from ${provider}/${config.model}`,
+    );
     return result.content;
   }
 
@@ -1076,7 +1298,9 @@ Use this exact format for each:
             entry.description = sectionBody.substring(0, 2000);
 
             // Extract findings from the "Issues:" line
-            const issuesMatch = sectionBody.match(/\*\*Issues?:\*\*\s*(.+?)(?:\n|$)/i);
+            const issuesMatch = sectionBody.match(
+              /\*\*Issues?:\*\*\s*(.+?)(?:\n|$)/i,
+            );
             if (issuesMatch) {
               const issuesText = issuesMatch[1].trim();
               if (!/^none/i.test(issuesText) && issuesText.length > 3) {
@@ -1092,7 +1316,9 @@ Use this exact format for each:
       await fs.writeFile(manifestPath, JSON.stringify(manifest, null, 2));
       this.logger.log(`Manifest updated with ${sections.length} descriptions`);
     } catch (err) {
-      this.logger.warn(`Failed to update manifest descriptions: ${err.message}`);
+      this.logger.warn(
+        `Failed to update manifest descriptions: ${err.message}`,
+      );
     }
   }
 
@@ -1105,12 +1331,22 @@ Use this exact format for each:
     delayMs: number,
   ): Promise<any[]> {
     for (let attempt = 1; attempt <= maxRetries; attempt++) {
-      const diffs = await this.gitlabService.getMergeRequestDiffs(gitlabProjectId, mrIid);
-      if (diffs.length > 0) return diffs;
+      try {
+        const diffs = await this.gitlabService.getMergeRequestDiffs(
+          gitlabProjectId,
+          mrIid,
+        );
+        if (diffs.length > 0) return diffs;
+      } catch (err) {
+        this.logger.warn(
+          `Diff fetch attempt ${attempt}/${maxRetries} failed for MR !${mrIid}: ${err.message}`,
+        );
+      }
       if (attempt < maxRetries) {
-        await new Promise(resolve => setTimeout(resolve, delayMs));
+        await new Promise((resolve) => setTimeout(resolve, delayMs));
       }
     }
+    this.logger.warn(`MR !${mrIid} still has no diffs after ${maxRetries} attempts`);
     return [];
   }
 

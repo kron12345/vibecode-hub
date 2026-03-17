@@ -10,7 +10,11 @@ import { LlmMessage } from '../../llm/llm.interfaces';
 import { BaseAgent, AgentContext } from '../agent-base';
 import { MonitorGateway } from '../../monitor/monitor.gateway';
 import { DualTestService } from '../dual-test.service';
-import { postAgentComment, getAgentCommentHistory, extractLastAgentFindings } from '../agent-comment.utils';
+import {
+  postAgentComment,
+  getAgentCommentHistory,
+  extractLastAgentFindings,
+} from '../agent-comment.utils';
 import {
   buildArchitectScopeGuardSection,
   extractArchitectOutOfScopeItems,
@@ -115,7 +119,14 @@ export class CodeReviewerAgent extends BaseAgent {
     private readonly eventEmitter: EventEmitter2,
     private readonly dualTestService: DualTestService,
   ) {
-    super(prisma, settings, chatService, chatGateway, llmService, monitorGateway);
+    super(
+      prisma,
+      settings,
+      chatService,
+      chatGateway,
+      llmService,
+      monitorGateway,
+    );
   }
 
   /**
@@ -146,12 +157,21 @@ export class CodeReviewerAgent extends BaseAgent {
       );
 
       // Get MR diffs — retry with delay because GitLab needs time to compute diffs
-      let diffs = await this.fetchDiffsWithRetry(gitlabProjectId, mrIid, 3, 5000);
+      const diffs = await this.fetchDiffsWithRetry(
+        gitlabProjectId,
+        mrIid,
+        3,
+        5000,
+      );
 
       if (diffs.length === 0) {
         await this.sendAgentMessage(ctx, '⚠️ MR has no diffs — auto-approving');
         await this.handleApproved(ctx, issueId, mrIid, gitlabProjectId, {
-          issueId, mrIid, approved: true, findings: [], summary: 'No diffs in MR',
+          issueId,
+          mrIid,
+          approved: true,
+          findings: [],
+          summary: 'No diffs in MR',
         });
         return;
       }
@@ -165,7 +185,8 @@ export class CodeReviewerAgent extends BaseAgent {
       const MAX_DIFF_CHARS = 20000;
       const sortedDiffs = [...diffs].sort((a, b) => {
         const score = (path: string) => {
-          if (/\.(ts|js|tsx|jsx|py|rs|go|java|css|scss|html)$/.test(path)) return 0;
+          if (/\.(ts|js|tsx|jsx|py|rs|go|java|css|scss|html)$/.test(path))
+            return 0;
           if (/\.(json|yml|yaml|toml|env)$/.test(path)) return 1;
           return 2;
         };
@@ -175,17 +196,31 @@ export class CodeReviewerAgent extends BaseAgent {
       const reviewDiffs = sortedDiffs.slice(0, MAX_REVIEW_DIFFS);
       const skippedCount = diffs.length - reviewDiffs.length;
 
-      this.logger.log(`Reviewing ${reviewDiffs.length} of ${diffs.length} diff(s) for MR !${mrIid}${skippedCount > 0 ? ` (${skippedCount} skipped)` : ''}`);
+      this.logger.log(
+        `Reviewing ${reviewDiffs.length} of ${diffs.length} diff(s) for MR !${mrIid}${skippedCount > 0 ? ` (${skippedCount} skipped)` : ''}`,
+      );
 
-      const diffText = reviewDiffs.map(d => {
-        const prefix = d.new_file ? '[NEW]' : d.deleted_file ? '[DELETED]' : d.renamed_file ? '[RENAMED]' : '[MODIFIED]';
-        const truncated = d.diff.length > MAX_DIFF_CHARS ? d.diff.substring(0, MAX_DIFF_CHARS) + '\n... (truncated)' : d.diff;
-        return `### ${prefix} ${d.new_path}\n\`\`\`diff\n${truncated}\n\`\`\``;
-      }).join('\n\n');
+      const diffText = reviewDiffs
+        .map((d) => {
+          const prefix = d.new_file
+            ? '[NEW]'
+            : d.deleted_file
+              ? '[DELETED]'
+              : d.renamed_file
+                ? '[RENAMED]'
+                : '[MODIFIED]';
+          const truncated =
+            d.diff.length > MAX_DIFF_CHARS
+              ? d.diff.substring(0, MAX_DIFF_CHARS) + '\n... (truncated)'
+              : d.diff;
+          return `### ${prefix} ${d.new_path}\n\`\`\`diff\n${truncated}\n\`\`\``;
+        })
+        .join('\n\n');
 
-      const skippedNote = skippedCount > 0
-        ? `\n\n_Note: ${skippedCount} additional file(s) were omitted (node_modules, lock files, or low-priority). Focus on the shown diffs._`
-        : '';
+      const skippedNote =
+        skippedCount > 0
+          ? `\n\n_Note: ${skippedCount} additional file(s) were omitted (node_modules, lock files, or low-priority). Focus on the shown diffs._`
+          : '';
 
       // Inject project knowledge base for context (Wiki-First)
       const project = await this.prisma.project.findUnique({
@@ -196,22 +231,39 @@ export class CodeReviewerAgent extends BaseAgent {
         ? await this.resolveWorkspace(project.slug, ctx.chatSessionId)
         : '';
       const knowledgeSection = workspace
-        ? await this.buildKnowledgeSectionWiki(this.gitlabService, project?.gitlabProjectId ?? null, workspace)
+        ? await this.buildKnowledgeSectionWiki(
+            this.gitlabService,
+            project?.gitlabProjectId ?? null,
+            workspace,
+          )
         : '';
-      const commentHistory = await getAgentCommentHistory({ prisma: this.prisma, issueId });
+      const commentHistory = await getAgentCommentHistory({
+        prisma: this.prisma,
+        issueId,
+      });
       const historySection = commentHistory
         ? `\n## Previous Agent Comments on this Issue\n${commentHistory}\n`
         : '';
       const outOfScopeItems = extractArchitectOutOfScopeItems(commentHistory);
-      const scopeGuardSection = buildArchitectScopeGuardSection(outOfScopeItems);
+      const scopeGuardSection =
+        buildArchitectScopeGuardSection(outOfScopeItems);
 
       // Build structured previous findings section (Expectation Pattern memory)
-      const previousFindings = extractLastAgentFindings(commentHistory, 'Code Reviewer');
-      const previousFindingsSection = previousFindings.length > 0
-        ? `\n## YOUR Previous Review Findings — Re-Evaluate Each One\n${previousFindings.map((f, i) =>
-            `${i + 1}. [${(f.severity ?? 'warning').toUpperCase()}] \`${f.file ?? 'unknown'}\`: ${f.message}\n   Expected fix: ${f.expectedFix ?? f.suggestion ?? 'not specified'}`
-          ).join('\n')}\n\nFor each finding above: check if it is now fixed in the current code. Report fixed items in \`resolvedFromPrevious\`. Carry unfixed items forward in \`findings\` with the SAME message text.\n`
-        : '';
+      const previousFindings = extractLastAgentFindings(
+        commentHistory,
+        'Code Reviewer',
+      );
+      const previousFindingsSection =
+        previousFindings.length > 0
+          ? `\n## YOUR Previous Review Findings — Re-Evaluate Each One\n${previousFindings
+              .map(
+                (f, i) =>
+                  `${i + 1}. [${(f.severity ?? 'warning').toUpperCase()}] \`${f.file ?? 'unknown'}\`: ${f.message}\n   Expected fix: ${f.expectedFix ?? f.suggestion ?? 'not specified'}`,
+              )
+              .join(
+                '\n',
+              )}\n\nFor each finding above: check if it is now fixed in the current code. Report fixed items in \`resolvedFromPrevious\`. Carry unfixed items forward in \`findings\` with the SAME message text.\n`
+          : '';
 
       const userPrompt = `Review the following merge request${previousFindings.length > 0 ? ' (Re-review after fix attempt)' : ''}:
 
@@ -223,9 +275,11 @@ ${scopeGuardSection}
 
 ${diffText}${skippedNote}
 
-${previousFindings.length > 0
-  ? 'IMPORTANT: First address each item in "YOUR Previous Review Findings" above, then check for new issues.'
-  : 'Provide your review analysis and end with the completion marker and JSON result.'}`;
+${
+  previousFindings.length > 0
+    ? 'IMPORTANT: First address each item in "YOUR Previous Review Findings" above, then check for new issues.'
+    : 'Provide your review analysis and end with the completion marker and JSON result.'
+}`;
 
       const messages: LlmMessage[] = [
         { role: 'system', content: systemPrompt },
@@ -237,15 +291,26 @@ ${previousFindings.length > 0
 
       if (dualResult.primary.finishReason === 'error') {
         await this.sendAgentMessage(ctx, '❌ Code Reviewer LLM call failed');
-        await this.markFailed(ctx, `LLM call failed: ${dualResult.primary.errorMessage ?? 'unknown error'}`);
+        await this.markFailed(
+          ctx,
+          `LLM call failed: ${dualResult.primary.errorMessage ?? 'unknown error'}`,
+        );
         return;
       }
 
       // Parse primary review result
-      let reviewResult = this.parseReviewResult(dualResult.primary.content, issueId, mrIid);
+      let reviewResult = this.parseReviewResult(
+        dualResult.primary.content,
+        issueId,
+        mrIid,
+      );
 
       // If parsing returned 0 findings but the response was substantial, retry JSON extraction
-      if (reviewResult && reviewResult.findings.length === 0 && dualResult.primary.content.length > 500) {
+      if (
+        reviewResult &&
+        reviewResult.findings.length === 0 &&
+        dualResult.primary.content.length > 500
+      ) {
         const retryJson = await this.dualTestService.retryJsonExtraction(
           config,
           dualResult.primary.content,
@@ -254,22 +319,33 @@ ${previousFindings.length > 0
         if (retryJson) {
           const retried = this.parseReviewResult(retryJson, issueId, mrIid);
           if (retried && retried.findings.length > 0) {
-            this.logger.log(`JSON retry recovered ${retried.findings.length} findings`);
+            this.logger.log(
+              `JSON retry recovered ${retried.findings.length} findings`,
+            );
             reviewResult = retried;
           }
         }
       }
 
       // Dual-testing: parse secondary and merge findings
-      if (reviewResult && dualResult.secondary && dualResult.secondary.finishReason !== 'error') {
-        const secondaryReview = this.parseReviewResult(dualResult.secondary.content, issueId, mrIid);
+      if (
+        reviewResult &&
+        dualResult.secondary &&
+        dualResult.secondary.finishReason !== 'error'
+      ) {
+        const secondaryReview = this.parseReviewResult(
+          dualResult.secondary.content,
+          issueId,
+          mrIid,
+        );
         if (secondaryReview) {
           const strategy = config.dualStrategy ?? 'merge';
           const { merged, stats } = this.dualTestService.mergeFindings(
             reviewResult.findings,
             secondaryReview.findings,
             strategy,
-            (f: ReviewFinding) => `${f.file}:${f.line ?? ''}:${f.message.substring(0, 50).toLowerCase()}`,
+            (f: ReviewFinding) =>
+              `${f.file}:${f.line ?? ''}:${f.message.substring(0, 50).toLowerCase()}`,
           );
 
           // Code reviews tolerate more warnings than tests — approve with up to 5 non-critical warnings
@@ -284,31 +360,51 @@ ${previousFindings.length > 0
       }
 
       if (!reviewResult) {
-        await this.sendAgentMessage(ctx, '⚠️ Could not parse review result — defaulting to approved');
+        await this.sendAgentMessage(
+          ctx,
+          '⚠️ Could not parse review result — defaulting to approved',
+        );
         await this.handleApproved(ctx, issueId, mrIid, gitlabProjectId, {
-          issueId, mrIid, approved: true, findings: [], summary: 'Review parse failed — auto-approved',
+          issueId,
+          mrIid,
+          approved: true,
+          findings: [],
+          summary: 'Review parse failed — auto-approved',
         });
         return;
       }
 
       // Enforce Architect out-of-scope constraints server-side to prevent false review loops.
-      reviewResult = this.applyArchitectScopeFilter(reviewResult, outOfScopeItems);
+      reviewResult = this.applyArchitectScopeFilter(
+        reviewResult,
+        outOfScopeItems,
+      );
 
       // ─── Finding Threads: Post findings as MR discussion threads ───
-      const findingsForThreads: FindingForThread[] = reviewResult.findings.map(f => {
-        const parts = [`**${f.severity.toUpperCase()}** — \`${f.file}${f.line ? `:${f.line}` : ''}\``, '', f.message];
-        if (f.expectedFix) parts.push('', `**Expected Fix:** ${f.expectedFix}`);
-        if (f.suggestion) parts.push('', `💡 ${f.suggestion}`);
-        return {
-          severity: f.severity,
-          message: f.message,
-          file: f.file,
-          line: f.line,
-          threadBody: parts.join('\n'),
-        };
-      });
+      const findingsForThreads: FindingForThread[] = reviewResult.findings.map(
+        (f) => {
+          const parts = [
+            `**${f.severity.toUpperCase()}** — \`${f.file}${f.line ? `:${f.line}` : ''}\``,
+            '',
+            f.message,
+          ];
+          if (f.expectedFix)
+            parts.push('', `**Expected Fix:** ${f.expectedFix}`);
+          if (f.suggestion) parts.push('', `💡 ${f.suggestion}`);
+          return {
+            severity: f.severity,
+            message: f.message,
+            file: f.file,
+            line: f.line,
+            threadBody: parts.join('\n'),
+          };
+        },
+      );
 
-      const { activeThreads: allActiveThreads, resolvedThreads: resolvedThreadRecords } = await syncFindingThreads({
+      const {
+        activeThreads: allActiveThreads,
+        resolvedThreads: resolvedThreadRecords,
+      } = await syncFindingThreads({
         prisma: this.prisma,
         gitlabService: this.gitlabService,
         issueId,
@@ -339,14 +435,28 @@ ${previousFindings.length > 0
       });
 
       if (reviewResult.approved) {
-        await this.handleApproved(ctx, issueId, mrIid, gitlabProjectId, reviewResult);
+        await this.handleApproved(
+          ctx,
+          issueId,
+          mrIid,
+          gitlabProjectId,
+          reviewResult,
+        );
       } else {
-        await this.handleChangesRequested(ctx, issueId, mrIid, gitlabProjectId, reviewResult);
+        await this.handleChangesRequested(
+          ctx,
+          issueId,
+          mrIid,
+          gitlabProjectId,
+          reviewResult,
+        );
       }
-
     } catch (err) {
       this.logger.error(`Review failed: ${err.message}`, err.stack);
-      await this.sendAgentMessage(ctx, `❌ **Code Reviewer** error: ${err.message}`);
+      await this.sendAgentMessage(
+        ctx,
+        `❌ **Code Reviewer** error: ${err.message}`,
+      );
       await this.markFailed(ctx, err.message);
     }
   }
@@ -373,7 +483,9 @@ ${previousFindings.length > 0
 
     // Sync status label to GitLab
     if (approvedIssue.gitlabIid) {
-      await this.gitlabService.syncStatusLabel(gitlabProjectId, approvedIssue.gitlabIid, 'TESTING').catch(() => {});
+      await this.gitlabService
+        .syncStatusLabel(gitlabProjectId, approvedIssue.gitlabIid, 'TESTING')
+        .catch(() => {});
     }
 
     // Complete task
@@ -405,7 +517,10 @@ ${previousFindings.length > 0
     reviewResult: ReviewResult,
   ): Promise<void> {
     const findingsText = reviewResult.findings
-      .map(f => `- **${f.severity}** \`${f.file}${f.line ? `:${f.line}` : ''}\`: ${f.message}`)
+      .map(
+        (f) =>
+          `- **${f.severity}** \`${f.file}${f.line ? `:${f.line}` : ''}\`: ${f.message}`,
+      )
       .join('\n');
 
     await this.sendAgentMessage(
@@ -421,7 +536,9 @@ ${previousFindings.length > 0
 
     // Sync status label to GitLab
     if (changedIssue.gitlabIid) {
-      await this.gitlabService.syncStatusLabel(gitlabProjectId, changedIssue.gitlabIid, 'IN_PROGRESS').catch(() => {});
+      await this.gitlabService
+        .syncStatusLabel(gitlabProjectId, changedIssue.gitlabIid, 'IN_PROGRESS')
+        .catch(() => {});
     }
 
     // Complete review task
@@ -439,8 +556,12 @@ ${previousFindings.length > 0
     // Build feedback for Coder — include expectedFix and persistence info
     const findingsForCoder = reviewResult.findings
       .map((f, i) => {
-        const persist = f.firstReportedRound ? ` (open since round ${f.firstReportedRound})` : '';
-        const parts = [`${i + 1}. [${f.severity.toUpperCase()}] \`${f.file}${f.line ? `:${f.line}` : ''}\`${persist}`];
+        const persist = f.firstReportedRound
+          ? ` (open since round ${f.firstReportedRound})`
+          : '';
+        const parts = [
+          `${i + 1}. [${f.severity.toUpperCase()}] \`${f.file}${f.line ? `:${f.line}` : ''}\`${persist}`,
+        ];
         parts.push(`   Finding: ${f.message}`);
         if (f.expectedFix) {
           parts.push(`   EXPECTED FIX: ${f.expectedFix}`);
@@ -465,7 +586,11 @@ ${previousFindings.length > 0
 
   // ─── Parsing ──────────────────────────────────────────────
 
-  private parseReviewResult(content: string, issueId: string, mrIid: number): ReviewResult | null {
+  private parseReviewResult(
+    content: string,
+    issueId: string,
+    mrIid: number,
+  ): ReviewResult | null {
     this.logger.debug(`Parsing review result (${content.length} chars)`);
 
     if (!content.trim()) {
@@ -474,17 +599,21 @@ ${previousFindings.length > 0
     }
 
     // Step 1: Strip <think> tags (deepseek-r1 may include them even with think:false)
-    let cleaned = content.replace(/<think>[\s\S]*?<\/think>/g, '').trim();
+    const cleaned = content.replace(/<think>[\s\S]*?<\/think>/g, '').trim();
 
     if (cleaned.length !== content.length) {
-      this.logger.debug(`Stripped <think> tags: ${content.length} → ${cleaned.length} chars`);
+      this.logger.debug(
+        `Stripped <think> tags: ${content.length} → ${cleaned.length} chars`,
+      );
     }
 
     // Step 2: Try to extract JSON after the completion marker
     let jsonStr = this.extractJsonFromReview(cleaned);
 
     if (!jsonStr) {
-      this.logger.warn('Could not extract JSON from review — attempting text-based analysis');
+      this.logger.warn(
+        'Could not extract JSON from review — attempting text-based analysis',
+      );
       return this.buildResultFromText(cleaned, issueId, mrIid);
     }
 
@@ -500,32 +629,49 @@ ${previousFindings.length > 0
       // Format B (deepseek-r1): { status: "APPROVED"|"CHANGES_REQUIRED", issues: [...], summary?: str }
       // Format C: { decision: "approve"|"reject", comments: [...] }
       const approved = this.normalizeApproval(parsed);
-      const findings = this.parseFindings(parsed.findings || parsed.issues || parsed.comments || parsed.problems || []);
+      const findings = this.parseFindings(
+        parsed.findings ||
+          parsed.issues ||
+          parsed.comments ||
+          parsed.problems ||
+          [],
+      );
       // Build summary — avoid using status/decision strings as summary
       let summary = parsed.summary || this.extractSummaryFromText(cleaned);
       // Clean up common prefixes from extracted summaries
       if (summary) {
-        summary = summary.replace(/^[:\s]*(?:CHANGES_REQUIRED|APPROVED|CHANGES REQUESTED)[:\s]*/i, '').trim();
+        summary = summary
+          .replace(
+            /^[:\s]*(?:CHANGES_REQUIRED|APPROVED|CHANGES REQUESTED)[:\s]*/i,
+            '',
+          )
+          .trim();
       }
       if (!summary || summary.length < 5) {
-        summary = approved ? 'Code review passed' : `Changes requested (${findings.length} finding(s))`;
+        summary = approved
+          ? 'Code review passed'
+          : `Changes requested (${findings.length} finding(s))`;
       }
 
       // Apply decision rules ourselves — don't blindly trust LLM's "approved" field
       // APPROVE if: no critical findings AND ≤2 warnings (matches system prompt)
-      const criticalFindings = findings.filter(f => f.severity === 'critical');
-      const warningFindings = findings.filter(f => f.severity === 'warning');
-      const ruleBasedApproval = criticalFindings.length === 0 && warningFindings.length <= 2;
+      const criticalFindings = findings.filter(
+        (f) => f.severity === 'critical',
+      );
+      const warningFindings = findings.filter((f) => f.severity === 'warning');
+      const ruleBasedApproval =
+        criticalFindings.length === 0 && warningFindings.length <= 2;
 
       if (ruleBasedApproval !== approved) {
         this.logger.warn(
           `Overriding LLM approval (${approved}) → ${ruleBasedApproval} based on decision rules: ` +
-          `${criticalFindings.length} critical, ${warningFindings.length} warnings, ${findings.length} total findings`,
+            `${criticalFindings.length} critical, ${warningFindings.length} warnings, ${findings.length} total findings`,
         );
       }
 
       // Extract Expectation Pattern metadata
-      const roundNumber = typeof parsed.roundNumber === 'number' ? parsed.roundNumber : undefined;
+      const roundNumber =
+        typeof parsed.roundNumber === 'number' ? parsed.roundNumber : undefined;
       const resolvedFromPrevious = Array.isArray(parsed.resolvedFromPrevious)
         ? parsed.resolvedFromPrevious
             .filter((r: any) => r && typeof r === 'object' && r.message)
@@ -545,11 +691,14 @@ ${previousFindings.length > 0
         resolvedFromPrevious,
       };
 
-      this.logger.log(`Parsed review: approved=${result.approved}, findings=${result.findings.length} (${criticalFindings.length}C/${warningFindings.length}W), summary="${result.summary.substring(0, 80)}"`);
+      this.logger.log(
+        `Parsed review: approved=${result.approved}, findings=${result.findings.length} (${criticalFindings.length}C/${warningFindings.length}W), summary="${result.summary.substring(0, 80)}"`,
+      );
       return result;
-
     } catch (err) {
-      this.logger.error(`JSON parse failed: ${err.message} — raw JSON: ${jsonStr.substring(0, 200)}`);
+      this.logger.error(
+        `JSON parse failed: ${err.message} — raw JSON: ${jsonStr.substring(0, 200)}`,
+      );
       // Fall back to text analysis
       return this.buildResultFromText(cleaned, issueId, mrIid);
     }
@@ -561,9 +710,11 @@ ${previousFindings.length > 0
   private extractJsonFromReview(content: string): string | null {
     // Strategy 1: After :::REVIEW_COMPLETE::: marker
     if (content.includes(COMPLETION_MARKER)) {
-      const afterMarker = content.substring(
-        content.indexOf(COMPLETION_MARKER) + COMPLETION_MARKER.length,
-      ).trim();
+      const afterMarker = content
+        .substring(
+          content.indexOf(COMPLETION_MARKER) + COMPLETION_MARKER.length,
+        )
+        .trim();
       const json = this.findJsonObject(afterMarker);
       if (json) return json;
     }
@@ -577,21 +728,39 @@ ${previousFindings.length > 0
 
     // Strategy 3: Last JSON object in the content (review JSON is usually at the end)
     // Validate each candidate actually parses as JSON to avoid matching code blocks
-    const allJsonMatches = [...content.matchAll(/\{[^{}]*(?:\{[^{}]*\}[^{}]*)*\}/g)];
+    const allJsonMatches = [
+      ...content.matchAll(/\{[^{}]*(?:\{[^{}]*\}[^{}]*)*\}/g),
+    ];
     if (allJsonMatches.length > 0) {
       for (let i = allJsonMatches.length - 1; i >= 0; i--) {
         const candidate = allJsonMatches[i][0];
-        if (candidate.includes('"approved"') || candidate.includes('"findings"')
-          || candidate.includes('"status"') || candidate.includes('"issues"')) {
-          try { JSON.parse(candidate); return candidate; } catch { continue; }
+        if (
+          candidate.includes('"approved"') ||
+          candidate.includes('"findings"') ||
+          candidate.includes('"status"') ||
+          candidate.includes('"issues"')
+        ) {
+          try {
+            JSON.parse(candidate);
+            return candidate;
+          } catch {
+            continue;
+          }
         }
       }
     }
 
     // Strategy 4: Greedy match — must also validate as parseable JSON
-    const greedyMatch = content.match(/\{[\s\S]*(?:"approved"|"status")[\s\S]*\}/);
+    const greedyMatch = content.match(
+      /\{[\s\S]*(?:"approved"|"status")[\s\S]*\}/,
+    );
     if (greedyMatch) {
-      try { JSON.parse(greedyMatch[0]); return greedyMatch[0]; } catch { /* skip */ }
+      try {
+        JSON.parse(greedyMatch[0]);
+        return greedyMatch[0];
+      } catch {
+        /* skip */
+      }
     }
 
     return null;
@@ -602,7 +771,10 @@ ${previousFindings.length > 0
    */
   private findJsonObject(str: string): string | null {
     // Strip markdown code fences if present
-    const stripped = str.replace(/^```(?:json)?\s*\n?/, '').replace(/\n?```\s*$/, '').trim();
+    const stripped = str
+      .replace(/^```(?:json)?\s*\n?/, '')
+      .replace(/\n?```\s*$/, '')
+      .trim();
     const match = stripped.match(/\{[\s\S]*\}/);
     return match ? match[0] : null;
   }
@@ -614,7 +786,8 @@ ${previousFindings.length > 0
     // Direct boolean
     if (typeof parsed.approved === 'boolean') return parsed.approved;
     // String "true"/"false"
-    if (typeof parsed.approved === 'string') return parsed.approved.toLowerCase() === 'true';
+    if (typeof parsed.approved === 'string')
+      return parsed.approved.toLowerCase() === 'true';
     // Status string (deepseek-r1 format)
     if (parsed.status) {
       const status = String(parsed.status).toLowerCase();
@@ -623,7 +796,9 @@ ${previousFindings.length > 0
     // Decision string
     if (parsed.decision) {
       const decision = String(parsed.decision).toLowerCase();
-      return decision === 'approve' || decision === 'approved' || decision === 'lgtm';
+      return (
+        decision === 'approve' || decision === 'approved' || decision === 'lgtm'
+      );
     }
     // Fallback: if there are critical findings, not approved
     return false;
@@ -640,19 +815,36 @@ ${previousFindings.length > 0
       .map((f: any) => ({
         severity: this.normalizeSeverity(f.severity || f.type || f.level),
         file: String(f.file ?? f.path ?? f.filename ?? 'unknown'),
-        line: typeof f.line === 'number' ? f.line : (typeof f.lineNumber === 'number' ? f.lineNumber : undefined),
-        message: String(f.message ?? f.description ?? f.comment ?? f.text ?? 'No details'),
-        suggestion: f.suggestion ? String(f.suggestion) : (f.suggestedFix ? String(f.suggestedFix) : undefined),
+        line:
+          typeof f.line === 'number'
+            ? f.line
+            : typeof f.lineNumber === 'number'
+              ? f.lineNumber
+              : undefined,
+        message: String(
+          f.message ?? f.description ?? f.comment ?? f.text ?? 'No details',
+        ),
+        suggestion: f.suggestion
+          ? String(f.suggestion)
+          : f.suggestedFix
+            ? String(f.suggestedFix)
+            : undefined,
         expectedFix: f.expectedFix ? String(f.expectedFix) : undefined,
-        firstReportedRound: typeof f.firstReportedRound === 'number' ? f.firstReportedRound : undefined,
-        status: ['new', 'resolved', 'unresolved', 'blocked'].includes(f.status) ? f.status : undefined,
+        firstReportedRound:
+          typeof f.firstReportedRound === 'number'
+            ? f.firstReportedRound
+            : undefined,
+        status: ['new', 'resolved', 'unresolved', 'blocked'].includes(f.status)
+          ? f.status
+          : undefined,
       }));
   }
 
   private normalizeSeverity(raw: any): 'info' | 'warning' | 'critical' {
     if (!raw) return 'warning';
     const s = String(raw).toLowerCase();
-    if (['critical', 'error', 'high', 'major', 'blocker'].includes(s)) return 'critical';
+    if (['critical', 'error', 'high', 'major', 'blocker'].includes(s))
+      return 'critical';
     if (['warning', 'warn', 'medium', 'minor'].includes(s)) return 'warning';
     return 'info';
   }
@@ -661,7 +853,11 @@ ${previousFindings.length > 0
    * Fallback: analyze the review text to determine approval/findings
    * when JSON parsing fails completely.
    */
-  private buildResultFromText(text: string, issueId: string, mrIid: number): ReviewResult {
+  private buildResultFromText(
+    text: string,
+    issueId: string,
+    mrIid: number,
+  ): ReviewResult {
     const lower = text.toLowerCase();
 
     // Determine approval from text keywords
@@ -683,15 +879,22 @@ ${previousFindings.length > 0
     const warningCount = (lower.match(/warning/g) || []).length;
 
     // Extract the first paragraph after any "summary" keyword as the summary
-    const summary = this.extractSummaryFromText(text) || 'Review analysis completed (parsed from text)';
+    const summary =
+      this.extractSummaryFromText(text) ||
+      'Review analysis completed (parsed from text)';
 
     // Build synthetic findings from text analysis
     const findings: ReviewFinding[] = [];
-    const findingPattern = /(?:^|\n)\s*(?:\d+\.\s*)?(?:\*\*)?(?:(?:critical|warning|info)[:\s—-]+)(.*?)(?:\n|$)/gi;
+    const findingPattern =
+      /(?:^|\n)\s*(?:\d+\.\s*)?(?:\*\*)?(?:(?:critical|warning|info)[:\s—-]+)(.*?)(?:\n|$)/gi;
     let match: RegExpExecArray | null;
     while ((match = findingPattern.exec(text)) !== null) {
       const line = match[0].trim();
-      const severity = /critical/i.test(line) ? 'critical' : /warning/i.test(line) ? 'warning' : 'info';
+      const severity = /critical/i.test(line)
+        ? 'critical'
+        : /warning/i.test(line)
+          ? 'warning'
+          : 'info';
       findings.push({
         severity,
         file: 'unknown',
@@ -701,14 +904,17 @@ ${previousFindings.length > 0
 
     // Apply decision rules: no critical findings AND ≤2 warnings → approve
     // This prevents false rejections when the LLM doesn't output clear keywords
-    const criticalFindings = findings.filter(f => f.severity === 'critical');
-    const warningFindings = findings.filter(f => f.severity === 'warning');
-    const ruleBasedApproval = criticalFindings.length === 0 && warningFindings.length <= 2;
+    const criticalFindings = findings.filter((f) => f.severity === 'critical');
+    const warningFindings = findings.filter((f) => f.severity === 'warning');
+    const ruleBasedApproval =
+      criticalFindings.length === 0 && warningFindings.length <= 2;
 
     // Use rule-based approval but let explicit rejection override if findings back it up
     const approved = ruleBasedApproval || (hasApproved && !hasChangesRequested);
 
-    this.logger.log(`Text-based review: approved=${approved} (rule=${ruleBasedApproval}, keywords: approve=${hasApproved}, reject=${hasChangesRequested}), criticals=${criticalCount}, warnings=${warningCount}, findings=${findings.length}`);
+    this.logger.log(
+      `Text-based review: approved=${approved} (rule=${ruleBasedApproval}, keywords: approve=${hasApproved}, reject=${hasChangesRequested}), criticals=${criticalCount}, warnings=${warningCount}, findings=${findings.length}`,
+    );
 
     return { issueId, mrIid, approved, summary, findings };
   }
@@ -718,7 +924,9 @@ ${previousFindings.length > 0
    */
   private extractSummaryFromText(text: string): string | null {
     // Look for explicit summary section
-    const summaryMatch = text.match(/(?:summary|decision|conclusion|overall)[:\s]*\n?\s*(.+?)(?:\n\n|\n(?=[#*\-]))/i);
+    const summaryMatch = text.match(
+      /(?:summary|decision|conclusion|overall)[:\s]*\n?\s*(.+?)(?:\n\n|\n(?=[#*\-]))/i,
+    );
     if (summaryMatch) {
       const cleaned = summaryMatch[1].replace(/^\*+\s*|\s*\*+$/g, '').trim();
       if (cleaned.length > 10) return cleaned.substring(0, 200);
@@ -729,9 +937,17 @@ ${previousFindings.length > 0
     const beforeMarker = markerPos > 0 ? text.substring(0, markerPos) : text;
 
     // Split into paragraphs and find the first meaningful one
-    const paragraphs = beforeMarker.split(/\n\n+/)
-      .map(p => p.replace(/^\*+\s*|\s*\*+$/g, '').replace(/^#+\s*/, '').trim())
-      .filter(p => p.length > 30 && !p.startsWith('###') && !p.startsWith('---'));
+    const paragraphs = beforeMarker
+      .split(/\n\n+/)
+      .map((p) =>
+        p
+          .replace(/^\*+\s*|\s*\*+$/g, '')
+          .replace(/^#+\s*/, '')
+          .trim(),
+      )
+      .filter(
+        (p) => p.length > 30 && !p.startsWith('###') && !p.startsWith('---'),
+      );
 
     if (paragraphs.length > 0) {
       // Use the first real paragraph as summary
@@ -740,40 +956,16 @@ ${previousFindings.length > 0
     }
 
     // Last resort: last sentence before JSON
-    const sentences = beforeMarker.split(/[.\n]/).filter(s => s.trim().length > 20);
+    const sentences = beforeMarker
+      .split(/[.\n]/)
+      .filter((s) => s.trim().length > 20);
     if (sentences.length > 0) {
-      return sentences[sentences.length - 1].replace(/^\*+\s*|\s*\*+$/g, '').trim().substring(0, 200);
+      return sentences[sentences.length - 1]
+        .replace(/^\*+\s*|\s*\*+$/g, '')
+        .trim()
+        .substring(0, 200);
     }
     return null;
-  }
-
-  // ─── Markdown Builder ────────────────────────────────────────
-
-  private buildReviewMarkdown(review: ReviewResult): string {
-    const statusEmoji = review.approved ? '✅' : '⚠️';
-    const statusText = review.approved ? 'APPROVED' : 'CHANGES REQUESTED';
-
-    const parts = [
-      `## ${statusEmoji} Code Review: ${statusText}`,
-      '',
-      review.summary,
-    ];
-
-    if (review.findings.length > 0) {
-      parts.push('', '### Findings:');
-      for (const f of review.findings) {
-        const icon = f.severity === 'critical' ? '🔴' : f.severity === 'warning' ? '🟡' : '🔵';
-        parts.push(`${icon} **${f.severity}** — \`${f.file}${f.line ? `:${f.line}` : ''}\``);
-        parts.push(`  ${f.message}`);
-        if (f.suggestion) {
-          parts.push(`  💡 ${f.suggestion}`);
-        }
-        parts.push('');
-      }
-    }
-
-    parts.push('---', '_Reviewed by Code Reviewer Agent_');
-    return parts.join('\n');
   }
 
   // ─── Diff Fetching ──────────────────────────────────────
@@ -794,8 +986,12 @@ ${previousFindings.length > 0
 
     if (removedCount === 0) return reviewResult;
 
-    const criticalCount = filtered.filter((f) => f.severity === 'critical').length;
-    const warningCount = filtered.filter((f) => f.severity === 'warning').length;
+    const criticalCount = filtered.filter(
+      (f) => f.severity === 'critical',
+    ).length;
+    const warningCount = filtered.filter(
+      (f) => f.severity === 'warning',
+    ).length;
     const approved = criticalCount === 0 && warningCount <= 2;
 
     this.logger.log(
@@ -826,17 +1022,32 @@ ${previousFindings.length > 0
     delayMs: number,
   ): Promise<any[]> {
     for (let attempt = 1; attempt <= maxRetries; attempt++) {
-      const diffs = await this.gitlabService.getMergeRequestDiffs(gitlabProjectId, mrIid);
-      if (diffs.length > 0) {
-        this.logger.log(`Got ${diffs.length} diff(s) for MR !${mrIid} on attempt ${attempt}`);
-        return diffs;
+      try {
+        const diffs = await this.gitlabService.getMergeRequestDiffs(
+          gitlabProjectId,
+          mrIid,
+        );
+        if (diffs.length > 0) {
+          this.logger.log(
+            `Got ${diffs.length} diff(s) for MR !${mrIid} on attempt ${attempt}`,
+          );
+          return diffs;
+        }
+      } catch (err) {
+        this.logger.warn(
+          `Diff fetch attempt ${attempt}/${maxRetries} failed for MR !${mrIid}: ${err.message}`,
+        );
       }
       if (attempt < maxRetries) {
-        this.logger.debug(`MR !${mrIid} has no diffs yet — waiting ${delayMs}ms (attempt ${attempt}/${maxRetries})`);
-        await new Promise(resolve => setTimeout(resolve, delayMs));
+        this.logger.debug(
+          `MR !${mrIid} has no diffs yet — waiting ${delayMs}ms (attempt ${attempt}/${maxRetries})`,
+        );
+        await new Promise((resolve) => setTimeout(resolve, delayMs));
       }
     }
-    this.logger.warn(`MR !${mrIid} still has no diffs after ${maxRetries} attempts`);
+    this.logger.warn(
+      `MR !${mrIid} still has no diffs after ${maxRetries} attempts`,
+    );
     return [];
   }
 

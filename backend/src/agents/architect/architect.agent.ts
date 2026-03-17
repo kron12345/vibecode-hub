@@ -14,7 +14,10 @@ import { LlmMessage } from '../../llm/llm.interfaces';
 import { BaseAgent, AgentContext } from '../agent-base';
 import { MonitorGateway } from '../../monitor/monitor.gateway';
 import { postAgentComment } from '../agent-comment.utils';
-import { FeatureInterviewResult, InterviewResult } from '../interviewer/interview-result.interface';
+import {
+  FeatureInterviewResult,
+  InterviewResult,
+} from '../interviewer/interview-result.interface';
 import {
   AgentRole,
   AgentStatus,
@@ -100,7 +103,14 @@ export class ArchitectAgent extends BaseAgent {
     private readonly mcpRegistry: McpRegistryService,
     private readonly eventEmitter: EventEmitter2,
   ) {
-    super(prisma, settings, chatService, chatGateway, llmService, monitorGateway);
+    super(
+      prisma,
+      settings,
+      chatService,
+      chatGateway,
+      llmService,
+      monitorGateway,
+    );
   }
 
   // ─── Phase A: Architecture Design ────────────────────────────
@@ -112,8 +122,15 @@ export class ArchitectAgent extends BaseAgent {
   async designArchitecture(ctx: AgentContext): Promise<void> {
     try {
       await this.updateStatus(ctx, AgentStatus.WORKING);
-      await this.sendAgentMessage(ctx, '🏗️ **Architect** — Analysiere Projektstruktur und entwerfe Architektur...');
-      await this.log(ctx.agentTaskId, 'INFO', 'Phase A: Architecture design started');
+      await this.sendAgentMessage(
+        ctx,
+        '🏗️ **Architect** — Analysiere Projektstruktur und entwerfe Architektur...',
+      );
+      await this.log(
+        ctx.agentTaskId,
+        'INFO',
+        'Phase A: Architecture design started',
+      );
 
       const project = await this.prisma.project.findUnique({
         where: { id: ctx.projectId },
@@ -123,7 +140,10 @@ export class ArchitectAgent extends BaseAgent {
         return;
       }
 
-      const workspace = await this.resolveWorkspace(project.slug, ctx.chatSessionId);
+      const workspace = await this.resolveWorkspace(
+        project.slug,
+        ctx.chatSessionId,
+      );
       const hasCode = this.workspaceHasCode(workspace);
 
       // Check for dev session features
@@ -146,10 +166,14 @@ export class ArchitectAgent extends BaseAgent {
             select: { output: true },
           });
 
-          const featureResult = featureTask?.output as unknown as FeatureInterviewResult;
+          const featureResult =
+            featureTask?.output as unknown as FeatureInterviewResult;
           if (featureResult?.features?.length) {
             const featureList = featureResult.features
-              .map((f, i) => `${i + 1}. **${f.title}** [${f.priority}]: ${f.description || ''}`)
+              .map(
+                (f, i) =>
+                  `${i + 1}. **${f.title}** [${f.priority}]: ${f.description || ''}`,
+              )
               .join('\n');
             sessionFeaturesSection = [
               '',
@@ -161,7 +185,11 @@ export class ArchitectAgent extends BaseAgent {
           }
 
           // Also read ENVIRONMENT.md for tech context (Wiki-First)
-          const envDoc = await this.readEnvironment(this.gitlabService, project.gitlabProjectId, workspace);
+          const envDoc = await this.readEnvironment(
+            this.gitlabService,
+            project.gitlabProjectId,
+            workspace,
+          );
           if (envDoc) {
             sessionFeaturesSection += `\n\n## Environment\n${envDoc.substring(0, 4000)}`;
           }
@@ -169,7 +197,9 @@ export class ArchitectAgent extends BaseAgent {
       }
 
       // Build the user prompt with project context
-      const techStack = project.techStack ? JSON.stringify(project.techStack, null, 2) : 'Not specified';
+      const techStack = project.techStack
+        ? JSON.stringify(project.techStack, null, 2)
+        : 'Not specified';
       const userPrompt = [
         `## Project: ${project.name}`,
         `## Tech Stack:\n\`\`\`json\n${techStack}\n\`\`\``,
@@ -180,13 +210,19 @@ export class ArchitectAgent extends BaseAgent {
           : 'The workspace is empty or minimal. Design the architecture based on the tech stack.',
         '',
         `Workspace path: ${workspace}`,
-      ].filter(Boolean).join('\n');
+      ]
+        .filter(Boolean)
+        .join('\n');
 
       let architectureOverview: string;
 
       if (hasCode) {
         // Use MCP Agent Loop to read files and analyze
-        architectureOverview = await this.analyzeWithMcp(ctx, workspace, userPrompt);
+        architectureOverview = await this.analyzeWithMcp(
+          ctx,
+          workspace,
+          userPrompt,
+        );
       } else {
         // No code yet — use plain LLM call to design architecture
         architectureOverview = await this.designWithLlm(ctx, userPrompt);
@@ -203,7 +239,10 @@ export class ArchitectAgent extends BaseAgent {
         .trim();
 
       // Post architecture overview as chat message
-      await this.sendAgentMessage(ctx, `## 🏗️ Architecture Overview\n\n${architectureOverview}`);
+      await this.sendAgentMessage(
+        ctx,
+        `## 🏗️ Architecture Overview\n\n${architectureOverview}`,
+      );
 
       // Complete task
       await this.prisma.agentTask.update({
@@ -211,22 +250,33 @@ export class ArchitectAgent extends BaseAgent {
         data: {
           status: AgentTaskStatus.COMPLETED,
           completedAt: new Date(),
-          output: { architectureOverview: architectureOverview.substring(0, 10000) } as any,
+          output: {
+            architectureOverview: architectureOverview.substring(0, 10000),
+          } as any,
         },
       });
 
       await this.updateStatus(ctx, AgentStatus.IDLE);
-      await this.log(ctx.agentTaskId, 'INFO', 'Phase A: Architecture design completed');
+      await this.log(
+        ctx.agentTaskId,
+        'INFO',
+        'Phase A: Architecture design completed',
+      );
 
       // Trigger Issue Compiler
       this.eventEmitter.emit('agent.architectDesignComplete', {
         projectId: ctx.projectId,
         chatSessionId: ctx.chatSessionId,
       });
-
     } catch (err) {
-      this.logger.error(`Architecture design failed: ${err.message}`, err.stack);
-      await this.sendAgentMessage(ctx, `❌ **Architect** Fehler: ${err.message}`);
+      this.logger.error(
+        `Architecture design failed: ${err.message}`,
+        err.stack,
+      );
+      await this.sendAgentMessage(
+        ctx,
+        `❌ **Architect** Fehler: ${err.message}`,
+      );
       await this.markFailed(ctx, err.message);
     }
   }
@@ -240,7 +290,11 @@ export class ArchitectAgent extends BaseAgent {
   async groundIssues(ctx: AgentContext): Promise<void> {
     try {
       await this.updateStatus(ctx, AgentStatus.WORKING);
-      await this.log(ctx.agentTaskId, 'INFO', 'Phase B: Issue grounding started');
+      await this.log(
+        ctx.agentTaskId,
+        'INFO',
+        'Phase B: Issue grounding started',
+      );
 
       const project = await this.prisma.project.findUnique({
         where: { id: ctx.projectId },
@@ -280,7 +334,10 @@ export class ArchitectAgent extends BaseAgent {
       });
 
       if (issues.length === 0) {
-        await this.sendAgentMessage(ctx, '🏗️ **Architect** — Keine offenen Issues gefunden, überspringe Grounding.');
+        await this.sendAgentMessage(
+          ctx,
+          '🏗️ **Architect** — Keine offenen Issues gefunden, überspringe Grounding.',
+        );
         await this.completeGrounding(ctx, 0);
         return;
       }
@@ -290,14 +347,26 @@ export class ArchitectAgent extends BaseAgent {
         `🏗️ **Architect** — Analysiere ${issues.length} Issue(s) und erstelle Grounding-Kommentare...`,
       );
 
-      const workspace = await this.resolveWorkspace(project.slug, ctx.chatSessionId);
+      const workspace = await this.resolveWorkspace(
+        project.slug,
+        ctx.chatSessionId,
+      );
       let groundedCount = 0;
 
       for (const issue of issues) {
         try {
-          await this.log(ctx.agentTaskId, 'INFO', `Grounding issue: ${issue.title} (#${issue.gitlabIid ?? issue.id})`);
+          await this.log(
+            ctx.agentTaskId,
+            'INFO',
+            `Grounding issue: ${issue.title} (#${issue.gitlabIid ?? issue.id})`,
+          );
 
-          const groundingComment = await this.groundSingleIssue(ctx, workspace, project, issue);
+          const groundingComment = await this.groundSingleIssue(
+            ctx,
+            workspace,
+            project,
+            issue,
+          );
 
           if (groundingComment && project.gitlabProjectId && issue.gitlabIid) {
             await postAgentComment({
@@ -313,8 +382,14 @@ export class ArchitectAgent extends BaseAgent {
             groundedCount++;
           }
         } catch (err) {
-          this.logger.warn(`Grounding failed for issue ${issue.id}: ${err.message}`);
-          await this.log(ctx.agentTaskId, 'WARN', `Grounding failed for issue ${issue.title}: ${err.message}`);
+          this.logger.warn(
+            `Grounding failed for issue ${issue.id}: ${err.message}`,
+          );
+          await this.log(
+            ctx.agentTaskId,
+            'WARN',
+            `Grounding failed for issue ${issue.title}: ${err.message}`,
+          );
           // Continue with next issue — don't fail the whole batch
         }
       }
@@ -325,10 +400,12 @@ export class ArchitectAgent extends BaseAgent {
       );
 
       await this.completeGrounding(ctx, groundedCount);
-
     } catch (err) {
       this.logger.error(`Issue grounding failed: ${err.message}`, err.stack);
-      await this.sendAgentMessage(ctx, `❌ **Architect** Grounding-Fehler: ${err.message}`);
+      await this.sendAgentMessage(
+        ctx,
+        `❌ **Architect** Grounding-Fehler: ${err.message}`,
+      );
       await this.markFailed(ctx, err.message);
     }
   }
@@ -348,7 +425,9 @@ export class ArchitectAgent extends BaseAgent {
 
     // Skip MCP entirely if model doesn't support tools (e.g. deepseek-r1)
     if (!this.modelSupportsTools()) {
-      this.logger.log('Model does not support tools — skipping MCP, using direct LLM');
+      this.logger.log(
+        'Model does not support tools — skipping MCP, using direct LLM',
+      );
       return this.designWithLlm(ctx, userPrompt);
     }
 
@@ -358,7 +437,9 @@ export class ArchitectAgent extends BaseAgent {
     );
 
     if (mcpServers.length === 0) {
-      this.logger.warn('No MCP servers configured for Architect — falling back to plain LLM');
+      this.logger.warn(
+        'No MCP servers configured for Architect — falling back to plain LLM',
+      );
       return this.designWithLlm(ctx, userPrompt);
     }
 
@@ -373,7 +454,9 @@ export class ArchitectAgent extends BaseAgent {
       maxTokens: config.parameters.maxTokens,
       agentTaskId: ctx.agentTaskId,
       onToolCall: (name, args) => {
-        this.log(ctx.agentTaskId, 'DEBUG', `MCP tool: ${name}`, { args: JSON.stringify(args).substring(0, 300) } as any);
+        this.log(ctx.agentTaskId, 'DEBUG', `MCP tool: ${name}`, {
+          args: JSON.stringify(args).substring(0, 300),
+        } as any);
       },
     });
 
@@ -391,7 +474,10 @@ export class ArchitectAgent extends BaseAgent {
   /**
    * Plain LLM call for architecture design (no MCP needed for empty repos).
    */
-  private async designWithLlm(ctx: AgentContext, userPrompt: string): Promise<string> {
+  private async designWithLlm(
+    ctx: AgentContext,
+    userPrompt: string,
+  ): Promise<string> {
     const config = this.getRoleConfig();
     const systemPrompt = config.systemPrompt || DEFAULT_DESIGN_PROMPT;
 
@@ -416,21 +502,39 @@ export class ArchitectAgent extends BaseAgent {
   private async groundSingleIssue(
     ctx: AgentContext,
     workspace: string,
-    project: { id: string; slug: string; gitlabProjectId: number | null; name: string },
-    issue: { id: string; title: string; description: string | null; gitlabIid: number | null; parent?: { title: string } | null; subIssues?: { title: string }[] },
+    project: {
+      id: string;
+      slug: string;
+      gitlabProjectId: number | null;
+      name: string;
+    },
+    issue: {
+      id: string;
+      title: string;
+      description: string | null;
+      gitlabIid: number | null;
+      parent?: { title: string } | null;
+      subIssues?: { title: string }[];
+    },
   ): Promise<string> {
     const config = this.getRoleConfig();
     const systemPrompt = config.systemPrompt || DEFAULT_GROUNDING_PROMPT;
 
     // Read project knowledge base for context (Wiki-First)
-    const knowledgeSection = await this.buildKnowledgeSectionWiki(this.gitlabService, project.gitlabProjectId, workspace);
+    const knowledgeSection = await this.buildKnowledgeSectionWiki(
+      this.gitlabService,
+      project.gitlabProjectId,
+      workspace,
+    );
 
     // Build issue context
     const issueContext = [
       `## Issue: ${issue.title}`,
       issue.gitlabIid ? `GitLab: #${issue.gitlabIid}` : '',
       issue.parent ? `Parent Issue: ${issue.parent.title}` : '',
-      issue.subIssues?.length ? `Sub-Tasks: ${issue.subIssues.map(c => c.title).join(', ')}` : '',
+      issue.subIssues?.length
+        ? `Sub-Tasks: ${issue.subIssues.map((c) => c.title).join(', ')}`
+        : '',
       '',
       '## Description:',
       issue.description || '(No description)',
@@ -442,7 +546,9 @@ export class ArchitectAgent extends BaseAgent {
       'Analyze the codebase and create a precise implementation plan for this issue.',
       'Use the filesystem tools to read relevant files.',
       'Reuse existing code, services, and patterns documented in the knowledge base.',
-    ].filter(Boolean).join('\n');
+    ]
+      .filter(Boolean)
+      .join('\n');
 
     // Check if workspace has code AND model supports tools — use MCP if both, plain LLM otherwise
     if (this.workspaceHasCode(workspace) && this.modelSupportsTools()) {
@@ -463,7 +569,9 @@ export class ArchitectAgent extends BaseAgent {
           maxTokens: config.parameters.maxTokens,
           agentTaskId: ctx.agentTaskId,
           onToolCall: (name, args) => {
-            this.log(ctx.agentTaskId, 'DEBUG', `Grounding MCP: ${name}`, { issue: issue.title } as any);
+            this.log(ctx.agentTaskId, 'DEBUG', `Grounding MCP: ${name}`, {
+              issue: issue.title,
+            } as any);
           },
         });
 
@@ -495,7 +603,14 @@ export class ArchitectAgent extends BaseAgent {
     const config = this.getRoleConfig();
     const model = (config.model || '').toLowerCase();
     // Known non-tool models
-    const noToolModels = ['deepseek-r1', 'deepseek-r2', 'llama2', 'granite-code', 'qwen2.5-coder', 'llava'];
+    const noToolModels = [
+      'deepseek-r1',
+      'deepseek-r2',
+      'llama2',
+      'granite-code',
+      'qwen2.5-coder',
+      'llava',
+    ];
     return !noToolModels.some((m) => model.includes(m));
   }
 
@@ -540,7 +655,10 @@ export class ArchitectAgent extends BaseAgent {
   /**
    * Complete the grounding phase and trigger Coder.
    */
-  private async completeGrounding(ctx: AgentContext, groundedCount: number): Promise<void> {
+  private async completeGrounding(
+    ctx: AgentContext,
+    groundedCount: number,
+  ): Promise<void> {
     await this.prisma.agentTask.update({
       where: { id: ctx.agentTaskId },
       data: {
@@ -551,7 +669,11 @@ export class ArchitectAgent extends BaseAgent {
     });
 
     await this.updateStatus(ctx, AgentStatus.IDLE);
-    await this.log(ctx.agentTaskId, 'INFO', `Phase B completed: ${groundedCount} issues grounded`);
+    await this.log(
+      ctx.agentTaskId,
+      'INFO',
+      `Phase B completed: ${groundedCount} issues grounded`,
+    );
 
     // Trigger Coder
     this.eventEmitter.emit('agent.architectGroundingComplete', {

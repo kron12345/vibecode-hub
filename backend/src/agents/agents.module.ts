@@ -19,7 +19,13 @@ import { DocumenterAgent } from './documenter/documenter.agent';
 import { DualTestService } from './dual-test.service';
 
 @Module({
-  imports: [ChatModule, PreviewModule, GitlabModule, IssuesModule, MonitorModule],
+  imports: [
+    ChatModule,
+    PreviewModule,
+    GitlabModule,
+    IssuesModule,
+    MonitorModule,
+  ],
   controllers: [AgentsController],
   providers: [
     AgentOrchestratorService,

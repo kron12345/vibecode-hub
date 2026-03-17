@@ -10,7 +10,12 @@ import { ChatService } from '../../chat/chat.service';
 import { ChatGateway } from '../../chat/chat.gateway';
 import { LlmService } from '../../llm/llm.service';
 import { GitlabService } from '../../gitlab/gitlab.service';
-import { BaseAgent, AgentContext, KNOWLEDGE_BASE_FILE, ENVIRONMENT_FILE } from '../agent-base';
+import {
+  BaseAgent,
+  AgentContext,
+  KNOWLEDGE_BASE_FILE,
+  ENVIRONMENT_FILE,
+} from '../agent-base';
 import { McpAgentLoopService } from '../../mcp/mcp-agent-loop.service';
 import { McpRegistryService } from '../../mcp/mcp-registry.service';
 import { MonitorGateway } from '../../monitor/monitor.gateway';
@@ -32,15 +37,26 @@ const execFileAsync = promisify(execFile);
 const execAsync = promisify(exec);
 
 /** Known MCP server definitions — maps name → command + args */
-const MCP_SERVER_REGISTRY: Record<string, { command: string; args: string[]; transport?: string; url?: string }> = {
+const MCP_SERVER_REGISTRY: Record<
+  string,
+  { command: string; args: string[]; transport?: string; url?: string }
+> = {
   'angular-mcp-server': { command: 'angular-mcp-server', args: [] },
-  'prisma': { command: 'npx', args: ['prisma', 'mcp'] },
-  'context7': { command: 'npx', args: ['-y', '@upstash/context7-mcp@latest'] },
-  'typescript': { command: 'npx', args: ['-y', 'typescript-mcp-server'] },
-  'eslint': { command: 'npx', args: ['-y', 'eslint-mcp-server'] },
-  'tailwindcss': { command: 'npx', args: ['-y', '@anthropic/tailwindcss-mcp'] },
-  'vaadin': { command: '', args: [], transport: 'http', url: 'https://mcp.vaadin.com/' },
-  'spring-docs': { command: 'npx', args: ['-y', '@enokdev/springdocs-mcp@latest'] },
+  prisma: { command: 'npx', args: ['prisma', 'mcp'] },
+  context7: { command: 'npx', args: ['-y', '@upstash/context7-mcp@latest'] },
+  typescript: { command: 'npx', args: ['-y', 'typescript-mcp-server'] },
+  eslint: { command: 'npx', args: ['-y', 'eslint-mcp-server'] },
+  tailwindcss: { command: 'npx', args: ['-y', '@anthropic/tailwindcss-mcp'] },
+  vaadin: {
+    command: '',
+    args: [],
+    transport: 'http',
+    url: 'https://mcp.vaadin.com/',
+  },
+  'spring-docs': {
+    command: 'npx',
+    args: ['-y', '@enokdev/springdocs-mcp@latest'],
+  },
 };
 
 /** Timeout constants (milliseconds) */
@@ -65,7 +81,14 @@ export class DevopsAgent extends BaseAgent {
     private readonly mcpAgentLoop: McpAgentLoopService,
     private readonly mcpRegistry: McpRegistryService,
   ) {
-    super(prisma, settings, chatService, chatGateway, llmService, monitorGateway);
+    super(
+      prisma,
+      settings,
+      chatService,
+      chatGateway,
+      llmService,
+      monitorGateway,
+    );
   }
 
   /**
@@ -86,7 +109,10 @@ export class DevopsAgent extends BaseAgent {
 
     try {
       await this.updateStatus(ctx, AgentStatus.WORKING);
-      await this.sendAgentMessage(ctx, '🔧 **DevOps Agent** starting project setup...');
+      await this.sendAgentMessage(
+        ctx,
+        '🔧 **DevOps Agent** starting project setup...',
+      );
 
       // Step 1: Load project data
       const projectData = await this.stepLoadProject(ctx, result);
@@ -95,14 +121,20 @@ export class DevopsAgent extends BaseAgent {
       const { project, interviewResult, gitlabProject } = projectData;
 
       // Step 2: Prepare workspace
-      const projectDir = await this.stepPrepareWorkspace(ctx, result, project.slug);
+      const projectDir = await this.stepPrepareWorkspace(
+        ctx,
+        result,
+        project.slug,
+      );
       if (!projectDir) return; // Fatal
 
       result.workspacePath = projectDir;
 
       // Step 3: Clone repository
       const cloneSuccess = await this.stepCloneRepository(
-        ctx, result, projectDir,
+        ctx,
+        result,
+        projectDir,
         gitlabProject.path_with_namespace,
         gitlabProject.default_branch,
       );
@@ -112,34 +144,70 @@ export class DevopsAgent extends BaseAgent {
       await this.stepRunInitCommand(ctx, result, projectDir, interviewResult);
 
       // Step 5: Run additional commands
-      await this.stepRunAdditionalCommands(ctx, result, projectDir, interviewResult);
+      await this.stepRunAdditionalCommands(
+        ctx,
+        result,
+        projectDir,
+        interviewResult,
+      );
 
       // Step 6: Generate .mcp.json
-      await this.stepGenerateMcpConfig(ctx, result, projectDir, interviewResult);
+      await this.stepGenerateMcpConfig(
+        ctx,
+        result,
+        projectDir,
+        interviewResult,
+      );
 
       // Step 6b: Generate .gitlab-ci.yml
       await this.stepGenerateCiConfig(ctx, result, projectDir, interviewResult);
 
       // Step 6c: Generate .gitignore
-      await this.stepGenerateGitignore(ctx, result, projectDir, interviewResult);
+      await this.stepGenerateGitignore(
+        ctx,
+        result,
+        projectDir,
+        interviewResult,
+      );
 
       // Step 6d: Generate project documentation (README, CHANGELOG, CONTRIBUTING, Knowledge Base)
-      await this.stepGenerateProjectDocs(ctx, result, projectDir, project.name, interviewResult, project.gitlabProjectId!);
+      await this.stepGenerateProjectDocs(
+        ctx,
+        result,
+        projectDir,
+        project.name,
+        interviewResult,
+        project.gitlabProjectId!,
+      );
 
       // Step 6e: Generate ENVIRONMENT.md
-      await this.stepGenerateEnvironmentDoc(ctx, result, projectDir, project.name, interviewResult, project.gitlabProjectId!);
+      await this.stepGenerateEnvironmentDoc(
+        ctx,
+        result,
+        projectDir,
+        project.name,
+        interviewResult,
+        project.gitlabProjectId!,
+      );
 
       // Step 6f: Build verification for Maven/Java projects
-      await this.stepBuildVerification(ctx, result, projectDir, interviewResult);
+      await this.stepBuildVerification(
+        ctx,
+        result,
+        projectDir,
+        interviewResult,
+      );
 
       // Step 7: Git commit & push
       await this.stepGitCommitAndPush(
-        ctx, result, projectDir, gitlabProject.default_branch,
+        ctx,
+        result,
+        projectDir,
+        gitlabProject.default_branch,
       );
 
       // Step 8: Finalize
       await this.stepFinalize(ctx, result);
-
     } catch (err) {
       this.logger.error(`DevOps setup crashed: ${err.message}`, err.stack);
       await this.sendAgentMessage(
@@ -152,10 +220,7 @@ export class DevopsAgent extends BaseAgent {
 
   // ─── Step 1: Load Project Data ──────────────────────────────
 
-  private async stepLoadProject(
-    ctx: AgentContext,
-    result: DevopsSetupResult,
-  ) {
+  private async stepLoadProject(ctx: AgentContext, result: DevopsSetupResult) {
     const start = Date.now();
     try {
       let project = await this.prisma.project.findUnique({
@@ -183,15 +248,23 @@ export class DevopsAgent extends BaseAgent {
             gitlabUrl: glProject.web_url,
           },
         });
-        this.logger.log(`GitLab repo created by DevOps agent: ${glProject.web_url}`);
+        this.logger.log(
+          `GitLab repo created by DevOps agent: ${glProject.web_url}`,
+        );
 
         // Auto-add owner as Maintainer
         const ownerUserId = this.settings.gitlabOwnerUserId;
         if (ownerUserId) {
           try {
-            await this.gitlabService.addProjectMember(glProject.id, ownerUserId, 40);
+            await this.gitlabService.addProjectMember(
+              glProject.id,
+              ownerUserId,
+              40,
+            );
           } catch (err) {
-            this.logger.warn(`Could not auto-add owner to GitLab project: ${err.message}`);
+            this.logger.warn(
+              `Could not auto-add owner to GitLab project: ${err.message}`,
+            );
           }
         }
       }
@@ -200,12 +273,18 @@ export class DevopsAgent extends BaseAgent {
         project.gitlabProjectId!,
       );
 
-      result.steps.push(this.step('loadProjectData', 'success', 'Project data loaded', start));
+      result.steps.push(
+        this.step('loadProjectData', 'success', 'Project data loaded', start),
+      );
       return { project, interviewResult, gitlabProject };
-
     } catch (err) {
-      result.steps.push(this.step('loadProjectData', 'failed', err.message, start));
-      await this.sendAgentMessage(ctx, `❌ Failed to load project data: ${err.message}`);
+      result.steps.push(
+        this.step('loadProjectData', 'failed', err.message, start),
+      );
+      await this.sendAgentMessage(
+        ctx,
+        `❌ Failed to load project data: ${err.message}`,
+      );
       await this.markFailed(ctx, result, err.message);
       return null;
     }
@@ -224,19 +303,30 @@ export class DevopsAgent extends BaseAgent {
       const projectDir = path.resolve(basePath, slug);
 
       // Path traversal check
-      if (!projectDir.startsWith(basePath)) {
+      if (projectDir !== basePath && !projectDir.startsWith(basePath + path.sep)) {
         throw new Error('Path traversal detected — slug produces invalid path');
       }
 
       await execFileAsync('mkdir', ['-p', projectDir], { timeout: 10_000 });
       await this.log(ctx.agentTaskId, 'INFO', `Workspace: ${projectDir}`);
 
-      result.steps.push(this.step('prepareWorkspace', 'success', `Directory: ${projectDir}`, start));
+      result.steps.push(
+        this.step(
+          'prepareWorkspace',
+          'success',
+          `Directory: ${projectDir}`,
+          start,
+        ),
+      );
       return projectDir;
-
     } catch (err) {
-      result.steps.push(this.step('prepareWorkspace', 'failed', err.message, start));
-      await this.sendAgentMessage(ctx, `❌ Failed to prepare workspace: ${err.message}`);
+      result.steps.push(
+        this.step('prepareWorkspace', 'failed', err.message, start),
+      );
+      await this.sendAgentMessage(
+        ctx,
+        `❌ Failed to prepare workspace: ${err.message}`,
+      );
       await this.markFailed(ctx, result, err.message);
       return null;
     }
@@ -249,7 +339,7 @@ export class DevopsAgent extends BaseAgent {
     result: DevopsSetupResult,
     projectDir: string,
     pathWithNamespace: string,
-    defaultBranch: string,
+    _defaultBranch: string,
   ): Promise<boolean> {
     const start = Date.now();
     try {
@@ -270,22 +360,36 @@ export class DevopsAgent extends BaseAgent {
 
       if (alreadyCloned) {
         // Remove stale workspace and re-clone to avoid merge conflicts
-        await this.sendAgentMessage(ctx, `📂 Stale workspace found — re-cloning fresh...`);
+        await this.sendAgentMessage(
+          ctx,
+          `📂 Stale workspace found — re-cloning fresh...`,
+        );
         await execFileAsync('rm', ['-rf', projectDir], { timeout: 30_000 });
         await execFileAsync('mkdir', ['-p', projectDir], { timeout: 10_000 });
         await execFileAsync('git', ['clone', cloneUrl, '.'], {
           cwd: projectDir,
           timeout: TIMEOUT_CLONE,
         });
-        await this.log(ctx.agentTaskId, 'INFO', `Re-cloned fresh: ${redactedUrl}`);
+        await this.log(
+          ctx.agentTaskId,
+          'INFO',
+          `Re-cloned fresh: ${redactedUrl}`,
+        );
       } else {
-        await this.sendAgentMessage(ctx, `📥 Cloning repository from GitLab...`);
+        await this.sendAgentMessage(
+          ctx,
+          `📥 Cloning repository from GitLab...`,
+        );
         // Clone into the project directory (which was just created and is empty)
         await execFileAsync('git', ['clone', cloneUrl, '.'], {
           cwd: projectDir,
           timeout: TIMEOUT_CLONE,
         });
-        await this.log(ctx.agentTaskId, 'INFO', `Git clone completed: ${redactedUrl}`);
+        await this.log(
+          ctx.agentTaskId,
+          'INFO',
+          `Git clone completed: ${redactedUrl}`,
+        );
       }
 
       // Fence: ensure package.json exists in workspace root to prevent npm
@@ -293,16 +397,20 @@ export class DevopsAgent extends BaseAgent {
       await this.ensureWorkspaceFence(projectDir);
 
       result.cloneSuccess = true;
-      result.steps.push(this.step(
-        'cloneRepository', 'success',
-        alreadyCloned ? 'Pulled latest changes' : 'Cloned successfully',
-        start,
-      ));
+      result.steps.push(
+        this.step(
+          'cloneRepository',
+          'success',
+          alreadyCloned ? 'Pulled latest changes' : 'Cloned successfully',
+          start,
+        ),
+      );
       return true;
-
     } catch (err) {
       result.cloneSuccess = false;
-      result.steps.push(this.step('cloneRepository', 'failed', err.message, start));
+      result.steps.push(
+        this.step('cloneRepository', 'failed', err.message, start),
+      );
       await this.sendAgentMessage(ctx, `❌ Git clone failed: ${err.message}`);
       await this.markFailed(ctx, result, `Clone failed: ${err.message}`);
       return false;
@@ -321,26 +429,56 @@ export class DevopsAgent extends BaseAgent {
     const initCommand = interviewResult.setupInstructions?.initCommand;
 
     if (!initCommand) {
-      result.steps.push(this.step('runInitCommand', 'skipped', 'No init command specified', start));
+      result.steps.push(
+        this.step(
+          'runInitCommand',
+          'skipped',
+          'No init command specified',
+          start,
+        ),
+      );
       return;
     }
 
     try {
-      await this.sendAgentMessage(ctx, `⚙️ Running init command: \`${initCommand}\``);
-      const cmdResult = await this.executeCommand(initCommand, projectDir, TIMEOUT_COMMAND);
+      await this.sendAgentMessage(
+        ctx,
+        `⚙️ Running init command: \`${initCommand}\``,
+      );
+      const cmdResult = await this.executeCommand(
+        initCommand,
+        projectDir,
+        TIMEOUT_COMMAND,
+      );
       result.initCommandResult = cmdResult;
 
       if (cmdResult.exitCode !== 0) {
-        throw new Error(`Exit code ${cmdResult.exitCode}: ${cmdResult.stderr.slice(0, 500)}`);
+        throw new Error(
+          `Exit code ${cmdResult.exitCode}: ${cmdResult.stderr.slice(0, 500)}`,
+        );
       }
 
-      result.steps.push(this.step('runInitCommand', 'success', 'Init command completed', start));
-      await this.log(ctx.agentTaskId, 'INFO', `Init command OK: ${initCommand}`);
-
+      result.steps.push(
+        this.step('runInitCommand', 'success', 'Init command completed', start),
+      );
+      await this.log(
+        ctx.agentTaskId,
+        'INFO',
+        `Init command OK: ${initCommand}`,
+      );
     } catch (err) {
-      result.steps.push(this.step('runInitCommand', 'failed', err.message, start));
-      await this.sendAgentMessage(ctx, `⚠️ Init command failed (non-fatal): ${err.message}`);
-      await this.log(ctx.agentTaskId, 'WARN', `Init command failed: ${err.message}`);
+      result.steps.push(
+        this.step('runInitCommand', 'failed', err.message, start),
+      );
+      await this.sendAgentMessage(
+        ctx,
+        `⚠️ Init command failed (non-fatal): ${err.message}`,
+      );
+      await this.log(
+        ctx.agentTaskId,
+        'WARN',
+        `Init command failed: ${err.message}`,
+      );
     }
   }
 
@@ -356,7 +494,14 @@ export class DevopsAgent extends BaseAgent {
     const commands = interviewResult.setupInstructions?.additionalCommands;
 
     if (!commands || commands.length === 0) {
-      result.steps.push(this.step('runAdditionalCommands', 'skipped', 'No additional commands', start));
+      result.steps.push(
+        this.step(
+          'runAdditionalCommands',
+          'skipped',
+          'No additional commands',
+          start,
+        ),
+      );
       return;
     }
 
@@ -364,27 +509,49 @@ export class DevopsAgent extends BaseAgent {
     for (const cmd of commands) {
       try {
         await this.sendAgentMessage(ctx, `⚙️ Running: \`${cmd}\``);
-        const cmdResult = await this.executeCommand(cmd, projectDir, TIMEOUT_COMMAND);
+        const cmdResult = await this.executeCommand(
+          cmd,
+          projectDir,
+          TIMEOUT_COMMAND,
+        );
         result.additionalCommandResults.push(cmdResult);
 
         if (cmdResult.exitCode !== 0) {
-          throw new Error(`Exit code ${cmdResult.exitCode}: ${cmdResult.stderr.slice(0, 500)}`);
+          throw new Error(
+            `Exit code ${cmdResult.exitCode}: ${cmdResult.stderr.slice(0, 500)}`,
+          );
         }
 
-        await this.log(ctx.agentTaskId, 'INFO', `Additional command OK: ${cmd}`);
+        await this.log(
+          ctx.agentTaskId,
+          'INFO',
+          `Additional command OK: ${cmd}`,
+        );
       } catch (err) {
         allOk = false;
-        await this.sendAgentMessage(ctx, `⚠️ Command failed (non-fatal): \`${cmd}\` — ${err.message}`);
-        await this.log(ctx.agentTaskId, 'WARN', `Additional command failed: ${cmd}`, { error: err.message });
+        await this.sendAgentMessage(
+          ctx,
+          `⚠️ Command failed (non-fatal): \`${cmd}\` — ${err.message}`,
+        );
+        await this.log(
+          ctx.agentTaskId,
+          'WARN',
+          `Additional command failed: ${cmd}`,
+          { error: err.message },
+        );
       }
     }
 
-    result.steps.push(this.step(
-      'runAdditionalCommands',
-      allOk ? 'success' : 'failed',
-      allOk ? `${commands.length} commands completed` : 'Some commands failed',
-      start,
-    ));
+    result.steps.push(
+      this.step(
+        'runAdditionalCommands',
+        allOk ? 'success' : 'failed',
+        allOk
+          ? `${commands.length} commands completed`
+          : 'Some commands failed',
+        start,
+      ),
+    );
   }
 
   // ─── Step 6f: Build Verification (Maven/Gradle) ───────────
@@ -400,14 +567,20 @@ export class DevopsAgent extends BaseAgent {
     interviewResult: InterviewResult,
   ): Promise<void> {
     const start = Date.now();
-    const framework = (interviewResult.techStack?.framework ?? '').toLowerCase().replace(/\s+/g, '-');
+    const framework = (interviewResult.techStack?.framework ?? '')
+      .toLowerCase()
+      .replace(/\s+/g, '-');
     const language = (interviewResult.techStack?.language ?? '').toLowerCase();
 
-    const isMaven = ['spring', 'spring-boot', 'vaadin', 'quarkus'].some(f => framework.includes(f))
-      || language.includes('java');
+    const isMaven =
+      ['spring', 'spring-boot', 'vaadin', 'quarkus'].some((f) =>
+        framework.includes(f),
+      ) || language.includes('java');
 
     if (!isMaven) {
-      result.steps.push(this.step('buildVerification', 'skipped', 'Not a Maven project', start));
+      result.steps.push(
+        this.step('buildVerification', 'skipped', 'Not a Maven project', start),
+      );
       return;
     }
 
@@ -416,12 +589,17 @@ export class DevopsAgent extends BaseAgent {
     const path = await import('path');
     const pomPath = path.join(projectDir, 'pom.xml');
     if (!fs.existsSync(pomPath)) {
-      result.steps.push(this.step('buildVerification', 'skipped', 'No pom.xml found', start));
+      result.steps.push(
+        this.step('buildVerification', 'skipped', 'No pom.xml found', start),
+      );
       return;
     }
 
     try {
-      await this.sendAgentMessage(ctx, '📦 Maven: Resolving dependencies and verifying build...');
+      await this.sendAgentMessage(
+        ctx,
+        '📦 Maven: Resolving dependencies and verifying build...',
+      );
 
       // Step 1: Resolve all dependencies (pre-cache in ~/.m2/repository)
       const resolveResult = await this.executeCommand(
@@ -431,9 +609,21 @@ export class DevopsAgent extends BaseAgent {
       );
 
       if (resolveResult.exitCode !== 0) {
-        this.logger.warn(`Maven dependency:resolve failed: ${resolveResult.stderr.slice(0, 300)}`);
-        await this.sendAgentMessage(ctx, `⚠️ Maven dependency resolution failed (non-fatal): ${resolveResult.stderr.slice(0, 200)}`);
-        result.steps.push(this.step('buildVerification', 'failed', 'Dependency resolution failed', start));
+        this.logger.warn(
+          `Maven dependency:resolve failed: ${resolveResult.stderr.slice(0, 300)}`,
+        );
+        await this.sendAgentMessage(
+          ctx,
+          `⚠️ Maven dependency resolution failed (non-fatal): ${resolveResult.stderr.slice(0, 200)}`,
+        );
+        result.steps.push(
+          this.step(
+            'buildVerification',
+            'failed',
+            'Dependency resolution failed',
+            start,
+          ),
+        );
         return;
       }
 
@@ -445,20 +635,49 @@ export class DevopsAgent extends BaseAgent {
       );
 
       if (compileResult.exitCode !== 0) {
-        this.logger.warn(`Maven compile failed: ${compileResult.stderr.slice(0, 300)}`);
-        await this.sendAgentMessage(ctx, `⚠️ Maven compile failed (non-fatal): ${compileResult.stderr.slice(0, 200)}`);
-        result.steps.push(this.step('buildVerification', 'failed', 'Compilation failed', start));
+        this.logger.warn(
+          `Maven compile failed: ${compileResult.stderr.slice(0, 300)}`,
+        );
+        await this.sendAgentMessage(
+          ctx,
+          `⚠️ Maven compile failed (non-fatal): ${compileResult.stderr.slice(0, 200)}`,
+        );
+        result.steps.push(
+          this.step('buildVerification', 'failed', 'Compilation failed', start),
+        );
         return;
       }
 
-      await this.sendAgentMessage(ctx, '✅ Maven build verified — dependencies cached, compilation OK');
-      result.steps.push(this.step('buildVerification', 'success', 'Maven deps resolved + compile OK', start));
-      await this.log(ctx.agentTaskId, 'INFO', 'Maven build verification passed');
-
+      await this.sendAgentMessage(
+        ctx,
+        '✅ Maven build verified — dependencies cached, compilation OK',
+      );
+      result.steps.push(
+        this.step(
+          'buildVerification',
+          'success',
+          'Maven deps resolved + compile OK',
+          start,
+        ),
+      );
+      await this.log(
+        ctx.agentTaskId,
+        'INFO',
+        'Maven build verification passed',
+      );
     } catch (err) {
-      result.steps.push(this.step('buildVerification', 'failed', err.message, start));
-      await this.sendAgentMessage(ctx, `⚠️ Build verification failed (non-fatal): ${err.message}`);
-      await this.log(ctx.agentTaskId, 'WARN', `Build verification failed: ${err.message}`);
+      result.steps.push(
+        this.step('buildVerification', 'failed', err.message, start),
+      );
+      await this.sendAgentMessage(
+        ctx,
+        `⚠️ Build verification failed (non-fatal): ${err.message}`,
+      );
+      await this.log(
+        ctx.agentTaskId,
+        'WARN',
+        `Build verification failed: ${err.message}`,
+      );
     }
   }
 
@@ -474,7 +693,14 @@ export class DevopsAgent extends BaseAgent {
     const mcpServers = interviewResult.mcpServers;
 
     if (!mcpServers || mcpServers.length === 0) {
-      result.steps.push(this.step('generateMcpConfig', 'skipped', 'No MCP servers defined', start));
+      result.steps.push(
+        this.step(
+          'generateMcpConfig',
+          'skipped',
+          'No MCP servers defined',
+          start,
+        ),
+      );
       return;
     }
 
@@ -491,7 +717,11 @@ export class DevopsAgent extends BaseAgent {
             command: 'npx',
             args: ['-y', server.name],
           };
-          await this.log(ctx.agentTaskId, 'INFO', `Unknown MCP server "${server.name}" — using npx fallback`);
+          await this.log(
+            ctx.agentTaskId,
+            'INFO',
+            `Unknown MCP server "${server.name}" — using npx fallback`,
+          );
         }
       }
 
@@ -500,14 +730,34 @@ export class DevopsAgent extends BaseAgent {
       await fs.writeFile(mcpPath, mcpJson + '\n', 'utf-8');
 
       result.mcpConfigGenerated = true;
-      result.steps.push(this.step('generateMcpConfig', 'success', `${mcpServers.length} MCP servers configured`, start));
-      await this.sendAgentMessage(ctx, `📋 Generated \`.mcp.json\` with ${mcpServers.length} server(s)`);
-      await this.log(ctx.agentTaskId, 'INFO', `MCP config generated`, { servers: mcpServers.map(s => s.name) });
-
+      result.steps.push(
+        this.step(
+          'generateMcpConfig',
+          'success',
+          `${mcpServers.length} MCP servers configured`,
+          start,
+        ),
+      );
+      await this.sendAgentMessage(
+        ctx,
+        `📋 Generated \`.mcp.json\` with ${mcpServers.length} server(s)`,
+      );
+      await this.log(ctx.agentTaskId, 'INFO', `MCP config generated`, {
+        servers: mcpServers.map((s) => s.name),
+      });
     } catch (err) {
-      result.steps.push(this.step('generateMcpConfig', 'failed', err.message, start));
-      await this.sendAgentMessage(ctx, `⚠️ MCP config generation failed (non-fatal): ${err.message}`);
-      await this.log(ctx.agentTaskId, 'WARN', `MCP config failed: ${err.message}`);
+      result.steps.push(
+        this.step('generateMcpConfig', 'failed', err.message, start),
+      );
+      await this.sendAgentMessage(
+        ctx,
+        `⚠️ MCP config generation failed (non-fatal): ${err.message}`,
+      );
+      await this.log(
+        ctx.agentTaskId,
+        'WARN',
+        `MCP config failed: ${err.message}`,
+      );
     }
   }
 
@@ -521,33 +771,65 @@ export class DevopsAgent extends BaseAgent {
   ): Promise<void> {
     const start = Date.now();
     try {
-      const framework = (interviewResult.techStack?.framework ?? '').toLowerCase();
-      const language = (interviewResult.techStack?.language ?? '').toLowerCase();
+      const framework = (
+        interviewResult.techStack?.framework ?? ''
+      ).toLowerCase();
+      const language = (
+        interviewResult.techStack?.language ?? ''
+      ).toLowerCase();
 
       const ciYml = this.buildCiYml(framework, language);
 
       const ciPath = path.join(projectDir, '.gitlab-ci.yml');
       await fs.writeFile(ciPath, ciYml, 'utf-8');
 
-      result.steps.push(this.step('generateCiConfig', 'success', 'CI/CD config generated', start));
-      await this.sendAgentMessage(ctx, `🔄 Generated \`.gitlab-ci.yml\` (${framework || 'generic'} template)`);
-      await this.log(ctx.agentTaskId, 'INFO', 'CI config generated', { framework, language });
-
+      result.steps.push(
+        this.step(
+          'generateCiConfig',
+          'success',
+          'CI/CD config generated',
+          start,
+        ),
+      );
+      await this.sendAgentMessage(
+        ctx,
+        `🔄 Generated \`.gitlab-ci.yml\` (${framework || 'generic'} template)`,
+      );
+      await this.log(ctx.agentTaskId, 'INFO', 'CI config generated', {
+        framework,
+        language,
+      });
     } catch (err) {
-      result.steps.push(this.step('generateCiConfig', 'failed', err.message, start));
-      await this.sendAgentMessage(ctx, `⚠️ CI config generation failed (non-fatal): ${err.message}`);
-      await this.log(ctx.agentTaskId, 'WARN', `CI config failed: ${err.message}`);
+      result.steps.push(
+        this.step('generateCiConfig', 'failed', err.message, start),
+      );
+      await this.sendAgentMessage(
+        ctx,
+        `⚠️ CI config generation failed (non-fatal): ${err.message}`,
+      );
+      await this.log(
+        ctx.agentTaskId,
+        'WARN',
+        `CI config failed: ${err.message}`,
+      );
     }
   }
 
   /** Build a deterministic .gitlab-ci.yml based on the tech stack */
   private buildCiYml(rawFramework: string, rawLanguage: string): string {
     const framework = rawFramework.toLowerCase().replace(/\s+/g, '-');
-    const language = rawLanguage.toLowerCase().replace(/[\s\d.]+/g, '').trim();
+    const language = rawLanguage
+      .toLowerCase()
+      .replace(/[\s\d.]+/g, '')
+      .trim();
 
     // Angular / React / Vue / Node projects
-    if (['angular', 'react', 'vue', 'next', 'nuxt', 'svelte'].includes(framework) ||
-        ['typescript', 'javascript'].includes(language)) {
+    if (
+      ['angular', 'react', 'vue', 'next', 'nuxt', 'svelte'].includes(
+        framework,
+      ) ||
+      ['typescript', 'javascript'].includes(language)
+    ) {
       return `stages:
   - install
   - lint
@@ -604,8 +886,10 @@ build:
     }
 
     // Python projects
-    if (['python', 'django', 'flask', 'fastapi'].includes(framework) ||
-        language === 'python') {
+    if (
+      ['python', 'django', 'flask', 'fastapi'].includes(framework) ||
+      language === 'python'
+    ) {
       return `stages:
   - install
   - lint
@@ -727,8 +1011,12 @@ build:
     }
 
     // Java / Spring Boot / Vaadin / Maven projects
-    if (['java', 'spring', 'spring-boot', 'vaadin', 'quarkus'].includes(framework) ||
-        language === 'java') {
+    if (
+      ['java', 'spring', 'spring-boot', 'vaadin', 'quarkus'].includes(
+        framework,
+      ) ||
+      language === 'java'
+    ) {
       return `stages:
   - build
   - test
@@ -807,56 +1095,155 @@ build:
   ): Promise<void> {
     const start = Date.now();
     try {
-      const framework = (interviewResult.techStack?.framework ?? '').toLowerCase();
-      const language = (interviewResult.techStack?.language ?? '').toLowerCase();
+      const framework = (
+        interviewResult.techStack?.framework ?? ''
+      ).toLowerCase();
+      const language = (
+        interviewResult.techStack?.language ?? ''
+      ).toLowerCase();
 
       const gitignore = this.buildGitignore(framework, language);
       const gitignorePath = path.join(projectDir, '.gitignore');
       await fs.writeFile(gitignorePath, gitignore, 'utf-8');
 
-      result.steps.push(this.step('generateGitignore', 'success', '.gitignore generated', start));
-      await this.sendAgentMessage(ctx, `📋 Generated \`.gitignore\` for ${framework || language || 'generic'} project`);
+      result.steps.push(
+        this.step(
+          'generateGitignore',
+          'success',
+          '.gitignore generated',
+          start,
+        ),
+      );
+      await this.sendAgentMessage(
+        ctx,
+        `📋 Generated \`.gitignore\` for ${framework || language || 'generic'} project`,
+      );
     } catch (err) {
-      result.steps.push(this.step('generateGitignore', 'failed', err.message, start));
-      await this.log(ctx.agentTaskId, 'WARN', `.gitignore generation failed: ${err.message}`);
+      result.steps.push(
+        this.step('generateGitignore', 'failed', err.message, start),
+      );
+      await this.log(
+        ctx.agentTaskId,
+        'WARN',
+        `.gitignore generation failed: ${err.message}`,
+      );
     }
   }
 
   /** Build a .gitignore appropriate for the tech stack */
   private buildGitignore(rawFramework: string, rawLanguage: string): string {
     const framework = rawFramework.toLowerCase().replace(/\s+/g, '-');
-    const language = rawLanguage.toLowerCase().replace(/[\s\d.]+/g, '').trim();
-    const isJava = language === 'java' || ['java', 'spring', 'spring-boot', 'vaadin', 'quarkus'].some(k => framework.includes(k));
-    const isNode = !isJava || ['typescript', 'javascript'].includes(language) ||
-      ['angular', 'react', 'vue', 'next', 'nuxt', 'svelte', 'nest', 'express'].some(k => framework.includes(k));
+    const language = rawLanguage
+      .toLowerCase()
+      .replace(/[\s\d.]+/g, '')
+      .trim();
+    const isJava =
+      language === 'java' ||
+      ['java', 'spring', 'spring-boot', 'vaadin', 'quarkus'].some((k) =>
+        framework.includes(k),
+      );
+    const isNode =
+      !isJava ||
+      ['typescript', 'javascript'].includes(language) ||
+      [
+        'angular',
+        'react',
+        'vue',
+        'next',
+        'nuxt',
+        'svelte',
+        'nest',
+        'express',
+      ].some((k) => framework.includes(k));
 
     const sections: string[] = [];
 
     if (isNode) {
-      sections.push('# Dependencies', 'node_modules/', '**/node_modules/', '.pnp/', '.pnp.js', '');
-      sections.push('# Build output', 'dist/', 'build/', '.next/', '.nuxt/', '.output/', '.angular/', '');
+      sections.push(
+        '# Dependencies',
+        'node_modules/',
+        '**/node_modules/',
+        '.pnp/',
+        '.pnp.js',
+        '',
+      );
+      sections.push(
+        '# Build output',
+        'dist/',
+        'build/',
+        '.next/',
+        '.nuxt/',
+        '.output/',
+        '.angular/',
+        '',
+      );
       sections.push('# Logs', 'logs/', '*.log', 'npm-debug.log*', '');
     }
 
     if (isJava) {
-      sections.push('# Java/Maven', 'target/', '*.class', '*.jar', '*.war', '*.ear', '');
-      sections.push('# Maven', 'pom.xml.tag', 'pom.xml.releaseBackup', 'pom.xml.versionsBackup', 'pom.xml.next', 'release.properties', '');
+      sections.push(
+        '# Java/Maven',
+        'target/',
+        '*.class',
+        '*.jar',
+        '*.war',
+        '*.ear',
+        '',
+      );
+      sections.push(
+        '# Maven',
+        'pom.xml.tag',
+        'pom.xml.releaseBackup',
+        'pom.xml.versionsBackup',
+        'pom.xml.next',
+        'release.properties',
+        '',
+      );
       sections.push('# Gradle', '.gradle/', 'build/', '');
-      sections.push('# Vaadin', 'node_modules/', 'frontend/generated/', 'vite.generated.ts', '');
+      sections.push(
+        '# Vaadin',
+        'node_modules/',
+        'frontend/generated/',
+        'vite.generated.ts',
+        '',
+      );
     }
 
     // Environment and secrets
-    sections.push('# Environment', '.env', '.env.local', '.env.*.local', 'application-local.properties', 'application-local.yml', '');
+    sections.push(
+      '# Environment',
+      '.env',
+      '.env.local',
+      '.env.*.local',
+      'application-local.properties',
+      'application-local.yml',
+      '',
+    );
 
     // IDE
-    sections.push('# IDE', '.idea/', '.vscode/', '*.swp', '*.swo', '.DS_Store', 'Thumbs.db', '*.iml', '');
+    sections.push(
+      '# IDE',
+      '.idea/',
+      '.vscode/',
+      '*.swp',
+      '*.swo',
+      '.DS_Store',
+      'Thumbs.db',
+      '*.iml',
+      '',
+    );
 
     // Testing
     sections.push('# Testing', 'coverage/', '.nyc_output/', '');
 
     // Prisma (common for NestJS projects)
-    if (framework === 'angular' || framework === 'react' || framework === 'vue' ||
-        language === 'typescript' || language === 'javascript') {
+    if (
+      framework === 'angular' ||
+      framework === 'react' ||
+      framework === 'vue' ||
+      language === 'typescript' ||
+      language === 'javascript'
+    ) {
       sections.push('# Prisma', '*.db', '*.db-journal', '');
     }
 
@@ -887,7 +1274,8 @@ build:
       const setup = interviewResult.setupInstructions;
 
       const techLine = [ts.framework, ts.language, ts.backend, ts.database]
-        .filter(Boolean).join(', ');
+        .filter(Boolean)
+        .join(', ');
 
       // ── PROJECT_KNOWLEDGE.md ──
       const knowledgeBase = [
@@ -902,7 +1290,7 @@ build:
         ts.language ? `- **Language:** ${ts.language}` : null,
         ts.backend ? `- **Backend:** ${ts.backend}` : null,
         ts.database ? `- **Database:** ${ts.database}` : null,
-        ...(ts.additional ?? []).map(a => `- ${a}`),
+        ...(ts.additional ?? []).map((a) => `- ${a}`),
         '',
         '## Implemented Features',
         '_No features implemented yet. This section is updated automatically after each completed issue._',
@@ -916,9 +1304,15 @@ build:
         '## Known Constraints',
         '_None yet._',
         '',
-      ].filter(l => l !== null).join('\n');
+      ]
+        .filter((l) => l !== null)
+        .join('\n');
 
-      await fs.writeFile(path.join(projectDir, KNOWLEDGE_BASE_FILE), knowledgeBase, 'utf-8');
+      await fs.writeFile(
+        path.join(projectDir, KNOWLEDGE_BASE_FILE),
+        knowledgeBase,
+        'utf-8',
+      );
 
       // ── README.md ──
       const readme = [
@@ -938,10 +1332,16 @@ build:
         '',
         '### Prerequisites',
         '',
-        ['java', 'spring', 'vaadin', 'quarkus'].some(k => (ts.framework ?? '').toLowerCase().includes(k)) || (ts.language ?? '').toLowerCase().includes('java')
+        ['java', 'spring', 'vaadin', 'quarkus'].some((k) =>
+          (ts.framework ?? '').toLowerCase().includes(k),
+        ) || (ts.language ?? '').toLowerCase().includes('java')
           ? '- JDK >= 17\n- Maven >= 3.9'
-          : ts.language === 'TypeScript' || ts.framework ? '- Node.js >= 18' : '- See project documentation',
-        (ts.framework ?? '').toLowerCase().includes('angular') ? '- Angular CLI (`npm install -g @angular/cli`)' : null,
+          : ts.language === 'TypeScript' || ts.framework
+            ? '- Node.js >= 18'
+            : '- See project documentation',
+        (ts.framework ?? '').toLowerCase().includes('angular')
+          ? '- Angular CLI (`npm install -g @angular/cli`)'
+          : null,
         '',
         '### Installation',
         '',
@@ -951,29 +1351,34 @@ build:
         setup?.initCommand ? setup.initCommand : 'npm install',
         '```',
         '',
-        deploy?.devServerCommand ? [
-          '### Development',
-          '',
-          '```bash',
-          deploy.devServerCommand,
-          '```',
-          '',
-          deploy.devServerPort ? `The dev server runs on http://localhost:${deploy.devServerPort}` : null,
-          '',
-        ].filter(Boolean).join('\n') : null,
-        deploy?.buildCommand ? [
-          '### Build',
-          '',
-          '```bash',
-          deploy.buildCommand,
-          '```',
-          '',
-        ].join('\n') : null,
+        deploy?.devServerCommand
+          ? [
+              '### Development',
+              '',
+              '```bash',
+              deploy.devServerCommand,
+              '```',
+              '',
+              deploy.devServerPort
+                ? `The dev server runs on http://localhost:${deploy.devServerPort}`
+                : null,
+              '',
+            ]
+              .filter(Boolean)
+              .join('\n')
+          : null,
+        deploy?.buildCommand
+          ? ['### Build', '', '```bash', deploy.buildCommand, '```', ''].join(
+              '\n',
+            )
+          : null,
         '## License',
         '',
         'MIT',
         '',
-      ].filter(l => l !== null).join('\n');
+      ]
+        .filter((l) => l !== null)
+        .join('\n');
 
       // Only write README if it doesn't exist yet (respect user's existing README)
       const readmePath = path.join(projectDir, 'README.md');
@@ -998,7 +1403,11 @@ build:
         '',
       ].join('\n');
 
-      await fs.writeFile(path.join(projectDir, 'CHANGELOG.md'), changelog, 'utf-8');
+      await fs.writeFile(
+        path.join(projectDir, 'CHANGELOG.md'),
+        changelog,
+        'utf-8',
+      );
 
       // ── CONTRIBUTING.md ──
       const contributing = [
@@ -1023,11 +1432,13 @@ build:
         '',
         '## Code Style',
         '',
-        ts.language === 'TypeScript' ? [
-          '- TypeScript strict mode',
-          '- ESLint + Prettier for formatting',
-          '- Meaningful variable and function names',
-        ].join('\n- ') : '- Follow existing code conventions',
+        ts.language === 'TypeScript'
+          ? [
+              '- TypeScript strict mode',
+              '- ESLint + Prettier for formatting',
+              '- Meaningful variable and function names',
+            ].join('\n- ')
+          : '- Follow existing code conventions',
         '',
         '## Commit Messages',
         '',
@@ -1040,7 +1451,11 @@ build:
         '',
       ].join('\n');
 
-      await fs.writeFile(path.join(projectDir, 'CONTRIBUTING.md'), contributing, 'utf-8');
+      await fs.writeFile(
+        path.join(projectDir, 'CONTRIBUTING.md'),
+        contributing,
+        'utf-8',
+      );
 
       // ── Wiki Scaffolding ──
       // Create hierarchical wiki structure in GitLab
@@ -1060,12 +1475,18 @@ build:
           '',
           '## Features',
           '',
-          features.length > 0 ? features.join('\n') : '_No features implemented yet._',
+          features.length > 0
+            ? features.join('\n')
+            : '_No features implemented yet._',
           '',
           '---',
           `_Auto-generated by VibCode Hub — ${new Date().toISOString().split('T')[0]}_`,
         ].join('\n');
-        await this.gitlabService.upsertWikiPage(gitlabProjectId, 'home', homePage);
+        await this.gitlabService.upsertWikiPage(
+          gitlabProjectId,
+          'home',
+          homePage,
+        );
 
         // _sidebar — Custom navigation
         const sidebar = [
@@ -1081,10 +1502,18 @@ build:
           '',
           '_Updated automatically after each completed issue._',
         ].join('\n');
-        await this.gitlabService.upsertWikiPage(gitlabProjectId, '_sidebar', sidebar);
+        await this.gitlabService.upsertWikiPage(
+          gitlabProjectId,
+          '_sidebar',
+          sidebar,
+        );
 
         // PROJECT_KNOWLEDGE wiki page
-        await this.gitlabService.upsertWikiPage(gitlabProjectId, 'PROJECT_KNOWLEDGE', knowledgeBase);
+        await this.gitlabService.upsertWikiPage(
+          gitlabProjectId,
+          'PROJECT_KNOWLEDGE',
+          knowledgeBase,
+        );
 
         // Architecture/Overview — initial page
         const archOverview = [
@@ -1103,18 +1532,40 @@ build:
           '_Will be updated as the schema evolves._',
           '',
         ].join('\n');
-        await this.gitlabService.upsertWikiPage(gitlabProjectId, 'Architecture/Overview', archOverview);
+        await this.gitlabService.upsertWikiPage(
+          gitlabProjectId,
+          'Architecture/Overview',
+          archOverview,
+        );
 
-        this.logger.log(`Wiki scaffolding created for project ${gitlabProjectId}`);
+        this.logger.log(
+          `Wiki scaffolding created for project ${gitlabProjectId}`,
+        );
       } catch (err) {
         this.logger.warn(`Wiki scaffolding failed (non-fatal): ${err.message}`);
       }
 
-      result.steps.push(this.step('generateProjectDocs', 'success', 'README, CHANGELOG, CONTRIBUTING, Knowledge Base + Wiki generated', start));
-      await this.sendAgentMessage(ctx, `📚 Generated project documentation (README.md, CHANGELOG.md, CONTRIBUTING.md, ${KNOWLEDGE_BASE_FILE}) + Wiki scaffolding`);
+      result.steps.push(
+        this.step(
+          'generateProjectDocs',
+          'success',
+          'README, CHANGELOG, CONTRIBUTING, Knowledge Base + Wiki generated',
+          start,
+        ),
+      );
+      await this.sendAgentMessage(
+        ctx,
+        `📚 Generated project documentation (README.md, CHANGELOG.md, CONTRIBUTING.md, ${KNOWLEDGE_BASE_FILE}) + Wiki scaffolding`,
+      );
     } catch (err) {
-      result.steps.push(this.step('generateProjectDocs', 'failed', err.message, start));
-      await this.log(ctx.agentTaskId, 'WARN', `Project docs generation failed: ${err.message}`);
+      result.steps.push(
+        this.step('generateProjectDocs', 'failed', err.message, start),
+      );
+      await this.log(
+        ctx.agentTaskId,
+        'WARN',
+        `Project docs generation failed: ${err.message}`,
+      );
     }
   }
 
@@ -1129,14 +1580,28 @@ build:
     const start = Date.now();
     try {
       // Check if there are changes to commit
-      const { stdout: statusOut } = await execFileAsync('git', ['status', '--porcelain'], {
-        cwd: projectDir,
-        timeout: 10_000,
-      });
+      const { stdout: statusOut } = await execFileAsync(
+        'git',
+        ['status', '--porcelain'],
+        {
+          cwd: projectDir,
+          timeout: 10_000,
+        },
+      );
 
       if (!statusOut.trim()) {
-        result.steps.push(this.step('gitCommitAndPush', 'skipped', 'No changes to commit', start));
-        await this.sendAgentMessage(ctx, `📝 No changes to commit — repository is clean`);
+        result.steps.push(
+          this.step(
+            'gitCommitAndPush',
+            'skipped',
+            'No changes to commit',
+            start,
+          ),
+        );
+        await this.sendAgentMessage(
+          ctx,
+          `📝 No changes to commit — repository is clean`,
+        );
         return;
       }
 
@@ -1162,13 +1627,32 @@ build:
       });
 
       result.gitPushSuccess = true;
-      result.steps.push(this.step('gitCommitAndPush', 'success', `Pushed to ${defaultBranch}`, start));
-      await this.log(ctx.agentTaskId, 'INFO', `Git push to ${defaultBranch} successful`);
-
+      result.steps.push(
+        this.step(
+          'gitCommitAndPush',
+          'success',
+          `Pushed to ${defaultBranch}`,
+          start,
+        ),
+      );
+      await this.log(
+        ctx.agentTaskId,
+        'INFO',
+        `Git push to ${defaultBranch} successful`,
+      );
     } catch (err) {
-      result.steps.push(this.step('gitCommitAndPush', 'failed', err.message, start));
-      await this.sendAgentMessage(ctx, `⚠️ Git push failed (non-fatal): ${err.message}`);
-      await this.log(ctx.agentTaskId, 'WARN', `Git push failed: ${err.message}`);
+      result.steps.push(
+        this.step('gitCommitAndPush', 'failed', err.message, start),
+      );
+      await this.sendAgentMessage(
+        ctx,
+        `⚠️ Git push failed (non-fatal): ${err.message}`,
+      );
+      await this.log(
+        ctx.agentTaskId,
+        'WARN',
+        `Git push failed: ${err.message}`,
+      );
     }
   }
 
@@ -1197,16 +1681,24 @@ build:
       });
 
       // Build summary
-      const successCount = result.steps.filter(s => s.status === 'success').length;
-      const failedCount = result.steps.filter(s => s.status === 'failed').length;
-      const skippedCount = result.steps.filter(s => s.status === 'skipped').length;
+      const successCount = result.steps.filter(
+        (s) => s.status === 'success',
+      ).length;
+      const failedCount = result.steps.filter(
+        (s) => s.status === 'failed',
+      ).length;
+      const skippedCount = result.steps.filter(
+        (s) => s.status === 'skipped',
+      ).length;
 
       const summary = [
         `✅ **Project setup complete!**`,
         ``,
         `| Step | Status |`,
         `|------|--------|`,
-        ...result.steps.map(s => `| ${s.name} | ${this.statusEmoji(s.status)} ${s.message} |`),
+        ...result.steps.map(
+          (s) => `| ${s.name} | ${this.statusEmoji(s.status)} ${s.message} |`,
+        ),
         ``,
         `**Summary:** ${successCount} passed, ${failedCount} failed, ${skippedCount} skipped`,
         `**Workspace:** \`${result.workspacePath}\``,
@@ -1226,18 +1718,26 @@ build:
         status: ProjectStatus.READY,
       });
 
-      result.steps.push(this.step('finalize', 'success', 'Project status → READY', start));
+      result.steps.push(
+        this.step('finalize', 'success', 'Project status → READY', start),
+      );
 
       // Trigger Issue Compiler agent
       this.eventEmitter.emit('agent.devopsComplete', {
         projectId: ctx.projectId,
         chatSessionId: ctx.chatSessionId,
       });
-
     } catch (err) {
       result.steps.push(this.step('finalize', 'failed', err.message, start));
-      await this.sendAgentMessage(ctx, `❌ Finalization failed: ${err.message}`);
-      await this.log(ctx.agentTaskId, 'ERROR', `Finalize failed: ${err.message}`);
+      await this.sendAgentMessage(
+        ctx,
+        `❌ Finalization failed: ${err.message}`,
+      );
+      await this.log(
+        ctx.agentTaskId,
+        'ERROR',
+        `Finalize failed: ${err.message}`,
+      );
     }
   }
 
@@ -1292,9 +1792,12 @@ build:
   /** Status emoji for summary table */
   private statusEmoji(status: SetupStep['status']): string {
     switch (status) {
-      case 'success': return '✅';
-      case 'failed': return '❌';
-      case 'skipped': return '⏭️';
+      case 'success':
+        return '✅';
+      case 'failed':
+        return '❌';
+      case 'skipped':
+        return '⏭️';
     }
   }
 
@@ -1324,23 +1827,35 @@ build:
         '## Tech Stack',
         ts.framework ? `- **Framework:** ${ts.framework}` : null,
         ts.language ? `- **Language:** ${ts.language}` : null,
-        ts.backend && ts.backend !== 'none' ? `- **Backend:** ${ts.backend}` : null,
-        ts.database && ts.database !== 'none' ? `- **Database:** ${ts.database}` : null,
-        ...(ts.additional ?? []).map(a => `- **Package:** ${a}`),
+        ts.backend && ts.backend !== 'none'
+          ? `- **Backend:** ${ts.backend}`
+          : null,
+        ts.database && ts.database !== 'none'
+          ? `- **Database:** ${ts.database}`
+          : null,
+        ...(ts.additional ?? []).map((a) => `- **Package:** ${a}`),
         '',
         '## Setup Commands',
         setup?.initCommand ? `- **Init:** \`${setup.initCommand}\`` : null,
-        ...(setup?.additionalCommands ?? []).map(cmd => `- **Additional:** \`${cmd}\``),
+        ...(setup?.additionalCommands ?? []).map(
+          (cmd) => `- **Additional:** \`${cmd}\``,
+        ),
         '',
         '## Development Server',
-        deploy?.devServerCommand ? `- **Command:** \`${deploy.devServerCommand}\`` : '- _Not configured_',
+        deploy?.devServerCommand
+          ? `- **Command:** \`${deploy.devServerCommand}\``
+          : '- _Not configured_',
         deploy?.devServerPort ? `- **Port:** ${deploy.devServerPort}` : null,
         deploy?.buildCommand ? `- **Build:** \`${deploy.buildCommand}\`` : null,
-        deploy?.isWebProject !== undefined ? `- **Web Project:** ${deploy.isWebProject ? 'Yes' : 'No'}` : null,
+        deploy?.isWebProject !== undefined
+          ? `- **Web Project:** ${deploy.isWebProject ? 'Yes' : 'No'}`
+          : null,
         '',
         '## MCP Servers',
         ...(interviewResult.mcpServers && interviewResult.mcpServers.length > 0
-          ? interviewResult.mcpServers.map(s => `- **${s.name}** — ${s.purpose}`)
+          ? interviewResult.mcpServers.map(
+              (s) => `- **${s.name}** — ${s.purpose}`,
+            )
           : ['- _None configured_']),
         '',
         '## Installed Packages',
@@ -1351,22 +1866,50 @@ build:
         '',
       ];
 
-      const envContent = sections.filter((l): l is string => l !== null).join('\n');
-      await fs.writeFile(path.join(projectDir, ENVIRONMENT_FILE), envContent, 'utf-8');
+      const envContent = sections
+        .filter((l): l is string => l !== null)
+        .join('\n');
+      await fs.writeFile(
+        path.join(projectDir, ENVIRONMENT_FILE),
+        envContent,
+        'utf-8',
+      );
 
       // Sync ENVIRONMENT to wiki
       try {
-        await this.gitlabService.upsertWikiPage(gitlabProjectId, 'ENVIRONMENT', envContent);
+        await this.gitlabService.upsertWikiPage(
+          gitlabProjectId,
+          'ENVIRONMENT',
+          envContent,
+        );
         this.logger.log('ENVIRONMENT wiki page synced');
       } catch (err) {
-        this.logger.warn(`ENVIRONMENT wiki sync failed (non-fatal): ${err.message}`);
+        this.logger.warn(
+          `ENVIRONMENT wiki sync failed (non-fatal): ${err.message}`,
+        );
       }
 
-      result.steps.push(this.step('generateEnvironmentDoc', 'success', 'ENVIRONMENT.md generated + wiki synced', start));
-      await this.sendAgentMessage(ctx, `📋 Generated \`ENVIRONMENT.md\` — project environment documentation + wiki synced`);
+      result.steps.push(
+        this.step(
+          'generateEnvironmentDoc',
+          'success',
+          'ENVIRONMENT.md generated + wiki synced',
+          start,
+        ),
+      );
+      await this.sendAgentMessage(
+        ctx,
+        `📋 Generated \`ENVIRONMENT.md\` — project environment documentation + wiki synced`,
+      );
     } catch (err) {
-      result.steps.push(this.step('generateEnvironmentDoc', 'failed', err.message, start));
-      await this.log(ctx.agentTaskId, 'WARN', `ENVIRONMENT.md generation failed: ${err.message}`);
+      result.steps.push(
+        this.step('generateEnvironmentDoc', 'failed', err.message, start),
+      );
+      await this.log(
+        ctx.agentTaskId,
+        'WARN',
+        `ENVIRONMENT.md generation failed: ${err.message}`,
+      );
     }
   }
 
@@ -1377,10 +1920,15 @@ build:
    * Uses MCP agent loop with filesystem, git, and shell tools
    * to execute user-requested infra changes, then updates ENVIRONMENT.md.
    */
-  async handleInfraCommand(ctx: AgentContext, userMessage: string): Promise<void> {
+  async handleInfraCommand(
+    ctx: AgentContext,
+    userMessage: string,
+  ): Promise<void> {
     try {
       await this.updateStatus(ctx, AgentStatus.WORKING);
-      await this.log(ctx.agentTaskId, 'INFO', 'Infra command started', { userMessage: userMessage.substring(0, 200) });
+      await this.log(ctx.agentTaskId, 'INFO', 'Infra command started', {
+        userMessage: userMessage.substring(0, 200),
+      });
 
       // Load project
       const project = await this.prisma.project.findUnique({
@@ -1392,7 +1940,10 @@ build:
         return;
       }
 
-      const workspace = path.resolve(this.settings.devopsWorkspacePath, project.slug);
+      const workspace = path.resolve(
+        this.settings.devopsWorkspacePath,
+        project.slug,
+      );
 
       // Resolve MCP servers for DEVOPS role
       const mcpServers = await this.mcpRegistry.resolveServersForRole(
@@ -1401,8 +1952,16 @@ build:
       );
 
       // Read current environment doc + knowledge from wiki (fallback to file)
-      const envDoc = await this.readEnvironment(this.gitlabService, project.gitlabProjectId, workspace);
-      const knowledgeSection = await this.buildKnowledgeSectionWiki(this.gitlabService, project.gitlabProjectId, workspace);
+      const envDoc = await this.readEnvironment(
+        this.gitlabService,
+        project.gitlabProjectId,
+        workspace,
+      );
+      const knowledgeSection = await this.buildKnowledgeSectionWiki(
+        this.gitlabService,
+        project.gitlabProjectId,
+        workspace,
+      );
 
       const systemPrompt = [
         'You are the Infrastructure Agent for a software project managed by VibCode Hub.',
@@ -1451,7 +2010,9 @@ build:
         agentTaskId: ctx.agentTaskId,
         cwd: workspace,
         onToolCall: (name, args) => {
-          this.logger.debug(`Infra tool: ${name}(${JSON.stringify(args).substring(0, 150)})`);
+          this.logger.debug(
+            `Infra tool: ${name}(${JSON.stringify(args).substring(0, 150)})`,
+          );
         },
         onIteration: (iteration) => {
           this.logger.debug(`Infra agent loop iteration ${iteration}`);
@@ -1472,11 +2033,17 @@ build:
         try {
           const updatedEnv = await this.readEnvironmentDoc(workspace);
           if (updatedEnv) {
-            await this.gitlabService.upsertWikiPage(project.gitlabProjectId, 'ENVIRONMENT', updatedEnv);
+            await this.gitlabService.upsertWikiPage(
+              project.gitlabProjectId,
+              'ENVIRONMENT',
+              updatedEnv,
+            );
             this.logger.log('ENVIRONMENT wiki page synced after infra command');
           }
         } catch (err) {
-          this.logger.warn(`ENVIRONMENT wiki sync after infra failed: ${err.message}`);
+          this.logger.warn(
+            `ENVIRONMENT wiki sync after infra failed: ${err.message}`,
+          );
         }
       }
 
@@ -1499,10 +2066,12 @@ build:
         finishReason: result.finishReason,
         iterations: result.iterations,
       });
-
     } catch (err) {
       this.logger.error(`Infra command failed: ${err.message}`, err.stack);
-      await this.sendAgentMessage(ctx, `❌ Infrastructure command failed: ${err.message}`);
+      await this.sendAgentMessage(
+        ctx,
+        `❌ Infrastructure command failed: ${err.message}`,
+      );
 
       await this.prisma.agentTask.update({
         where: { id: ctx.agentTaskId },
@@ -1513,7 +2082,11 @@ build:
       });
 
       await this.updateStatus(ctx, AgentStatus.IDLE);
-      await this.log(ctx.agentTaskId, 'ERROR', `Infra command failed: ${err.message}`);
+      await this.log(
+        ctx.agentTaskId,
+        'ERROR',
+        `Infra command failed: ${err.message}`,
+      );
     }
   }
 

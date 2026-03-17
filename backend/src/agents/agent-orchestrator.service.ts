@@ -1,4 +1,10 @@
-import { Injectable, Logger, NotFoundException, OnModuleInit, OnModuleDestroy } from '@nestjs/common';
+import {
+  Injectable,
+  Logger,
+  NotFoundException,
+  OnModuleInit,
+  OnModuleDestroy,
+} from '@nestjs/common';
 import { OnEvent } from '@nestjs/event-emitter';
 import { PrismaService } from '../prisma/prisma.service';
 import { ChatService } from '../chat/chat.service';
@@ -27,8 +33,6 @@ import {
   SessionStatus,
 } from '@prisma/client';
 
-/** Default: check for stuck tasks every 5 minutes */
-const STUCK_CHECK_INTERVAL_MS = 5 * 60 * 1000;
 /** Default: tasks with no activity for > 30 minutes are considered stuck */
 const DEFAULT_INACTIVITY_TIMEOUT_MINUTES = 30;
 
@@ -54,7 +58,9 @@ export class AgentOrchestratorService implements OnModuleInit, OnModuleDestroy {
   private acquireStartLock(projectId: string, role: AgentRole): boolean {
     const key = `${projectId}:${role}`;
     if (this.startingAgents.has(key)) {
-      this.logger.warn(`${role} start already in progress for project ${projectId} — skipping duplicate`);
+      this.logger.warn(
+        `${role} start already in progress for project ${projectId} — skipping duplicate`,
+      );
       return false;
     }
     this.startingAgents.add(key);
@@ -91,7 +97,9 @@ export class AgentOrchestratorService implements OnModuleInit, OnModuleDestroy {
         this.logger.error(`Stuck task cleanup failed: ${err.message}`);
       });
     }, intervalMs);
-    this.logger.log(`Stuck task cleanup scheduled (every ${pipelineCfg.stuckCheckIntervalMinutes ?? 5} min)`);
+    this.logger.log(
+      `Stuck task cleanup scheduled (every ${pipelineCfg.stuckCheckIntervalMinutes ?? 5} min)`,
+    );
   }
 
   onModuleDestroy() {
@@ -105,7 +113,9 @@ export class AgentOrchestratorService implements OnModuleInit, OnModuleDestroy {
    * Guard: Check if there's already an active agent of the given role for a project.
    * Returns true if an agent is already running (caller should skip).
    */
-  private async getSessionFilter(chatSessionId: string): Promise<{ chatSessionId?: string }> {
+  private async getSessionFilter(
+    chatSessionId: string,
+  ): Promise<{ chatSessionId?: string }> {
     if (!chatSessionId) return {};
     const session = await this.prisma.chatSession.findUnique({
       where: { id: chatSessionId },
@@ -117,7 +127,10 @@ export class AgentOrchestratorService implements OnModuleInit, OnModuleDestroy {
     return {};
   }
 
-  private async hasActiveAgent(projectId: string, role: AgentRole): Promise<boolean> {
+  private async hasActiveAgent(
+    projectId: string,
+    role: AgentRole,
+  ): Promise<boolean> {
     const existing = await this.prisma.agentInstance.findFirst({
       where: {
         projectId,
@@ -127,7 +140,9 @@ export class AgentOrchestratorService implements OnModuleInit, OnModuleDestroy {
     });
 
     if (existing) {
-      this.logger.warn(`${role} already active for project ${projectId} (${existing.id}) — skipping duplicate`);
+      this.logger.warn(
+        `${role} already active for project ${projectId} (${existing.id}) — skipping duplicate`,
+      );
       return true;
     }
 
@@ -140,7 +155,9 @@ export class AgentOrchestratorService implements OnModuleInit, OnModuleDestroy {
     });
 
     if (runningTask) {
-      this.logger.warn(`${role} has running task for project ${projectId} (${runningTask.id}) — skipping duplicate`);
+      this.logger.warn(
+        `${role} has running task for project ${projectId} (${runningTask.id}) — skipping duplicate`,
+      );
       return true;
     }
 
@@ -219,10 +236,7 @@ export class AgentOrchestratorService implements OnModuleInit, OnModuleDestroy {
    * - DEV_SESSION + no active agent → stored only (pipeline runs automatically)
    */
   @OnEvent('chat.userMessage')
-  async handleUserMessage(payload: {
-    chatSessionId: string;
-    content: string;
-  }) {
+  async handleUserMessage(payload: { chatSessionId: string; content: string }) {
     const { chatSessionId, content } = payload;
 
     const chatSession = await this.prisma.chatSession.findUnique({
@@ -235,29 +249,37 @@ export class AgentOrchestratorService implements OnModuleInit, OnModuleDestroy {
     // DEV_SESSION: Only process if session is ACTIVE
     if (chatSession.type === ChatSessionType.DEV_SESSION) {
       if (chatSession.status !== SessionStatus.ACTIVE) {
-        this.logger.debug(`Ignoring message for non-active dev session ${chatSessionId}`);
+        this.logger.debug(
+          `Ignoring message for non-active dev session ${chatSessionId}`,
+        );
         return;
       }
 
       // Route to active feature interviewer if exists (include ERROR for recovery)
-      const activeFeatureInterviewer = await this.prisma.agentInstance.findFirst({
-        where: {
-          projectId: chatSession.projectId,
-          role: AgentRole.INTERVIEWER,
-          status: { in: [AgentStatus.WAITING, AgentStatus.WORKING, AgentStatus.ERROR] },
-        },
-        include: {
-          tasks: {
-            where: {
-              status: AgentTaskStatus.RUNNING,
-              type: AgentTaskType.FEATURE_INTERVIEW,
+      const activeFeatureInterviewer =
+        await this.prisma.agentInstance.findFirst({
+          where: {
+            projectId: chatSession.projectId,
+            role: AgentRole.INTERVIEWER,
+            status: {
+              in: [AgentStatus.WAITING, AgentStatus.WORKING, AgentStatus.ERROR],
             },
-            take: 1,
           },
-        },
-      });
+          include: {
+            tasks: {
+              where: {
+                status: AgentTaskStatus.RUNNING,
+                type: AgentTaskType.FEATURE_INTERVIEW,
+              },
+              take: 1,
+            },
+          },
+        });
 
-      if (activeFeatureInterviewer && activeFeatureInterviewer.tasks.length > 0) {
+      if (
+        activeFeatureInterviewer &&
+        activeFeatureInterviewer.tasks.length > 0
+      ) {
         if (activeFeatureInterviewer.status === AgentStatus.ERROR) {
           await this.prisma.agentInstance.update({
             where: { id: activeFeatureInterviewer.id },
@@ -287,7 +309,9 @@ export class AgentOrchestratorService implements OnModuleInit, OnModuleDestroy {
       where: {
         projectId: chatSession.projectId,
         role: AgentRole.INTERVIEWER,
-        status: { in: [AgentStatus.WAITING, AgentStatus.WORKING, AgentStatus.ERROR] },
+        status: {
+          in: [AgentStatus.WAITING, AgentStatus.WORKING, AgentStatus.ERROR],
+        },
       },
       include: {
         tasks: {
@@ -315,7 +339,9 @@ export class AgentOrchestratorService implements OnModuleInit, OnModuleDestroy {
         agentTaskId: activeInterviewer.tasks[0].id,
         chatSessionId,
       };
-      this.logger.debug(`Routing infrastructure message to project interviewer`);
+      this.logger.debug(
+        `Routing infrastructure message to project interviewer`,
+      );
       this.interviewer.continueInterview(ctx).catch((err) => {
         this.logger.error(`Interviewer error: ${err.message}`);
       });
@@ -329,8 +355,14 @@ export class AgentOrchestratorService implements OnModuleInit, OnModuleDestroy {
     });
 
     if (project?.status === ProjectStatus.READY) {
-      this.logger.log(`YOLO mode: routing infrastructure message to DevOps agent`);
-      await this.startInfraCommand(chatSession.projectId, chatSessionId, content);
+      this.logger.log(
+        `YOLO mode: routing infrastructure message to DevOps agent`,
+      );
+      await this.startInfraCommand(
+        chatSession.projectId,
+        chatSessionId,
+        content,
+      );
     }
   }
 
@@ -363,7 +395,9 @@ export class AgentOrchestratorService implements OnModuleInit, OnModuleDestroy {
     if (!this.acquireStartLock(projectId, AgentRole.DEVOPS)) return;
     try {
       if (await this.hasActiveAgent(projectId, AgentRole.DEVOPS)) return;
-      this.logger.log(`Interview complete for project ${projectId} — starting DevOps setup`);
+      this.logger.log(
+        `Interview complete for project ${projectId} — starting DevOps setup`,
+      );
       await this.startDevopsSetup(projectId, chatSessionId);
     } catch (err) {
       this.logger.error(`Failed to start DevOps setup: ${err.message}`);
@@ -442,7 +476,7 @@ export class AgentOrchestratorService implements OnModuleInit, OnModuleDestroy {
 
     this.logger.log(
       `DevOps complete for project ${projectId} — infrastructure pipeline done. ` +
-      `Create a Dev Session to start building features.`,
+        `Create a Dev Session to start building features.`,
     );
 
     // Send info message to the infrastructure chat
@@ -468,7 +502,11 @@ export class AgentOrchestratorService implements OnModuleInit, OnModuleDestroy {
     // Emit suggestion chips
     this.chatGateway.emitToSession(chatSessionId, 'chatSuggestions', {
       chatSessionId,
-      suggestions: ['📦 Install a package', '⚙️ Configure database', '🆕 Create Dev Session'],
+      suggestions: [
+        '📦 Install a package',
+        '⚙️ Configure database',
+        '🆕 Create Dev Session',
+      ],
     });
   }
 
@@ -488,7 +526,9 @@ export class AgentOrchestratorService implements OnModuleInit, OnModuleDestroy {
 
     if (!this.acquireStartLock(projectId, AgentRole.INTERVIEWER)) return;
     try {
-      this.logger.log(`Dev session created for project ${projectId} — starting feature interview`);
+      this.logger.log(
+        `Dev session created for project ${projectId} — starting feature interview`,
+      );
       await this.startFeatureInterview(projectId, chatSessionId, sessionTitle);
     } catch (err) {
       this.logger.error(`Failed to start feature interview: ${err.message}`);
@@ -537,7 +577,11 @@ export class AgentOrchestratorService implements OnModuleInit, OnModuleDestroy {
       this.logger.error(`Feature interview error: ${err.message}`);
     });
 
-    return { agentInstanceId: agentInstance.id, agentTaskId: agentTask.id, chatSessionId };
+    return {
+      agentInstanceId: agentInstance.id,
+      agentTaskId: agentTask.id,
+      chatSessionId,
+    };
   }
 
   /**
@@ -554,7 +598,7 @@ export class AgentOrchestratorService implements OnModuleInit, OnModuleDestroy {
 
     this.logger.log(
       `Feature interview complete for project ${projectId} — ` +
-      `${featureResult.features.length} features captured, starting Architect`,
+        `${featureResult.features.length} features captured, starting Architect`,
     );
 
     // Start Architect Phase A
@@ -563,7 +607,9 @@ export class AgentOrchestratorService implements OnModuleInit, OnModuleDestroy {
       if (await this.hasActiveAgent(projectId, AgentRole.ARCHITECT)) return;
       await this.startArchitectDesign(projectId, chatSessionId);
     } catch (err) {
-      this.logger.error(`Failed to start Architect after feature interview: ${err.message}`);
+      this.logger.error(
+        `Failed to start Architect after feature interview: ${err.message}`,
+      );
     } finally {
       this.releaseStartLock(projectId, AgentRole.ARCHITECT);
     }
@@ -581,7 +627,9 @@ export class AgentOrchestratorService implements OnModuleInit, OnModuleDestroy {
   ) {
     // Check if there's already an active DevOps agent
     if (await this.hasActiveAgent(projectId, AgentRole.DEVOPS)) {
-      this.logger.debug(`DevOps agent already active for project ${projectId} — queuing message`);
+      this.logger.debug(
+        `DevOps agent already active for project ${projectId} — queuing message`,
+      );
       return;
     }
 
@@ -669,8 +717,11 @@ export class AgentOrchestratorService implements OnModuleInit, OnModuleDestroy {
 
     if (!this.acquireStartLock(projectId, AgentRole.ISSUE_COMPILER)) return;
     try {
-      if (await this.hasActiveAgent(projectId, AgentRole.ISSUE_COMPILER)) return;
-      this.logger.log(`Architecture design complete for project ${projectId} — starting Issue Compiler`);
+      if (await this.hasActiveAgent(projectId, AgentRole.ISSUE_COMPILER))
+        return;
+      this.logger.log(
+        `Architecture design complete for project ${projectId} — starting Issue Compiler`,
+      );
       await this.startIssueCompilation(projectId, chatSessionId);
     } catch (err) {
       this.logger.error(`Failed to start Issue Compiler: ${err.message}`);
@@ -751,7 +802,9 @@ export class AgentOrchestratorService implements OnModuleInit, OnModuleDestroy {
     if (!this.acquireStartLock(projectId, AgentRole.ARCHITECT)) return;
     try {
       if (await this.hasActiveAgent(projectId, AgentRole.ARCHITECT)) return;
-      this.logger.log(`Issue compilation complete for project ${projectId} — starting Architect (Phase B: Grounding)`);
+      this.logger.log(
+        `Issue compilation complete for project ${projectId} — starting Architect (Phase B: Grounding)`,
+      );
       await this.startArchitectGrounding(projectId, chatSessionId);
     } catch (err) {
       this.logger.error(`Failed to start Architect grounding: ${err.message}`);
@@ -810,7 +863,9 @@ export class AgentOrchestratorService implements OnModuleInit, OnModuleDestroy {
     if (!this.acquireStartLock(projectId, AgentRole.CODER)) return;
     try {
       if (await this.hasActiveAgent(projectId, AgentRole.CODER)) return;
-      this.logger.log(`Architect grounding complete for project ${projectId} — starting Coder Agent`);
+      this.logger.log(
+        `Architect grounding complete for project ${projectId} — starting Coder Agent`,
+      );
       await this.startCoding(projectId, chatSessionId);
     } catch (err) {
       this.logger.error(`Failed to start Coder Agent: ${err.message}`);
@@ -887,11 +942,14 @@ export class AgentOrchestratorService implements OnModuleInit, OnModuleDestroy {
     branch: string;
     noChanges?: boolean;
   }) {
-    const { projectId, chatSessionId, issueId, mrIid, gitlabProjectId } = payload;
+    const { projectId, chatSessionId, issueId, mrIid, gitlabProjectId } =
+      payload;
 
     // If fix attempt made no changes, skip review and re-trigger coder directly
     if (payload.noChanges) {
-      this.logger.warn(`Fix for issue ${issueId} produced 0 code changes — skipping review, re-triggering Coder`);
+      this.logger.warn(
+        `Fix for issue ${issueId} produced 0 code changes — skipping review, re-triggering Coder`,
+      );
       await this.retriggerCoder(
         projectId,
         chatSessionId,
@@ -904,7 +962,9 @@ export class AgentOrchestratorService implements OnModuleInit, OnModuleDestroy {
 
     if (!mrIid) {
       // No MR means coding produced no changes or MR creation failed — skip pipeline
-      this.logger.warn(`No MR for issue ${issueId} — skipping pipeline, marking NEEDS_REVIEW`);
+      this.logger.warn(
+        `No MR for issue ${issueId} — skipping pipeline, marking NEEDS_REVIEW`,
+      );
       await this.prisma.issue.update({
         where: { id: issueId },
         data: { status: IssueStatus.NEEDS_REVIEW },
@@ -913,14 +973,23 @@ export class AgentOrchestratorService implements OnModuleInit, OnModuleDestroy {
       // Query next open issue — scope to session if applicable
       const chatSessionFilter = await this.getSessionFilter(chatSessionId);
       const nextOpen = await this.prisma.issue.findFirst({
-        where: { projectId, status: IssueStatus.OPEN, parentId: null, ...chatSessionFilter },
+        where: {
+          projectId,
+          status: IssueStatus.OPEN,
+          parentId: null,
+          ...chatSessionFilter,
+        },
       });
       if (nextOpen) {
-        this.logger.log(`No MR for ${issueId} — moving to next issue ${nextOpen.id}`);
+        this.logger.log(
+          `No MR for ${issueId} — moving to next issue ${nextOpen.id}`,
+        );
         try {
           await this.startCoding(projectId, chatSessionId);
         } catch (err) {
-          this.logger.error(`Failed to start Coder for next issue: ${err.message}`);
+          this.logger.error(
+            `Failed to start Coder for next issue: ${err.message}`,
+          );
         }
       }
       return;
@@ -935,21 +1004,31 @@ export class AgentOrchestratorService implements OnModuleInit, OnModuleDestroy {
       },
     });
     if (existingReview) {
-      this.logger.warn(`Code review already running for issue ${issueId} — skipping duplicate`);
+      this.logger.warn(
+        `Code review already running for issue ${issueId} — skipping duplicate`,
+      );
       return;
     }
 
-    this.logger.log(`Coding complete for issue ${issueId} — starting Code Review`);
+    this.logger.log(
+      `Coding complete for issue ${issueId} — starting Code Review`,
+    );
 
     try {
-      await this.startCodeReview(projectId, chatSessionId, issueId, mrIid, gitlabProjectId);
+      await this.startCodeReview(
+        projectId,
+        chatSessionId,
+        issueId,
+        mrIid,
+        gitlabProjectId,
+      );
     } catch (err) {
       this.logger.error(`Failed to start Code Review: ${err.message}`);
     }
   }
 
   /**
-   * Handle coding failure — skip to next open issue in sequential pipeline.
+   * Handle coding failure — stop the affected chat session pipeline and wait for manual resume.
    */
   @OnEvent('agent.codingFailed')
   async handleCodingFailed(payload: {
@@ -959,37 +1038,400 @@ export class AgentOrchestratorService implements OnModuleInit, OnModuleDestroy {
     isFixAttempt?: boolean;
     errorMessage?: string;
   }) {
-    const { projectId, chatSessionId, issueId } = payload;
+    const { projectId, chatSessionId, issueId, errorMessage, isFixAttempt } =
+      payload;
+    const failureReason = errorMessage
+      ? `Coder failure: ${errorMessage}`
+      : `Coder ${isFixAttempt ? 'fix attempt' : 'implementation'} failed for issue ${issueId}`;
 
-    // If this was a fix attempt, retrigger via the fix loop (respects maxFixAttempts)
-    if (payload.isFixAttempt) {
-      this.logger.warn(`Fix attempt failed for issue ${issueId} — retriggering via fix loop`);
-      await this.retriggerCoder(
-        projectId,
-        chatSessionId,
-        issueId,
-        `Previous fix attempt crashed: ${payload.errorMessage ?? 'unknown error'}. Please try a different approach to fix the issues.`,
-        'review',
-      );
-      return;
+    this.logger.error(
+      `Pipeline stop for session ${chatSessionId}: ${failureReason} (issue ${issueId}, fix=${Boolean(isFixAttempt)})`,
+    );
+    await this.pausePipelineForSessionFailure(
+      projectId,
+      chatSessionId,
+      issueId,
+      failureReason,
+    );
+  }
+
+  private buildSessionFailureFilter(projectId: string, chatSessionId: string) {
+    return {
+      status: AgentTaskStatus.FAILED,
+      agent: { projectId },
+      OR: [
+        { issue: { chatSessionId } },
+        { chatMessages: { some: { chatSessionId } } },
+      ],
+    };
+  }
+
+  private extractTaskFailureReason(task: {
+    output?: unknown;
+    logs?: Array<{ message: string }>;
+    type?: AgentTaskType;
+  }): string {
+    const output = task.output as Record<string, unknown> | null;
+    const directOutputReason =
+      output && typeof output === 'object'
+        ? (typeof output.error === 'string' && output.error) ||
+          (typeof output.errorMessage === 'string' && output.errorMessage) ||
+          (typeof output.message === 'string' && output.message) ||
+          (typeof output.summary === 'string' && output.summary)
+        : null;
+
+    if (directOutputReason) return directOutputReason.substring(0, 1000);
+    if (typeof task.output === 'string' && task.output.trim()) {
+      return task.output.substring(0, 1000);
     }
 
-    // Initial coding failed — skip to next open issue (session-scoped)
-    const chatSessionFilter = await this.getSessionFilter(chatSessionId);
-    const nextOpen = await this.prisma.issue.findFirst({
-      where: { projectId, status: IssueStatus.OPEN, parentId: null, ...chatSessionFilter },
+    const latestLog = task.logs?.[0]?.message?.trim();
+    if (latestLog) return latestLog.substring(0, 1000);
+
+    return `${task.type ?? 'UNKNOWN_TASK'} failed without detailed error output`;
+  }
+
+  private async findLatestFailedTask(projectId: string, chatSessionId: string) {
+    return this.prisma.agentTask.findFirst({
+      where: this.buildSessionFailureFilter(projectId, chatSessionId),
+      include: {
+        agent: { select: { role: true } },
+        issue: {
+          select: {
+            id: true,
+            title: true,
+            gitlabIid: true,
+            chatSessionId: true,
+          },
+        },
+        logs: {
+          where: { level: { in: ['ERROR', 'WARN'] } },
+          orderBy: { createdAt: 'desc' },
+          take: 1,
+        },
+      },
+      orderBy: [{ completedAt: 'desc' }, { updatedAt: 'desc' }],
+    });
+  }
+
+  async getLatestPipelineFailure(projectId: string, chatSessionId: string) {
+    const failedTask = await this.findLatestFailedTask(
+      projectId,
+      chatSessionId,
+    );
+    if (!failedTask) return null;
+
+    return {
+      taskId: failedTask.id,
+      taskType: failedTask.type,
+      agentRole: failedTask.agent.role,
+      issueId: failedTask.issueId,
+      issueTitle: failedTask.issue?.title ?? null,
+      issueGitlabIid: failedTask.issue?.gitlabIid ?? null,
+      gitlabMrIid: failedTask.gitlabMrIid ?? null,
+      failedAt: failedTask.completedAt ?? failedTask.updatedAt,
+      reason: this.extractTaskFailureReason(failedTask),
+    };
+  }
+
+  private async pausePipelineForSessionFailure(
+    projectId: string,
+    chatSessionId: string,
+    issueId: string,
+    reason: string,
+  ): Promise<void> {
+    const session = await this.prisma.chatSession.findUnique({
+      where: { id: chatSessionId },
+      select: { id: true, projectId: true },
+    });
+    if (!session || session.projectId !== projectId) return;
+
+    const truncatedReason =
+      reason.length > 1500 ? `${reason.substring(0, 1500)}…` : reason;
+    const msg = await this.chatService.addMessage({
+      chatSessionId,
+      role: 'SYSTEM' as any,
+      content:
+        `⛔ Pipeline paused for this session.\n\n` +
+        `Issue: ${issueId}\n` +
+        `Reason: ${truncatedReason}\n\n` +
+        `Fix the provider/tool problem, then resume from the latest failed task.`,
     });
 
-    if (nextOpen) {
-      this.logger.log(`Coding failed for ${issueId} — moving to next issue ${nextOpen.id}`);
-      try {
-        await this.startCoding(projectId, chatSessionId);
-      } catch (err) {
-        this.logger.error(`Failed to start Coder for next issue after failure: ${err.message}`);
-      }
-    } else {
-      this.logger.log(`Coding failed for ${issueId} — no more open issues`);
+    this.chatGateway.emitToSession(chatSessionId, 'newMessage', msg);
+    this.chatGateway.emitToSession(chatSessionId, 'chatSuggestions', {
+      chatSessionId,
+      suggestions: ['▶️ Resume pipeline', '🛠️ Fix provider/tool issue'],
+    });
+  }
+
+  private async resolveMrIidForIssue(issueId: string): Promise<number | null> {
+    const latest = await this.prisma.agentTask.findFirst({
+      where: { issueId, gitlabMrIid: { not: null } },
+      orderBy: { createdAt: 'desc' },
+      select: { gitlabMrIid: true },
+    });
+    return latest?.gitlabMrIid ?? null;
+  }
+
+  private normalizeFeedbackSource(
+    value: unknown,
+  ):
+    | 'review'
+    | 'pipeline'
+    | 'user'
+    | 'functional-test'
+    | 'ui-test'
+    | 'security' {
+    const raw = typeof value === 'string' ? value : '';
+    if (
+      raw === 'review' ||
+      raw === 'pipeline' ||
+      raw === 'user' ||
+      raw === 'functional-test' ||
+      raw === 'ui-test' ||
+      raw === 'security'
+    ) {
+      return raw;
     }
+    return 'user';
+  }
+
+  async resumePipelineFromFailedTask(
+    projectId: string,
+    chatSessionId: string,
+    failedTaskId?: string,
+  ) {
+    const session = await this.prisma.chatSession.findUnique({
+      where: { id: chatSessionId },
+      select: { id: true, projectId: true, title: true },
+    });
+    if (!session || session.projectId !== projectId) {
+      throw new NotFoundException(
+        `Session ${chatSessionId} not found for project ${projectId}`,
+      );
+    }
+
+    const failedTask = failedTaskId
+      ? await this.prisma.agentTask.findFirst({
+          where: {
+            id: failedTaskId,
+            ...this.buildSessionFailureFilter(projectId, chatSessionId),
+          },
+          include: {
+            agent: { select: { role: true } },
+            issue: { select: { id: true, title: true, gitlabIid: true } },
+            logs: {
+              where: { level: { in: ['ERROR', 'WARN'] } },
+              orderBy: { createdAt: 'desc' },
+              take: 1,
+            },
+          },
+        })
+      : await this.findLatestFailedTask(projectId, chatSessionId);
+
+    if (!failedTask) {
+      throw new NotFoundException(
+        'No failed pipeline task found for this session',
+      );
+    }
+
+    const project = await this.prisma.project.findUnique({
+      where: { id: projectId },
+      select: { gitlabProjectId: true },
+    });
+    const gitlabProjectId = project?.gitlabProjectId;
+
+    switch (failedTask.type) {
+      case AgentTaskType.DESIGN_ARCHITECTURE:
+        await this.startArchitectDesign(projectId, chatSessionId);
+        break;
+      case AgentTaskType.ANALYZE_ISSUES:
+        await this.startArchitectGrounding(projectId, chatSessionId);
+        break;
+      case AgentTaskType.CREATE_ISSUES:
+        await this.startIssueCompilation(projectId, chatSessionId);
+        break;
+      case AgentTaskType.WRITE_CODE:
+        await this.startCoding(projectId, chatSessionId);
+        break;
+      case AgentTaskType.FIX_CODE: {
+        if (!failedTask.issueId) {
+          throw new NotFoundException('Cannot resume FIX_CODE without issueId');
+        }
+        const input =
+          (failedTask.input as Record<string, unknown> | null) ?? {};
+        const feedback =
+          typeof input.feedback === 'string' && input.feedback.trim().length > 0
+            ? input.feedback
+            : `Retry failed fix attempt: ${this.extractTaskFailureReason(failedTask)}`;
+        const feedbackSource = this.normalizeFeedbackSource(
+          input.feedbackSource,
+        );
+        await this.retriggerCoder(
+          projectId,
+          chatSessionId,
+          failedTask.issueId,
+          feedback,
+          feedbackSource,
+        );
+        break;
+      }
+      case AgentTaskType.REVIEW_CODE: {
+        if (!failedTask.issueId)
+          throw new NotFoundException(
+            'Cannot resume REVIEW_CODE without issueId',
+          );
+        if (!gitlabProjectId)
+          throw new NotFoundException('Project has no GitLab project ID');
+        const mrIid =
+          failedTask.gitlabMrIid ??
+          (await this.resolveMrIidForIssue(failedTask.issueId));
+        if (!mrIid)
+          throw new NotFoundException(
+            'Cannot resume REVIEW_CODE without MR IID',
+          );
+        await this.startCodeReview(
+          projectId,
+          chatSessionId,
+          failedTask.issueId,
+          mrIid,
+          gitlabProjectId,
+        );
+        break;
+      }
+      case AgentTaskType.TEST_FUNCTIONAL: {
+        if (!failedTask.issueId)
+          throw new NotFoundException(
+            'Cannot resume TEST_FUNCTIONAL without issueId',
+          );
+        if (!gitlabProjectId)
+          throw new NotFoundException('Project has no GitLab project ID');
+        const mrIid =
+          failedTask.gitlabMrIid ??
+          (await this.resolveMrIidForIssue(failedTask.issueId));
+        if (!mrIid)
+          throw new NotFoundException(
+            'Cannot resume TEST_FUNCTIONAL without MR IID',
+          );
+        await this.startFunctionalTest(
+          projectId,
+          chatSessionId,
+          failedTask.issueId,
+          mrIid,
+          gitlabProjectId,
+        );
+        break;
+      }
+      case AgentTaskType.TEST_UI: {
+        if (!failedTask.issueId)
+          throw new NotFoundException('Cannot resume TEST_UI without issueId');
+        if (!gitlabProjectId)
+          throw new NotFoundException('Project has no GitLab project ID');
+        const mrIid =
+          failedTask.gitlabMrIid ??
+          (await this.resolveMrIidForIssue(failedTask.issueId));
+        if (!mrIid)
+          throw new NotFoundException('Cannot resume TEST_UI without MR IID');
+        await this.startUiTest(
+          projectId,
+          chatSessionId,
+          failedTask.issueId,
+          mrIid,
+          gitlabProjectId,
+        );
+        break;
+      }
+      case AgentTaskType.TEST_SECURITY: {
+        if (!failedTask.issueId)
+          throw new NotFoundException(
+            'Cannot resume TEST_SECURITY without issueId',
+          );
+        if (!gitlabProjectId)
+          throw new NotFoundException('Project has no GitLab project ID');
+        const mrIid =
+          failedTask.gitlabMrIid ??
+          (await this.resolveMrIidForIssue(failedTask.issueId));
+        if (!mrIid)
+          throw new NotFoundException(
+            'Cannot resume TEST_SECURITY without MR IID',
+          );
+        await this.startPenTest(
+          projectId,
+          chatSessionId,
+          failedTask.issueId,
+          mrIid,
+          gitlabProjectId,
+        );
+        break;
+      }
+      case AgentTaskType.WRITE_DOCS: {
+        if (!failedTask.issueId)
+          throw new NotFoundException(
+            'Cannot resume WRITE_DOCS without issueId',
+          );
+        if (!gitlabProjectId)
+          throw new NotFoundException('Project has no GitLab project ID');
+        const mrIid =
+          failedTask.gitlabMrIid ??
+          (await this.resolveMrIidForIssue(failedTask.issueId));
+        if (!mrIid)
+          throw new NotFoundException(
+            'Cannot resume WRITE_DOCS without MR IID',
+          );
+        await this.startDocumenter(
+          projectId,
+          chatSessionId,
+          failedTask.issueId,
+          mrIid,
+          gitlabProjectId,
+        );
+        break;
+      }
+      case AgentTaskType.DEPLOY:
+        await this.startDevopsSetup(projectId, chatSessionId);
+        break;
+      case AgentTaskType.FEATURE_INTERVIEW:
+        await this.startFeatureInterview(
+          projectId,
+          chatSessionId,
+          session.title || 'Feature Session',
+        );
+        break;
+      default:
+        throw new NotFoundException(
+          `Resume is not supported for failed task type ${failedTask.type}`,
+        );
+    }
+
+    const previousOutput =
+      failedTask.output && typeof failedTask.output === 'object'
+        ? (failedTask.output as Record<string, unknown>)
+        : {};
+    await this.prisma.agentTask.update({
+      where: { id: failedTask.id },
+      data: {
+        status: AgentTaskStatus.CANCELLED,
+        output: {
+          ...previousOutput,
+          resumed: true,
+          resumedAt: new Date().toISOString(),
+        } as any,
+      },
+    });
+
+    const resumeMsg = await this.chatService.addMessage({
+      chatSessionId,
+      role: 'SYSTEM' as any,
+      content: `▶️ Pipeline resumed from failed task ${failedTask.type} (${failedTask.id}).`,
+    });
+    this.chatGateway.emitToSession(chatSessionId, 'newMessage', resumeMsg);
+
+    return {
+      resumed: true,
+      resumedFromTaskId: failedTask.id,
+      resumedFromTaskType: failedTask.type,
+    };
   }
 
   async startCodeReview(
@@ -1029,9 +1471,11 @@ export class AgentOrchestratorService implements OnModuleInit, OnModuleDestroy {
       chatSessionId,
     };
 
-    this.codeReviewer.reviewIssue(ctx, issueId, mrIid, gitlabProjectId).catch((err) => {
-      this.logger.error(`Code Reviewer error: ${err.message}`);
-    });
+    this.codeReviewer
+      .reviewIssue(ctx, issueId, mrIid, gitlabProjectId)
+      .catch((err) => {
+        this.logger.error(`Code Reviewer error: ${err.message}`);
+      });
   }
 
   /**
@@ -1045,8 +1489,16 @@ export class AgentOrchestratorService implements OnModuleInit, OnModuleDestroy {
     feedback: string;
   }) {
     const { projectId, chatSessionId, issueId, feedback } = payload;
-    this.logger.log(`Review changes requested for issue ${issueId} — re-triggering Coder`);
-    await this.retriggerCoder(projectId, chatSessionId, issueId, feedback, 'review');
+    this.logger.log(
+      `Review changes requested for issue ${issueId} — re-triggering Coder`,
+    );
+    await this.retriggerCoder(
+      projectId,
+      chatSessionId,
+      issueId,
+      feedback,
+      'review',
+    );
   }
 
   // ─── Pipeline Feedback Loop ────────────────────────────────
@@ -1074,7 +1526,9 @@ export class AgentOrchestratorService implements OnModuleInit, OnModuleDestroy {
     }
 
     const gitlabIid = parseInt(match[1], 10);
-    this.logger.log(`Pipeline failed for feature branch ${ref} (issue #${gitlabIid})`);
+    this.logger.log(
+      `Pipeline failed for feature branch ${ref} (issue #${gitlabIid})`,
+    );
 
     // Find the local issue
     const issue = await this.prisma.issue.findFirst({
@@ -1085,23 +1539,35 @@ export class AgentOrchestratorService implements OnModuleInit, OnModuleDestroy {
     });
 
     if (!issue) {
-      this.logger.warn(`No local issue for GitLab #${gitlabIid} in project ${projectId}`);
+      this.logger.warn(
+        `No local issue for GitLab #${gitlabIid} in project ${projectId}`,
+      );
       return;
     }
 
     // Get job logs
     let failureSummary = 'CI/CD pipeline failed.';
     try {
-      const jobs = await this.gitlabService.getPipelineJobs(gitlabProjectId, pipelineId);
-      const failedJobs = jobs.filter(j => j.status === 'failed').slice(0, 3);
+      const jobs = await this.gitlabService.getPipelineJobs(
+        gitlabProjectId,
+        pipelineId,
+      );
+      const failedJobs = jobs.filter((j) => j.status === 'failed').slice(0, 3);
 
       const logParts: string[] = [];
       for (const job of failedJobs) {
         try {
-          const log = await this.gitlabService.getJobLog(gitlabProjectId, job.id);
-          logParts.push(`### Job: ${job.name} (${job.stage})\n\`\`\`\n${log.slice(-2000)}\n\`\`\``);
+          const log = await this.gitlabService.getJobLog(
+            gitlabProjectId,
+            job.id,
+          );
+          logParts.push(
+            `### Job: ${job.name} (${job.stage})\n\`\`\`\n${log.slice(-2000)}\n\`\`\``,
+          );
         } catch {
-          logParts.push(`### Job: ${job.name} (${job.stage})\n_Could not fetch log_`);
+          logParts.push(
+            `### Job: ${job.name} (${job.stage})\n_Could not fetch log_`,
+          );
         }
       }
 
@@ -1130,7 +1596,9 @@ export class AgentOrchestratorService implements OnModuleInit, OnModuleDestroy {
     });
 
     // Sync status label to GitLab
-    await this.gitlabService.syncStatusLabel(gitlabProjectId, gitlabIid, 'IN_PROGRESS').catch(() => {});
+    await this.gitlabService
+      .syncStatusLabel(gitlabProjectId, gitlabIid, 'IN_PROGRESS')
+      .catch(() => {});
 
     // Find chat session — prefer the session that owns this issue
     const issueWithSession = await this.prisma.issue.findUnique({
@@ -1149,7 +1617,13 @@ export class AgentOrchestratorService implements OnModuleInit, OnModuleDestroy {
     if (!chatSessionId) return;
 
     // Re-trigger Coder via centralized retrigger (respects maxFixAttempts)
-    await this.retriggerCoder(projectId, chatSessionId, issue.id, failureSummary, 'pipeline');
+    await this.retriggerCoder(
+      projectId,
+      chatSessionId,
+      issue.id,
+      failureSummary,
+      'pipeline',
+    );
   }
 
   // ─── User Feedback Loop ────────────────────────────────────
@@ -1176,11 +1650,15 @@ export class AgentOrchestratorService implements OnModuleInit, OnModuleDestroy {
     ];
 
     if (!triggerStatuses.includes(issueStatus)) {
-      this.logger.debug(`User comment on issue ${issueId} in status ${issueStatus} — ignoring`);
+      this.logger.debug(
+        `User comment on issue ${issueId} in status ${issueStatus} — ignoring`,
+      );
       return;
     }
 
-    this.logger.log(`User ${authorName} commented on issue ${issueId} (status: ${issueStatus}) — re-triggering Coder`);
+    this.logger.log(
+      `User ${authorName} commented on issue ${issueId} (status: ${issueStatus}) — re-triggering Coder`,
+    );
 
     // Update issue status → IN_PROGRESS
     const updatedIssue = await this.prisma.issue.update({
@@ -1191,7 +1669,13 @@ export class AgentOrchestratorService implements OnModuleInit, OnModuleDestroy {
 
     // Sync status label to GitLab
     if (updatedIssue.gitlabIid && updatedIssue.project.gitlabProjectId) {
-      await this.gitlabService.syncStatusLabel(updatedIssue.project.gitlabProjectId, updatedIssue.gitlabIid, 'IN_PROGRESS').catch(() => {});
+      await this.gitlabService
+        .syncStatusLabel(
+          updatedIssue.project.gitlabProjectId,
+          updatedIssue.gitlabIid,
+          'IN_PROGRESS',
+        )
+        .catch(() => {});
     }
 
     // Find chat session — prefer the session that owns this issue
@@ -1211,7 +1695,13 @@ export class AgentOrchestratorService implements OnModuleInit, OnModuleDestroy {
     if (!chatSessionForComment) return;
 
     // Re-trigger Coder via centralized retrigger (respects maxFixAttempts)
-    await this.retriggerCoder(projectId, chatSessionForComment, issueId, `User feedback from ${authorName}:\n\n${content}`, 'user');
+    await this.retriggerCoder(
+      projectId,
+      chatSessionForComment,
+      issueId,
+      `User feedback from ${authorName}:\n\n${content}`,
+      'user',
+    );
   }
 
   // ─── Review Approved → Functional Tester ─────────────────
@@ -1227,11 +1717,20 @@ export class AgentOrchestratorService implements OnModuleInit, OnModuleDestroy {
     mrIid: number;
     gitlabProjectId: number;
   }) {
-    const { projectId, chatSessionId, issueId, mrIid, gitlabProjectId } = payload;
-    this.logger.log(`Review approved for issue ${issueId} — starting Functional Tester`);
+    const { projectId, chatSessionId, issueId, mrIid, gitlabProjectId } =
+      payload;
+    this.logger.log(
+      `Review approved for issue ${issueId} — starting Functional Tester`,
+    );
 
     try {
-      await this.startFunctionalTest(projectId, chatSessionId, issueId, mrIid, gitlabProjectId);
+      await this.startFunctionalTest(
+        projectId,
+        chatSessionId,
+        issueId,
+        mrIid,
+        gitlabProjectId,
+      );
     } catch (err) {
       this.logger.error(`Failed to start Functional Tester: ${err.message}`);
     }
@@ -1274,9 +1773,11 @@ export class AgentOrchestratorService implements OnModuleInit, OnModuleDestroy {
       chatSessionId,
     };
 
-    this.functionalTester.testIssue(ctx, issueId, mrIid, gitlabProjectId).catch((err) => {
-      this.logger.error(`Functional Tester error: ${err.message}`);
-    });
+    this.functionalTester
+      .testIssue(ctx, issueId, mrIid, gitlabProjectId)
+      .catch((err) => {
+        this.logger.error(`Functional Tester error: ${err.message}`);
+      });
   }
 
   // ─── Functional Test Complete → UI Tester ────────────────
@@ -1291,18 +1792,42 @@ export class AgentOrchestratorService implements OnModuleInit, OnModuleDestroy {
     passed: boolean;
     feedback?: string;
   }) {
-    const { projectId, chatSessionId, issueId, mrIid, gitlabProjectId, passed, feedback } = payload;
+    const {
+      projectId,
+      chatSessionId,
+      issueId,
+      mrIid,
+      gitlabProjectId,
+      passed,
+      feedback,
+    } = payload;
 
     if (passed) {
-      this.logger.log(`Functional test passed for issue ${issueId} — starting UI Tester`);
+      this.logger.log(
+        `Functional test passed for issue ${issueId} — starting UI Tester`,
+      );
       try {
-        await this.startUiTest(projectId, chatSessionId, issueId, mrIid, gitlabProjectId);
+        await this.startUiTest(
+          projectId,
+          chatSessionId,
+          issueId,
+          mrIid,
+          gitlabProjectId,
+        );
       } catch (err) {
         this.logger.error(`Failed to start UI Tester: ${err.message}`);
       }
     } else {
-      this.logger.log(`Functional test failed for issue ${issueId} — re-triggering Coder`);
-      await this.retriggerCoder(projectId, chatSessionId, issueId, feedback || 'Functional test failed', 'functional-test');
+      this.logger.log(
+        `Functional test failed for issue ${issueId} — re-triggering Coder`,
+      );
+      await this.retriggerCoder(
+        projectId,
+        chatSessionId,
+        issueId,
+        feedback || 'Functional test failed',
+        'functional-test',
+      );
     }
   }
 
@@ -1343,9 +1868,11 @@ export class AgentOrchestratorService implements OnModuleInit, OnModuleDestroy {
       chatSessionId,
     };
 
-    this.uiTester.testIssue(ctx, issueId, mrIid, gitlabProjectId).catch((err) => {
-      this.logger.error(`UI Tester error: ${err.message}`);
-    });
+    this.uiTester
+      .testIssue(ctx, issueId, mrIid, gitlabProjectId)
+      .catch((err) => {
+        this.logger.error(`UI Tester error: ${err.message}`);
+      });
   }
 
   // ─── UI Test Complete → Pen Tester ───────────────────────
@@ -1360,18 +1887,42 @@ export class AgentOrchestratorService implements OnModuleInit, OnModuleDestroy {
     passed: boolean;
     feedback?: string;
   }) {
-    const { projectId, chatSessionId, issueId, mrIid, gitlabProjectId, passed, feedback } = payload;
+    const {
+      projectId,
+      chatSessionId,
+      issueId,
+      mrIid,
+      gitlabProjectId,
+      passed,
+      feedback,
+    } = payload;
 
     if (passed) {
-      this.logger.log(`UI test passed for issue ${issueId} — starting Pen Tester`);
+      this.logger.log(
+        `UI test passed for issue ${issueId} — starting Pen Tester`,
+      );
       try {
-        await this.startPenTest(projectId, chatSessionId, issueId, mrIid, gitlabProjectId);
+        await this.startPenTest(
+          projectId,
+          chatSessionId,
+          issueId,
+          mrIid,
+          gitlabProjectId,
+        );
       } catch (err) {
         this.logger.error(`Failed to start Pen Tester: ${err.message}`);
       }
     } else {
-      this.logger.log(`UI test failed for issue ${issueId} — re-triggering Coder`);
-      await this.retriggerCoder(projectId, chatSessionId, issueId, feedback || 'UI test failed', 'ui-test');
+      this.logger.log(
+        `UI test failed for issue ${issueId} — re-triggering Coder`,
+      );
+      await this.retriggerCoder(
+        projectId,
+        chatSessionId,
+        issueId,
+        feedback || 'UI test failed',
+        'ui-test',
+      );
     }
   }
 
@@ -1412,9 +1963,11 @@ export class AgentOrchestratorService implements OnModuleInit, OnModuleDestroy {
       chatSessionId,
     };
 
-    this.penTester.testIssue(ctx, issueId, mrIid, gitlabProjectId).catch((err) => {
-      this.logger.error(`Pen Tester error: ${err.message}`);
-    });
+    this.penTester
+      .testIssue(ctx, issueId, mrIid, gitlabProjectId)
+      .catch((err) => {
+        this.logger.error(`Pen Tester error: ${err.message}`);
+      });
   }
 
   // ─── Pen Test Complete → Documenter ─────────────────────
@@ -1429,18 +1982,42 @@ export class AgentOrchestratorService implements OnModuleInit, OnModuleDestroy {
     passed: boolean;
     feedback?: string;
   }) {
-    const { projectId, chatSessionId, issueId, mrIid, gitlabProjectId, passed, feedback } = payload;
+    const {
+      projectId,
+      chatSessionId,
+      issueId,
+      mrIid,
+      gitlabProjectId,
+      passed,
+      feedback,
+    } = payload;
 
     if (passed) {
-      this.logger.log(`Pen test passed for issue ${issueId} — starting Documenter`);
+      this.logger.log(
+        `Pen test passed for issue ${issueId} — starting Documenter`,
+      );
       try {
-        await this.startDocumenter(projectId, chatSessionId, issueId, mrIid, gitlabProjectId);
+        await this.startDocumenter(
+          projectId,
+          chatSessionId,
+          issueId,
+          mrIid,
+          gitlabProjectId,
+        );
       } catch (err) {
         this.logger.error(`Failed to start Documenter: ${err.message}`);
       }
     } else {
-      this.logger.log(`Pen test failed for issue ${issueId} — re-triggering Coder`);
-      await this.retriggerCoder(projectId, chatSessionId, issueId, feedback || 'Security test failed', 'security');
+      this.logger.log(
+        `Pen test failed for issue ${issueId} — re-triggering Coder`,
+      );
+      await this.retriggerCoder(
+        projectId,
+        chatSessionId,
+        issueId,
+        feedback || 'Security test failed',
+        'security',
+      );
     }
   }
 
@@ -1481,9 +2058,11 @@ export class AgentOrchestratorService implements OnModuleInit, OnModuleDestroy {
       chatSessionId,
     };
 
-    this.documenter.documentIssue(ctx, issueId, mrIid, gitlabProjectId).catch((err) => {
-      this.logger.error(`Documenter error: ${err.message}`);
-    });
+    this.documenter
+      .documentIssue(ctx, issueId, mrIid, gitlabProjectId)
+      .catch((err) => {
+        this.logger.error(`Documenter error: ${err.message}`);
+      });
   }
 
   // ─── Docs Complete → Issue DONE ─────────────────────────
@@ -1496,18 +2075,26 @@ export class AgentOrchestratorService implements OnModuleInit, OnModuleDestroy {
     mrIid: number;
     gitlabProjectId: number;
   }) {
-    const { issueId, mrIid, gitlabProjectId, projectId, chatSessionId } = payload;
+    const { issueId, mrIid, gitlabProjectId, projectId, chatSessionId } =
+      payload;
     const pipelineConfig = this.settings.getPipelineConfig();
     const mergeConfig = pipelineConfig.merge ?? {
-      autoMerge: true, method: 'merge' as const, removeSourceBranch: true,
-      requireApproval: false, closeIssueOnMerge: true,
+      autoMerge: true,
+      method: 'merge' as const,
+      removeSourceBranch: true,
+      requireApproval: false,
+      closeIssueOnMerge: true,
     };
 
-    this.logger.log(`Documentation complete for issue ${issueId} — merge config: ${JSON.stringify(mergeConfig)}`);
+    this.logger.log(
+      `Documentation complete for issue ${issueId} — merge config: ${JSON.stringify(mergeConfig)}`,
+    );
 
     // If manual approval required, emit suggestion and wait
     if (mergeConfig.requireApproval) {
-      this.logger.log(`Merge requires approval — waiting for user action on MR !${mrIid}`);
+      this.logger.log(
+        `Merge requires approval — waiting for user action on MR !${mrIid}`,
+      );
       // Emit chat suggestions for merge approval
       this.chatGateway.emitToSession(chatSessionId, 'chatSuggestions', {
         chatSessionId,
@@ -1537,15 +2124,20 @@ export class AgentOrchestratorService implements OnModuleInit, OnModuleDestroy {
           squash: mergeConfig.method === 'squash',
           removeSourceBranch: mergeConfig.removeSourceBranch,
         });
-        this.logger.log(`MR !${mrIid} merged (method: ${mergeConfig.method}) for issue ${issueId}`);
+        this.logger.log(
+          `MR !${mrIid} merged (method: ${mergeConfig.method}) for issue ${issueId}`,
+        );
         merged = true;
         break;
       } catch (mergeErr) {
         const msg = mergeErr.message ?? String(mergeErr);
-        const isConflict = /conflict|cannot be merged|merge_request_not_mergeable/i.test(msg);
+        const isConflict =
+          /conflict|cannot be merged|merge_request_not_mergeable/i.test(msg);
 
         if (isConflict) {
-          this.logger.error(`MR !${mrIid} has merge conflicts — needs manual resolution: ${msg}`);
+          this.logger.error(
+            `MR !${mrIid} has merge conflicts — needs manual resolution: ${msg}`,
+          );
           await this.prisma.issue.update({
             where: { id: issueId },
             data: { status: IssueStatus.NEEDS_REVIEW },
@@ -1554,10 +2146,14 @@ export class AgentOrchestratorService implements OnModuleInit, OnModuleDestroy {
         }
 
         if (attempt < MAX_MERGE_RETRIES) {
-          this.logger.warn(`Merge attempt ${attempt}/${MAX_MERGE_RETRIES} failed for MR !${mrIid}: ${msg} — retrying in ${RETRY_DELAY_MS / 1000}s`);
-          await new Promise(r => setTimeout(r, RETRY_DELAY_MS));
+          this.logger.warn(
+            `Merge attempt ${attempt}/${MAX_MERGE_RETRIES} failed for MR !${mrIid}: ${msg} — retrying in ${RETRY_DELAY_MS / 1000}s`,
+          );
+          await new Promise((r) => setTimeout(r, RETRY_DELAY_MS));
         } else {
-          this.logger.error(`All ${MAX_MERGE_RETRIES} merge attempts failed for MR !${mrIid}: ${msg}`);
+          this.logger.error(
+            `All ${MAX_MERGE_RETRIES} merge attempts failed for MR !${mrIid}: ${msg}`,
+          );
           await this.prisma.issue.update({
             where: { id: issueId },
             data: { status: IssueStatus.NEEDS_REVIEW },
@@ -1590,8 +2186,13 @@ export class AgentOrchestratorService implements OnModuleInit, OnModuleDestroy {
         });
         if (issue?.gitlabIid) {
           try {
-            await this.gitlabService.closeIssue(gitlabProjectId, issue.gitlabIid);
-            this.logger.log(`Closed GitLab issue #${issue.gitlabIid} after merge`);
+            await this.gitlabService.closeIssue(
+              gitlabProjectId,
+              issue.gitlabIid,
+            );
+            this.logger.log(
+              `Closed GitLab issue #${issue.gitlabIid} after merge`,
+            );
           } catch (err) {
             this.logger.warn(`Failed to close GitLab issue: ${err.message}`);
           }
@@ -1599,7 +2200,9 @@ export class AgentOrchestratorService implements OnModuleInit, OnModuleDestroy {
       }
 
       // Pull latest base branch in the workspace so the Coder has the updated code
-      const project = await this.prisma.project.findUnique({ where: { id: projectId } });
+      const project = await this.prisma.project.findUnique({
+        where: { id: projectId },
+      });
       if (project) {
         const { execFile } = require('child_process');
         const { promisify } = require('util');
@@ -1625,33 +2228,57 @@ export class AgentOrchestratorService implements OnModuleInit, OnModuleDestroy {
           );
           baseBranch = sessionInfo.branch;
         } else {
-          workspace = pathMod.resolve(this.settings.devopsWorkspacePath, project.slug);
+          workspace = pathMod.resolve(
+            this.settings.devopsWorkspacePath,
+            project.slug,
+          );
           baseBranch = project.workBranch || 'main';
         }
 
         try {
-          await execFileAsync('git', ['checkout', baseBranch], { cwd: workspace, timeout: 10_000 });
-          await execFileAsync('git', ['pull', '--ff-only'], { cwd: workspace, timeout: 30_000 });
-          this.logger.log(`Pulled latest ${baseBranch} in workspace ${workspace}`);
+          await execFileAsync('git', ['checkout', baseBranch], {
+            cwd: workspace,
+            timeout: 10_000,
+          });
+          await execFileAsync('git', ['pull', '--ff-only'], {
+            cwd: workspace,
+            timeout: 30_000,
+          });
+          this.logger.log(
+            `Pulled latest ${baseBranch} in workspace ${workspace}`,
+          );
         } catch (pullErr) {
-          this.logger.warn(`Failed to pull ${baseBranch} in workspace: ${pullErr.message}`);
+          this.logger.warn(
+            `Failed to pull ${baseBranch} in workspace: ${pullErr.message}`,
+          );
         }
       }
 
       // Sequential pipeline: trigger Coder for the next open issue (session-scoped)
       const chatSessionFilter = await this.getSessionFilter(chatSessionId);
       const nextOpen = await this.prisma.issue.findFirst({
-        where: { projectId, status: IssueStatus.OPEN, parentId: null, ...chatSessionFilter },
+        where: {
+          projectId,
+          status: IssueStatus.OPEN,
+          parentId: null,
+          ...chatSessionFilter,
+        },
       });
       if (nextOpen) {
-        this.logger.log(`Issue ${issueId} merged — ${nextOpen.id} is next in queue, triggering Coder`);
+        this.logger.log(
+          `Issue ${issueId} merged — ${nextOpen.id} is next in queue, triggering Coder`,
+        );
         try {
           await this.startCoding(projectId, chatSessionId);
         } catch (err) {
-          this.logger.error(`Failed to start Coder for next issue: ${err.message}`);
+          this.logger.error(
+            `Failed to start Coder for next issue: ${err.message}`,
+          );
         }
       } else {
-        this.logger.log(`Issue ${issueId} merged — no more open issues, pipeline complete!`);
+        this.logger.log(
+          `Issue ${issueId} merged — no more open issues, pipeline complete!`,
+        );
         this.chatGateway.emitToSession(chatSessionId, 'chatSuggestions', {
           chatSessionId,
           suggestions: ['🎉 All issues done!', '📋 Show summary'],
@@ -1680,7 +2307,9 @@ export class AgentOrchestratorService implements OnModuleInit, OnModuleDestroy {
       });
 
       if (!taskWithMr?.gitlabMrIid) {
-        this.logger.warn(`autoMergeForNeedsReview: No MR found for issue ${issueId} — skipping`);
+        this.logger.warn(
+          `autoMergeForNeedsReview: No MR found for issue ${issueId} — skipping`,
+        );
         return;
       }
 
@@ -1693,8 +2322,11 @@ export class AgentOrchestratorService implements OnModuleInit, OnModuleDestroy {
       const mrIid = taskWithMr.gitlabMrIid;
       const pipelineConfig = this.settings.getPipelineConfig();
       const mergeConfig = pipelineConfig.merge ?? {
-        autoMerge: true, method: 'merge' as const, removeSourceBranch: true,
-        requireApproval: false, closeIssueOnMerge: true,
+        autoMerge: true,
+        method: 'merge' as const,
+        removeSourceBranch: true,
+        requireApproval: false,
+        closeIssueOnMerge: true,
       };
 
       // Attempt merge with retries
@@ -1704,27 +2336,40 @@ export class AgentOrchestratorService implements OnModuleInit, OnModuleDestroy {
 
       for (let attempt = 1; attempt <= MAX_RETRIES; attempt++) {
         try {
-          await this.gitlabService.acceptMergeRequest(project.gitlabProjectId, mrIid, {
-            squash: mergeConfig.method === 'squash',
-            removeSourceBranch: mergeConfig.removeSourceBranch,
-          });
-          this.logger.log(`autoMergeForNeedsReview: MR !${mrIid} merged for NEEDS_REVIEW issue ${issueId}`);
+          await this.gitlabService.acceptMergeRequest(
+            project.gitlabProjectId,
+            mrIid,
+            {
+              squash: mergeConfig.method === 'squash',
+              removeSourceBranch: mergeConfig.removeSourceBranch,
+            },
+          );
+          this.logger.log(
+            `autoMergeForNeedsReview: MR !${mrIid} merged for NEEDS_REVIEW issue ${issueId}`,
+          );
           merged = true;
           break;
         } catch (err) {
           const msg = err.message ?? String(err);
-          const isConflict = /conflict|cannot be merged|merge_request_not_mergeable/i.test(msg);
+          const isConflict =
+            /conflict|cannot be merged|merge_request_not_mergeable/i.test(msg);
 
           if (isConflict) {
-            this.logger.warn(`autoMergeForNeedsReview: MR !${mrIid} has conflicts — cannot auto-merge: ${msg}`);
+            this.logger.warn(
+              `autoMergeForNeedsReview: MR !${mrIid} has conflicts — cannot auto-merge: ${msg}`,
+            );
             return;
           }
 
           if (attempt < MAX_RETRIES) {
-            this.logger.warn(`autoMergeForNeedsReview: Merge attempt ${attempt}/${MAX_RETRIES} failed: ${msg} — retrying`);
-            await new Promise(r => setTimeout(r, RETRY_DELAY));
+            this.logger.warn(
+              `autoMergeForNeedsReview: Merge attempt ${attempt}/${MAX_RETRIES} failed: ${msg} — retrying`,
+            );
+            await new Promise((r) => setTimeout(r, RETRY_DELAY));
           } else {
-            this.logger.error(`autoMergeForNeedsReview: All ${MAX_RETRIES} attempts failed for MR !${mrIid}: ${msg}`);
+            this.logger.error(
+              `autoMergeForNeedsReview: All ${MAX_RETRIES} attempts failed for MR !${mrIid}: ${msg}`,
+            );
             return;
           }
         }
@@ -1752,7 +2397,10 @@ export class AgentOrchestratorService implements OnModuleInit, OnModuleDestroy {
         baseBranch = sessionInfo.branch;
       } else {
         const pathMod = require('path');
-        workspace = pathMod.resolve(this.settings.devopsWorkspacePath, project.slug);
+        workspace = pathMod.resolve(
+          this.settings.devopsWorkspacePath,
+          project.slug,
+        );
         baseBranch = project.workBranch || 'main';
       }
 
@@ -1760,11 +2408,21 @@ export class AgentOrchestratorService implements OnModuleInit, OnModuleDestroy {
         const { execFile } = require('child_process');
         const { promisify } = require('util');
         const execFileAsync = promisify(execFile);
-        await execFileAsync('git', ['checkout', baseBranch], { cwd: workspace, timeout: 10_000 });
-        await execFileAsync('git', ['pull', '--ff-only'], { cwd: workspace, timeout: 30_000 });
-        this.logger.log(`autoMergeForNeedsReview: Pulled latest ${baseBranch} in ${workspace}`);
+        await execFileAsync('git', ['checkout', baseBranch], {
+          cwd: workspace,
+          timeout: 10_000,
+        });
+        await execFileAsync('git', ['pull', '--ff-only'], {
+          cwd: workspace,
+          timeout: 30_000,
+        });
+        this.logger.log(
+          `autoMergeForNeedsReview: Pulled latest ${baseBranch} in ${workspace}`,
+        );
       } catch (pullErr) {
-        this.logger.warn(`autoMergeForNeedsReview: Failed to pull ${baseBranch}: ${pullErr.message}`);
+        this.logger.warn(
+          `autoMergeForNeedsReview: Failed to pull ${baseBranch}: ${pullErr.message}`,
+        );
       }
     } catch (err) {
       this.logger.error(`autoMergeForNeedsReview error: ${err.message}`);
@@ -1778,12 +2436,20 @@ export class AgentOrchestratorService implements OnModuleInit, OnModuleDestroy {
     chatSessionId: string,
     issueId: string,
     feedback: string,
-    feedbackSource: 'review' | 'pipeline' | 'user' | 'functional-test' | 'ui-test' | 'security',
+    feedbackSource:
+      | 'review'
+      | 'pipeline'
+      | 'user'
+      | 'functional-test'
+      | 'ui-test'
+      | 'security',
   ): Promise<void> {
     // Guard: prevent concurrent FIX_CODE triggers for the same issue
     const fixLockKey = `${projectId}:${issueId}`;
     if (this.fixingIssues.has(fixLockKey)) {
-      this.logger.warn(`FIX_CODE already in progress for issue ${issueId} — skipping duplicate (source: ${feedbackSource})`);
+      this.logger.warn(
+        `FIX_CODE already in progress for issue ${issueId} — skipping duplicate (source: ${feedbackSource})`,
+      );
       return;
     }
     this.fixingIssues.add(fixLockKey);
@@ -1801,10 +2467,16 @@ export class AgentOrchestratorService implements OnModuleInit, OnModuleDestroy {
     try {
       // DB guard: skip if a FIX_CODE task is already RUNNING for this issue
       const activeFix = await this.prisma.agentTask.findFirst({
-        where: { issueId, type: AgentTaskType.FIX_CODE, status: AgentTaskStatus.RUNNING },
+        where: {
+          issueId,
+          type: AgentTaskType.FIX_CODE,
+          status: AgentTaskStatus.RUNNING,
+        },
       });
       if (activeFix) {
-        this.logger.warn(`FIX_CODE task ${activeFix.id} already RUNNING for issue ${issueId} — skipping`);
+        this.logger.warn(
+          `FIX_CODE task ${activeFix.id} already RUNNING for issue ${issueId} — skipping`,
+        );
         return;
       }
 
@@ -1814,7 +2486,9 @@ export class AgentOrchestratorService implements OnModuleInit, OnModuleDestroy {
       });
 
       if (fixCount >= maxAttempts) {
-        this.logger.warn(`Issue ${issueId} has ${fixCount}/${maxAttempts} fix attempts — needs manual review`);
+        this.logger.warn(
+          `Issue ${issueId} has ${fixCount}/${maxAttempts} fix attempts — needs manual review`,
+        );
 
         // Move issue to NEEDS_REVIEW
         const stoppedIssue = await this.prisma.issue.update({
@@ -1825,17 +2499,23 @@ export class AgentOrchestratorService implements OnModuleInit, OnModuleDestroy {
 
         // Sync status label + post explanatory comment to GitLab
         if (stoppedIssue.gitlabIid && stoppedIssue.project.gitlabProjectId) {
-          await this.gitlabService.syncStatusLabel(
-            stoppedIssue.project.gitlabProjectId, stoppedIssue.gitlabIid, 'NEEDS_REVIEW',
-          ).catch(() => {});
-          await this.gitlabService.createIssueNote(
-            stoppedIssue.project.gitlabProjectId,
-            stoppedIssue.gitlabIid,
-            `⚠️ **Max fix attempts reached** (${fixCount}/${maxAttempts})\n\n` +
-            `This issue has been automatically moved to **Needs Review** after ${fixCount} fix attempts ` +
-            `(last source: ${feedbackSource}). The MR was auto-merged so subsequent issues have access to this code.\n\n` +
-            `Last feedback:\n> ${feedback.substring(0, 500)}`,
-          ).catch(() => {});
+          await this.gitlabService
+            .syncStatusLabel(
+              stoppedIssue.project.gitlabProjectId,
+              stoppedIssue.gitlabIid,
+              'NEEDS_REVIEW',
+            )
+            .catch(() => {});
+          await this.gitlabService
+            .createIssueNote(
+              stoppedIssue.project.gitlabProjectId,
+              stoppedIssue.gitlabIid,
+              `⚠️ **Max fix attempts reached** (${fixCount}/${maxAttempts})\n\n` +
+                `This issue has been automatically moved to **Needs Review** after ${fixCount} fix attempts ` +
+                `(last source: ${feedbackSource}). The MR was auto-merged so subsequent issues have access to this code.\n\n` +
+                `Last feedback:\n> ${feedback.substring(0, 500)}`,
+            )
+            .catch(() => {});
         }
 
         // Auto-merge the MR so the next issue has access to the code
@@ -1844,14 +2524,23 @@ export class AgentOrchestratorService implements OnModuleInit, OnModuleDestroy {
         // Continue pipeline with next open issue (don't block on stuck issues)
         const chatSessionFilter = await this.getSessionFilter(chatSessionId);
         const nextOpen = await this.prisma.issue.findFirst({
-          where: { projectId, status: IssueStatus.OPEN, parentId: null, ...chatSessionFilter },
+          where: {
+            projectId,
+            status: IssueStatus.OPEN,
+            parentId: null,
+            ...chatSessionFilter,
+          },
           orderBy: [{ sortOrder: 'asc' }, { createdAt: 'asc' }],
         });
         if (nextOpen) {
-          this.logger.log(`Issue ${issueId} at NEEDS_REVIEW (MR merged) — starting next issue ${nextOpen.id}`);
+          this.logger.log(
+            `Issue ${issueId} at NEEDS_REVIEW (MR merged) — starting next issue ${nextOpen.id}`,
+          );
           await this.startCoding(projectId, chatSessionId);
         } else {
-          this.logger.log(`Issue ${issueId} at NEEDS_REVIEW — no more open issues`);
+          this.logger.log(
+            `Issue ${issueId} at NEEDS_REVIEW — no more open issues`,
+          );
           this.chatGateway.emitToSession(chatSessionId, 'chatMessage', {
             chatSessionId,
             content: `⚠️ Issue at NEEDS_REVIEW and no more open issues. Pipeline paused.`,
@@ -1861,10 +2550,16 @@ export class AgentOrchestratorService implements OnModuleInit, OnModuleDestroy {
         return;
       }
 
-      this.logger.log(`Re-triggering Coder for issue ${issueId} (attempt ${fixCount + 1}/${maxAttempts}, source: ${feedbackSource})`);
+      this.logger.log(
+        `Re-triggering Coder for issue ${issueId} (attempt ${fixCount + 1}/${maxAttempts}, source: ${feedbackSource})`,
+      );
 
       let coderInstance = await this.prisma.agentInstance.findFirst({
-        where: { projectId, role: AgentRole.CODER, status: { in: [AgentStatus.IDLE, AgentStatus.WORKING] } },
+        where: {
+          projectId,
+          role: AgentRole.CODER,
+          status: { in: [AgentStatus.IDLE, AgentStatus.WORKING] },
+        },
       });
 
       if (!coderInstance) {
@@ -1897,9 +2592,12 @@ export class AgentOrchestratorService implements OnModuleInit, OnModuleDestroy {
         chatSessionId,
       };
 
-      this.coder.fixIssue(ctx, issueId, feedback, feedbackSource as any)
+      this.coder
+        .fixIssue(ctx, issueId, feedback, feedbackSource as any)
         .catch((err) => {
-          this.logger.error(`Coder fix (${feedbackSource}) error: ${err.message}`);
+          this.logger.error(
+            `Coder fix (${feedbackSource}) error: ${err.message}`,
+          );
         })
         .finally(() => {
           this.fixingIssues.delete(fixLockKey);
@@ -1928,10 +2626,15 @@ export class AgentOrchestratorService implements OnModuleInit, OnModuleDestroy {
    * This ensures we only clean up truly dead tasks, not slow-but-working ones.
    */
   async cleanupStuckTasks(): Promise<void> {
-    const inactivityMinutes = parseInt(
-      this.settings.get('pipeline.stuckTimeoutMinutes', '', String(DEFAULT_INACTIVITY_TIMEOUT_MINUTES)),
-      10,
-    ) || DEFAULT_INACTIVITY_TIMEOUT_MINUTES;
+    const inactivityMinutes =
+      parseInt(
+        this.settings.get(
+          'pipeline.stuckTimeoutMinutes',
+          '',
+          String(DEFAULT_INACTIVITY_TIMEOUT_MINUTES),
+        ),
+        10,
+      ) || DEFAULT_INACTIVITY_TIMEOUT_MINUTES;
 
     const cutoff = new Date(Date.now() - inactivityMinutes * 60 * 1000);
 
@@ -1943,7 +2646,15 @@ export class AgentOrchestratorService implements OnModuleInit, OnModuleDestroy {
       },
       include: {
         agent: { select: { id: true, role: true, projectId: true } },
-        issue: { select: { id: true, title: true, gitlabIid: true, status: true } },
+        issue: {
+          select: {
+            id: true,
+            title: true,
+            gitlabIid: true,
+            status: true,
+            chatSessionId: true,
+          },
+        },
       },
     });
 
@@ -1989,7 +2700,7 @@ export class AgentOrchestratorService implements OnModuleInit, OnModuleDestroy {
 
     this.logger.warn(
       `Found ${stuckTasks.length} stuck task(s) (no activity for ${inactivityMinutes}+ min) ` +
-      `out of ${candidates.length} long-running candidate(s)`,
+        `out of ${candidates.length} long-running candidate(s)`,
     );
 
     for (const task of stuckTasks) {
@@ -2029,10 +2740,31 @@ export class AgentOrchestratorService implements OnModuleInit, OnModuleDestroy {
 
         this.logger.warn(
           `Cleaned up stuck task ${task.id} (${task.type}, agent: ${task.agent?.role ?? '?'}, ` +
-          `issue: ${task.issue?.title ?? 'N/A'}, last activity: ${lastLog?.createdAt?.toISOString() ?? 'none'})`,
+            `issue: ${task.issue?.title ?? 'N/A'}, last activity: ${lastLog?.createdAt?.toISOString() ?? 'none'})`,
         );
+
+        // Session-scoped pause notification so users can inspect and resume from this exact failure.
+        const fallbackSession = !task.issue?.chatSessionId
+          ? await this.prisma.chatMessage.findFirst({
+              where: { agentTaskId: task.id },
+              orderBy: { createdAt: 'desc' },
+              select: { chatSessionId: true },
+            })
+          : null;
+        const failureSessionId =
+          task.issue?.chatSessionId ?? fallbackSession?.chatSessionId;
+        if (failureSessionId) {
+          await this.pausePipelineForSessionFailure(
+            task.agent.projectId,
+            failureSessionId,
+            task.issue?.id ?? 'n/a',
+            `Task ${task.type} was marked FAILED after ${inactivityMinutes}+ minutes without activity.`,
+          );
+        }
       } catch (err) {
-        this.logger.error(`Failed to cleanup stuck task ${task.id}: ${err.message}`);
+        this.logger.error(
+          `Failed to cleanup stuck task ${task.id}: ${err.message}`,
+        );
       }
     }
 
@@ -2052,7 +2784,23 @@ export class AgentOrchestratorService implements OnModuleInit, OnModuleDestroy {
         where: { id: agent.id },
         data: { status: AgentStatus.IDLE },
       });
-      this.logger.warn(`Reset orphaned agent ${agent.id} (${agent.role}) from ${agent.status} to IDLE`);
+      this.logger.warn(
+        `Reset orphaned agent ${agent.id} (${agent.role}) from ${agent.status} to IDLE`,
+      );
     }
+  }
+
+  // ─── Manual Pipeline Trigger (Admin) ──────────────────────
+
+  async triggerCodingForProject(projectId: string) {
+    const session = await this.prisma.chatSession.findFirst({
+      where: { projectId, type: 'DEV_SESSION', status: 'ACTIVE' },
+      orderBy: { createdAt: 'desc' },
+    });
+    if (!session) throw new Error('No active dev session found');
+    this.logger.log(
+      `Manual pipeline trigger for project ${projectId}, session ${session.id}`,
+    );
+    await this.startCoding(projectId, session.id);
   }
 }

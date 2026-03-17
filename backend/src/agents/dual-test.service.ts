@@ -74,7 +74,10 @@ export class DualTestService {
             maxTokens: config.parameters.maxTokens,
           }),
           new Promise<never>((_, reject) =>
-            setTimeout(() => reject(new Error('Secondary provider timeout')), SECONDARY_TIMEOUT_MS),
+            setTimeout(
+              () => reject(new Error('Secondary provider timeout')),
+              SECONDARY_TIMEOUT_MS,
+            ),
           ),
         ]);
 
@@ -213,7 +216,8 @@ export class DualTestService {
       const messages: LlmMessage[] = [
         {
           role: 'system',
-          content: 'You are a JSON formatter. Extract structured data from analysis text. Output ONLY valid JSON — no markdown, no explanation, no code fences.',
+          content:
+            'You are a JSON formatter. Extract structured data from analysis text. Output ONLY valid JSON — no markdown, no explanation, no code fences.',
         },
         {
           role: 'user',
@@ -229,7 +233,8 @@ export class DualTestService {
         maxTokens: 2000,
       });
 
-      if (result.finishReason === 'error' || !result.content.trim()) return null;
+      if (result.finishReason === 'error' || !result.content.trim())
+        return null;
 
       // Try to find and parse JSON from the retry response
       const content = result.content.trim();
@@ -248,7 +253,6 @@ export class DualTestService {
       JSON.parse(match[0]);
       this.logger.log(`JSON retry succeeded: ${match[0].length} chars`);
       return match[0];
-
     } catch (err) {
       this.logger.warn(`JSON retry failed: ${err.message}`);
       return null;

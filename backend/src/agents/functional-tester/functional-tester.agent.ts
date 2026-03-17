@@ -12,7 +12,11 @@ import { MonitorGateway } from '../../monitor/monitor.gateway';
 import { McpAgentLoopService } from '../../mcp/mcp-agent-loop.service';
 import { McpRegistryService } from '../../mcp/mcp-registry.service';
 import { DualTestService } from '../dual-test.service';
-import { postAgentComment, getAgentCommentHistory, extractLastAgentFindings } from '../agent-comment.utils';
+import {
+  postAgentComment,
+  getAgentCommentHistory,
+  extractLastAgentFindings,
+} from '../agent-comment.utils';
 import {
   buildArchitectScopeGuardSection,
   extractArchitectOutOfScopeItems,
@@ -23,7 +27,10 @@ import {
   buildIssueSummaryWithThreadLinks,
   FindingForThread,
 } from '../finding-thread.utils';
-import { FunctionalTestResult, FunctionalTestFinding } from './functional-test-result.interface';
+import {
+  FunctionalTestResult,
+  FunctionalTestFinding,
+} from './functional-test-result.interface';
 import {
   AgentRole,
   AgentStatus,
@@ -130,7 +137,14 @@ export class FunctionalTesterAgent extends BaseAgent {
     private readonly mcpAgentLoop: McpAgentLoopService,
     private readonly mcpRegistry: McpRegistryService,
   ) {
-    super(prisma, settings, chatService, chatGateway, llmService, monitorGateway);
+    super(
+      prisma,
+      settings,
+      chatService,
+      chatGateway,
+      llmService,
+      monitorGateway,
+    );
   }
 
   /**
@@ -162,12 +176,20 @@ export class FunctionalTesterAgent extends BaseAgent {
       );
 
       // Get MR diffs
-      const diffs = await this.fetchDiffsWithRetry(gitlabProjectId, mrIid, 3, 5000);
+      const diffs = await this.fetchDiffsWithRetry(
+        gitlabProjectId,
+        mrIid,
+        3,
+        5000,
+      );
 
       if (diffs.length === 0) {
         await this.sendAgentMessage(ctx, 'MR has no diffs — auto-passing');
         await this.handlePassed(ctx, issueId, mrIid, gitlabProjectId, {
-          issueId, passed: true, findings: [], summary: 'No diffs in MR',
+          issueId,
+          passed: true,
+          findings: [],
+          summary: 'No diffs in MR',
         });
         return;
       }
@@ -178,7 +200,10 @@ export class FunctionalTesterAgent extends BaseAgent {
 
       // Collect acceptance criteria from sub-issues
       const acceptanceCriteria = issue.subIssues
-        .map((sub, i) => `${i + 1}. ${sub.title}${sub.description ? ': ' + sub.description : ''}`)
+        .map(
+          (sub, i) =>
+            `${i + 1}. ${sub.title}${sub.description ? ': ' + sub.description : ''}`,
+        )
         .join('\n');
 
       // Format diffs (same pattern as Code Reviewer)
@@ -186,21 +211,34 @@ export class FunctionalTesterAgent extends BaseAgent {
       const MAX_DIFF_CHARS = 2000;
       const reviewDiffs = diffs.slice(0, MAX_DIFFS);
 
-      const diffText = reviewDiffs.map(d => {
-        const prefix = d.new_file ? '[NEW]' : d.deleted_file ? '[DELETED]' : d.renamed_file ? '[RENAMED]' : '[MODIFIED]';
-        const truncated = d.diff.length > MAX_DIFF_CHARS
-          ? d.diff.substring(0, MAX_DIFF_CHARS) + '\n... (truncated)'
-          : d.diff;
-        return `### ${prefix} ${d.new_path}\n\`\`\`diff\n${truncated}\n\`\`\``;
-      }).join('\n\n');
+      const diffText = reviewDiffs
+        .map((d) => {
+          const prefix = d.new_file
+            ? '[NEW]'
+            : d.deleted_file
+              ? '[DELETED]'
+              : d.renamed_file
+                ? '[RENAMED]'
+                : '[MODIFIED]';
+          const truncated =
+            d.diff.length > MAX_DIFF_CHARS
+              ? d.diff.substring(0, MAX_DIFF_CHARS) + '\n... (truncated)'
+              : d.diff;
+          return `### ${prefix} ${d.new_path}\n\`\`\`diff\n${truncated}\n\`\`\``;
+        })
+        .join('\n\n');
 
       // Inject previous agent comments as context
-      const commentHistory = await getAgentCommentHistory({ prisma: this.prisma, issueId });
+      const commentHistory = await getAgentCommentHistory({
+        prisma: this.prisma,
+        issueId,
+      });
       const historySection = commentHistory
         ? `\n## Previous Agent Comments on this Issue\n${commentHistory}\n`
         : '';
       const outOfScopeItems = extractArchitectOutOfScopeItems(commentHistory);
-      const scopeGuardSection = buildArchitectScopeGuardSection(outOfScopeItems);
+      const scopeGuardSection =
+        buildArchitectScopeGuardSection(outOfScopeItems);
 
       // Inject project knowledge base for context (Wiki-First)
       const project = await this.prisma.project.findUnique({
@@ -211,16 +249,27 @@ export class FunctionalTesterAgent extends BaseAgent {
         ? await this.resolveWorkspace(project.slug, ctx.chatSessionId)
         : '';
       const knowledgeSection = workspace
-        ? await this.buildKnowledgeSectionWiki(this.gitlabService, project?.gitlabProjectId ?? null, workspace)
+        ? await this.buildKnowledgeSectionWiki(
+            this.gitlabService,
+            project?.gitlabProjectId ?? null,
+            workspace,
+          )
         : '';
 
       // Build structured previous findings section (Expectation Pattern memory)
-      const previousFindings = extractLastAgentFindings(commentHistory, 'Functional Tester');
-      const previousFindingsSection = previousFindings.length > 0
-        ? `\n## YOUR Previous Test Results — Re-Evaluate Each One\n${previousFindings.map((f, i) =>
-            `${i + 1}. Criterion: "${f.criterion ?? f.message}"\n   Previous verdict: FAILED\n   Previous observation: ${f.message}\n   → NOW CHECK: is this fixed in the current code?`
-          ).join('\n\n')}\n`
-        : '';
+      const previousFindings = extractLastAgentFindings(
+        commentHistory,
+        'Functional Tester',
+      );
+      const previousFindingsSection =
+        previousFindings.length > 0
+          ? `\n## YOUR Previous Test Results — Re-Evaluate Each One\n${previousFindings
+              .map(
+                (f, i) =>
+                  `${i + 1}. Criterion: "${f.criterion ?? f.message}"\n   Previous verdict: FAILED\n   Previous observation: ${f.message}\n   → NOW CHECK: is this fixed in the current code?`,
+              )
+              .join('\n\n')}\n`
+          : '';
 
       const userPrompt = `Verify the following merge request${previousFindings.length > 0 ? ' (Re-test after fix attempt)' : ''} implements the issue requirements:
 
@@ -235,9 +284,11 @@ ${acceptanceCriteria || '_No sub-issues / acceptance criteria defined — verify
 
 ${diffText}
 
-${previousFindings.length > 0
-  ? 'IMPORTANT: First address each item in "YOUR Previous Test Results" above, then check remaining criteria.'
-  : 'Analyze each acceptance criterion against the code changes.'}
+${
+  previousFindings.length > 0
+    ? 'IMPORTANT: First address each item in "YOUR Previous Test Results" above, then check remaining criteria.'
+    : 'Analyze each acceptance criterion against the code changes.'
+}
 
 IMPORTANT: You MUST end your response with the JSON result in this EXACT format:
 ${COMPLETION_MARKER}
@@ -257,8 +308,13 @@ Do NOT omit the JSON block.`;
         : [];
 
       if (mcpServers.length > 0 && workspace) {
-        this.logger.log(`Using MCP agent loop with ${mcpServers.length} servers (workspace: ${workspace})`);
-        await this.sendAgentMessage(ctx, `Running functional tests with shell access (${mcpServers.length} MCP tools)...`);
+        this.logger.log(
+          `Using MCP agent loop with ${mcpServers.length} servers (workspace: ${workspace})`,
+        );
+        await this.sendAgentMessage(
+          ctx,
+          `Running functional tests with shell access (${mcpServers.length} MCP tools)...`,
+        );
 
         const mcpResult = await this.mcpAgentLoop.run({
           provider: config.provider,
@@ -275,12 +331,17 @@ Do NOT omit the JSON block.`;
 
         if (mcpResult.finishReason === 'error') {
           await this.sendAgentMessage(ctx, 'Functional Tester MCP loop failed');
-          await this.markFailed(ctx, `MCP agent loop failed: ${mcpResult.errorMessage ?? 'unknown error'}`);
+          await this.markFailed(
+            ctx,
+            `MCP agent loop failed: ${mcpResult.errorMessage ?? 'unknown error'}`,
+          );
           return;
         }
 
         resultContent = mcpResult.content;
-        this.logger.log(`MCP loop: ${mcpResult.iterations} iterations, ${mcpResult.toolCallsExecuted} tool calls`);
+        this.logger.log(
+          `MCP loop: ${mcpResult.iterations} iterations, ${mcpResult.toolCallsExecuted} tool calls`,
+        );
       } else {
         // Fallback: plain LLM call (no shell access)
         const messages: LlmMessage[] = [
@@ -292,7 +353,10 @@ Do NOT omit the JSON block.`;
 
         if (result.finishReason === 'error') {
           await this.sendAgentMessage(ctx, 'Functional Tester LLM call failed');
-          await this.markFailed(ctx, `LLM call failed: ${result.errorMessage ?? 'unknown error'}`);
+          await this.markFailed(
+            ctx,
+            `LLM call failed: ${result.errorMessage ?? 'unknown error'}`,
+          );
           return;
         }
 
@@ -303,7 +367,11 @@ Do NOT omit the JSON block.`;
       let testResult = this.parseTestResult(resultContent, issueId);
 
       // Retry JSON extraction if parsing returned 0 findings but response was substantial
-      if (testResult && testResult.findings.length === 0 && resultContent.length > 500) {
+      if (
+        testResult &&
+        testResult.findings.length === 0 &&
+        resultContent.length > 500
+      ) {
         const retryJson = await this.dualTestService.retryJsonExtraction(
           config,
           resultContent,
@@ -312,7 +380,9 @@ Do NOT omit the JSON block.`;
         if (retryJson) {
           const retried = this.parseTestResult(retryJson, issueId);
           if (retried && retried.findings.length > 0) {
-            this.logger.log(`JSON retry recovered ${retried.findings.length} findings`);
+            this.logger.log(
+              `JSON retry recovered ${retried.findings.length} findings`,
+            );
             testResult = retried;
           }
         }
@@ -328,15 +398,23 @@ Do NOT omit the JSON block.`;
         if (retryJson) {
           testResult = this.parseTestResult(retryJson, issueId);
           if (testResult) {
-            this.logger.log(`JSON retry recovered full result (${testResult.findings.length} findings)`);
+            this.logger.log(
+              `JSON retry recovered full result (${testResult.findings.length} findings)`,
+            );
           }
         }
       }
 
       if (!testResult) {
-        await this.sendAgentMessage(ctx, 'Could not parse test result — defaulting to pass');
+        await this.sendAgentMessage(
+          ctx,
+          'Could not parse test result — defaulting to pass',
+        );
         await this.handlePassed(ctx, issueId, mrIid, gitlabProjectId, {
-          issueId, passed: true, findings: [], summary: 'Parse failed — auto-passed',
+          issueId,
+          passed: true,
+          findings: [],
+          summary: 'Parse failed — auto-passed',
         });
         return;
       }
@@ -345,12 +423,19 @@ Do NOT omit the JSON block.`;
       testResult = this.applyArchitectScopeFilter(testResult, outOfScopeItems);
 
       // ─── Finding Threads: Post findings as MR discussion threads ───
-      const failedFindings = testResult.findings.filter(f => !f.passed);
-      const findingsForThreads: FindingForThread[] = failedFindings.map(f => {
-        const parts = [`**${(f.severity ?? 'warning').toUpperCase()}** — ${f.criterion}`, '', f.details];
-        if (f.expectedEvidence) parts.push('', `**Expected:** ${f.expectedEvidence}`);
-        if (f.actualEvidence) parts.push('', `**Observed:** ${f.actualEvidence}`);
-        if (f.conclusiveness === 'inconclusive') parts.push('', '_⚠️ Inconclusive — needs runtime verification_');
+      const failedFindings = testResult.findings.filter((f) => !f.passed);
+      const findingsForThreads: FindingForThread[] = failedFindings.map((f) => {
+        const parts = [
+          `**${(f.severity ?? 'warning').toUpperCase()}** — ${f.criterion}`,
+          '',
+          f.details,
+        ];
+        if (f.expectedEvidence)
+          parts.push('', `**Expected:** ${f.expectedEvidence}`);
+        if (f.actualEvidence)
+          parts.push('', `**Observed:** ${f.actualEvidence}`);
+        if (f.conclusiveness === 'inconclusive')
+          parts.push('', '_⚠️ Inconclusive — needs runtime verification_');
         return {
           severity: f.severity ?? 'warning',
           message: f.criterion,
@@ -358,7 +443,10 @@ Do NOT omit the JSON block.`;
         };
       });
 
-      const { activeThreads: allActiveThreads, resolvedThreads: resolvedThreadRecords } = await syncFindingThreads({
+      const {
+        activeThreads: allActiveThreads,
+        resolvedThreads: resolvedThreadRecords,
+      } = await syncFindingThreads({
         prisma: this.prisma,
         gitlabService: this.gitlabService,
         issueId,
@@ -394,14 +482,28 @@ Do NOT omit the JSON block.`;
       });
 
       if (testResult.passed) {
-        await this.handlePassed(ctx, issueId, mrIid, gitlabProjectId, testResult);
+        await this.handlePassed(
+          ctx,
+          issueId,
+          mrIid,
+          gitlabProjectId,
+          testResult,
+        );
       } else {
-        await this.handleFailed(ctx, issueId, mrIid, gitlabProjectId, testResult);
+        await this.handleFailed(
+          ctx,
+          issueId,
+          mrIid,
+          gitlabProjectId,
+          testResult,
+        );
       }
-
     } catch (err) {
       this.logger.error(`Functional test failed: ${err.message}`, err.stack);
-      await this.sendAgentMessage(ctx, `**Functional Tester** error: ${err.message}`);
+      await this.sendAgentMessage(
+        ctx,
+        `**Functional Tester** error: ${err.message}`,
+      );
       await this.markFailed(ctx, err.message);
     }
   }
@@ -449,8 +551,11 @@ Do NOT omit the JSON block.`;
     testResult: FunctionalTestResult,
   ): Promise<void> {
     const failedCriteria = testResult.findings
-      .filter(f => !f.passed)
-      .map(f => `- **${f.severity ?? 'warning'}** — ${f.criterion}: ${f.details}`)
+      .filter((f) => !f.passed)
+      .map(
+        (f) =>
+          `- **${f.severity ?? 'warning'}** — ${f.criterion}: ${f.details}`,
+      )
       .join('\n');
 
     await this.sendAgentMessage(
@@ -470,15 +575,23 @@ Do NOT omit the JSON block.`;
     await this.updateStatus(ctx, AgentStatus.IDLE);
 
     // Build feedback for Coder
-    const failedFindings = testResult.findings.filter(f => !f.passed);
+    const failedFindings = testResult.findings.filter((f) => !f.passed);
     const feedback = failedFindings
       .map((f, i) => {
         const severity = (f.severity ?? 'warning').toUpperCase();
-        const persist = f.firstFailedRound ? ` (failing since round ${f.firstFailedRound})` : '';
-        const conclusive = f.conclusiveness === 'inconclusive' ? ' [INCONCLUSIVE - needs runtime verification]' : '';
-        const parts = [`${i + 1}. [${severity}] ${f.criterion}${persist}${conclusive}`];
+        const persist = f.firstFailedRound
+          ? ` (failing since round ${f.firstFailedRound})`
+          : '';
+        const conclusive =
+          f.conclusiveness === 'inconclusive'
+            ? ' [INCONCLUSIVE - needs runtime verification]'
+            : '';
+        const parts = [
+          `${i + 1}. [${severity}] ${f.criterion}${persist}${conclusive}`,
+        ];
         parts.push(`   Problem: ${f.details}`);
-        if (f.expectedEvidence) parts.push(`   Expected: ${f.expectedEvidence}`);
+        if (f.expectedEvidence)
+          parts.push(`   Expected: ${f.expectedEvidence}`);
         if (f.actualEvidence) parts.push(`   Observed: ${f.actualEvidence}`);
         return parts.join('\n');
       })
@@ -509,16 +622,22 @@ Do NOT omit the JSON block.`;
       const match = this.matchFindingToSubIssue(sub.title, findings);
       if (!match) continue;
 
-      const newStatus = match.passed ? IssueStatus.DONE : IssueStatus.NEEDS_REVIEW;
+      const newStatus = match.passed
+        ? IssueStatus.DONE
+        : IssueStatus.NEEDS_REVIEW;
 
       try {
         await this.prisma.issue.update({
           where: { id: sub.id },
           data: { status: newStatus },
         });
-        this.logger.log(`Sub-issue "${sub.title}" → ${newStatus} (finding: ${match.passed ? 'passed' : 'failed'})`);
+        this.logger.log(
+          `Sub-issue "${sub.title}" → ${newStatus} (finding: ${match.passed ? 'passed' : 'failed'})`,
+        );
       } catch (err) {
-        this.logger.warn(`Failed to update sub-issue ${sub.id}: ${err.message}`);
+        this.logger.warn(
+          `Failed to update sub-issue ${sub.id}: ${err.message}`,
+        );
       }
     }
   }
@@ -532,7 +651,7 @@ Do NOT omit the JSON block.`;
     findings: FunctionalTestFinding[],
   ): FunctionalTestFinding | null {
     const subLower = subTitle.toLowerCase().trim();
-    const subWords = subLower.split(/\s+/).filter(w => w.length > 2);
+    const subWords = subLower.split(/\s+/).filter((w) => w.length > 2);
 
     let bestMatch: FunctionalTestFinding | null = null;
     let bestScore = 0;
@@ -544,13 +663,20 @@ Do NOT omit the JSON block.`;
       if (criterionLower === subLower) return finding;
 
       // One contains the other
-      if (criterionLower.includes(subLower) || subLower.includes(criterionLower)) {
+      if (
+        criterionLower.includes(subLower) ||
+        subLower.includes(criterionLower)
+      ) {
         return finding;
       }
 
       // Word overlap scoring
-      const criterionWords = criterionLower.split(/\s+/).filter(w => w.length > 2);
-      const overlap = subWords.filter(w => criterionWords.some(cw => cw.includes(w) || w.includes(cw)));
+      const criterionWords = criterionLower
+        .split(/\s+/)
+        .filter((w) => w.length > 2);
+      const overlap = subWords.filter((w) =>
+        criterionWords.some((cw) => cw.includes(w) || w.includes(cw)),
+      );
       const score = overlap.length / Math.max(subWords.length, 1);
 
       if (score > bestScore && score >= 0.5) {
@@ -564,13 +690,18 @@ Do NOT omit the JSON block.`;
 
   // ─── Parsing ──────────────────────────────────────────────
 
-  private parseTestResult(content: string, issueId: string): FunctionalTestResult | null {
-    this.logger.debug(`Parsing functional test result (${content.length} chars)`);
+  private parseTestResult(
+    content: string,
+    issueId: string,
+  ): FunctionalTestResult | null {
+    this.logger.debug(
+      `Parsing functional test result (${content.length} chars)`,
+    );
 
     if (!content.trim()) return null;
 
     // Strip <think> tags
-    let cleaned = content.replace(/<think>[\s\S]*?<\/think>/g, '').trim();
+    const cleaned = content.replace(/<think>[\s\S]*?<\/think>/g, '').trim();
 
     // Extract JSON
     const jsonStr = this.extractJson(cleaned);
@@ -586,12 +717,18 @@ Do NOT omit the JSON block.`;
         .replace(/[\x00-\x1F\x7F]/g, ' ');
 
       const parsed = JSON.parse(fixed);
-      const findings = this.parseFindings(parsed.findings || parsed.criteria || parsed.tests || []);
+      const findings = this.parseFindings(
+        parsed.findings || parsed.criteria || parsed.tests || [],
+      );
 
       // Inconclusive findings don't block — only definitive failures count
-      const definitiveFindings = findings.filter(f => f.conclusiveness !== 'inconclusive');
-      const hasCritical = definitiveFindings.some(f => f.severity === 'critical');
-      const hasDefinitiveFailure = definitiveFindings.some(f => !f.passed);
+      const definitiveFindings = findings.filter(
+        (f) => f.conclusiveness !== 'inconclusive',
+      );
+      const hasCritical = definitiveFindings.some(
+        (f) => f.severity === 'critical',
+      );
+      const hasDefinitiveFailure = definitiveFindings.some((f) => !f.passed);
 
       // Use LLM verdict as base, but override if only inconclusive failures remain
       let passed = this.normalizePass(parsed);
@@ -605,12 +742,15 @@ Do NOT omit the JSON block.`;
       if (!summary || summary.length < 5) {
         summary = passed
           ? `All acceptance criteria verified (${findings.length} finding(s))`
-          : `Functional test failed (${findings.filter(f => !f.passed).length} criterion/a not met)`;
+          : `Functional test failed (${findings.filter((f) => !f.passed).length} criterion/a not met)`;
       }
 
       // Extract roundNumber and previouslyFailedResolved
-      const roundNumber = typeof parsed.roundNumber === 'number' ? parsed.roundNumber : undefined;
-      const previouslyFailedResolved = Array.isArray(parsed.previouslyFailedResolved)
+      const roundNumber =
+        typeof parsed.roundNumber === 'number' ? parsed.roundNumber : undefined;
+      const previouslyFailedResolved = Array.isArray(
+        parsed.previouslyFailedResolved,
+      )
         ? parsed.previouslyFailedResolved.map((r: any) => ({
             criterion: String(r.criterion ?? ''),
             previousObservation: String(r.previousObservation ?? ''),
@@ -625,14 +765,16 @@ Do NOT omit the JSON block.`;
         findings,
         summary,
         testsRun: parsed.testsRun ?? findings.length,
-        testsPassed: parsed.testsPassed ?? findings.filter(f => f.passed).length,
+        testsPassed:
+          parsed.testsPassed ?? findings.filter((f) => f.passed).length,
         roundNumber,
         previouslyFailedResolved,
       };
 
-      this.logger.log(`Parsed functional test: passed=${result.passed}, findings=${result.findings.length}`);
+      this.logger.log(
+        `Parsed functional test: passed=${result.passed}, findings=${result.findings.length}`,
+      );
       return result;
-
     } catch (err) {
       this.logger.error(`JSON parse failed: ${err.message}`);
       return this.buildResultFromText(cleaned, issueId);
@@ -642,9 +784,11 @@ Do NOT omit the JSON block.`;
   private extractJson(content: string): string | null {
     // Strategy 1: After completion marker
     if (content.includes(COMPLETION_MARKER)) {
-      const after = content.substring(
-        content.indexOf(COMPLETION_MARKER) + COMPLETION_MARKER.length,
-      ).trim();
+      const after = content
+        .substring(
+          content.indexOf(COMPLETION_MARKER) + COMPLETION_MARKER.length,
+        )
+        .trim();
       const json = this.findJsonObject(after);
       if (json) return json;
     }
@@ -661,28 +805,42 @@ Do NOT omit the JSON block.`;
     for (let i = allJson.length - 1; i >= 0; i--) {
       const candidate = allJson[i][0];
       if (candidate.includes('"passed"') || candidate.includes('"findings"')) {
-        try { JSON.parse(candidate); return candidate; } catch { continue; }
+        try {
+          JSON.parse(candidate);
+          return candidate;
+        } catch {
+          continue;
+        }
       }
     }
 
     // Strategy 4: Greedy — must also validate as parseable JSON
     const greedy = content.match(/\{[\s\S]*"passed"[\s\S]*\}/);
     if (greedy) {
-      try { JSON.parse(greedy[0]); return greedy[0]; } catch { /* skip */ }
+      try {
+        JSON.parse(greedy[0]);
+        return greedy[0];
+      } catch {
+        /* skip */
+      }
     }
 
     return null;
   }
 
   private findJsonObject(str: string): string | null {
-    const stripped = str.replace(/^```(?:json)?\s*\n?/, '').replace(/\n?```\s*$/, '').trim();
+    const stripped = str
+      .replace(/^```(?:json)?\s*\n?/, '')
+      .replace(/\n?```\s*$/, '')
+      .trim();
     const match = stripped.match(/\{[\s\S]*\}/);
     return match ? match[0] : null;
   }
 
   private normalizePass(parsed: any): boolean {
     if (typeof parsed.passed === 'boolean') return parsed.passed;
-    if (typeof parsed.passed === 'string') return parsed.passed.toLowerCase() === 'true';
+    if (typeof parsed.passed === 'string')
+      return parsed.passed.toLowerCase() === 'true';
     if (parsed.status) {
       const s = String(parsed.status).toLowerCase();
       return s === 'pass' || s === 'passed' || s === 'success';
@@ -701,34 +859,54 @@ Do NOT omit the JSON block.`;
       .map((f: any) => ({
         criterion: String(f.criterion ?? f.name ?? f.test ?? 'Unknown'),
         passed: typeof f.passed === 'boolean' ? f.passed : f.status === 'pass',
-        details: String(f.details ?? f.description ?? f.message ?? 'No details'),
+        details: String(
+          f.details ?? f.description ?? f.message ?? 'No details',
+        ),
         severity: this.normalizeSeverity(f.severity),
-        conclusiveness: f.conclusiveness === 'inconclusive' ? 'inconclusive' : 'definitive',
-        expectedEvidence: f.expectedEvidence ? String(f.expectedEvidence) : undefined,
+        conclusiveness:
+          f.conclusiveness === 'inconclusive' ? 'inconclusive' : 'definitive',
+        expectedEvidence: f.expectedEvidence
+          ? String(f.expectedEvidence)
+          : undefined,
         actualEvidence: f.actualEvidence ? String(f.actualEvidence) : undefined,
-        firstFailedRound: typeof f.firstFailedRound === 'number' ? f.firstFailedRound : undefined,
-        status: ['new', 'resolved', 'unresolved', 'blocked'].includes(f.status) ? f.status : undefined,
+        firstFailedRound:
+          typeof f.firstFailedRound === 'number'
+            ? f.firstFailedRound
+            : undefined,
+        status: ['new', 'resolved', 'unresolved', 'blocked'].includes(f.status)
+          ? f.status
+          : undefined,
       }));
   }
 
   private normalizeSeverity(raw: any): 'info' | 'warning' | 'critical' {
     if (!raw) return 'warning';
     const s = String(raw).toLowerCase();
-    if (['critical', 'error', 'high', 'major', 'blocker'].includes(s)) return 'critical';
+    if (['critical', 'error', 'high', 'major', 'blocker'].includes(s))
+      return 'critical';
     if (['warning', 'warn', 'medium', 'minor'].includes(s)) return 'warning';
     return 'info';
   }
 
-  private buildResultFromText(text: string, issueId: string): FunctionalTestResult {
+  private buildResultFromText(
+    text: string,
+    issueId: string,
+  ): FunctionalTestResult {
     const lower = text.toLowerCase();
 
     // Look for strong conclusion patterns (last few lines matter most)
     const lastLines = lower.split('\n').slice(-10).join(' ');
 
     // Strong fail: explicit "test failed", "not passed", "result: fail"
-    const strongFail = /\b(test(s)?\s+(have\s+)?failed|result:\s*fail|verdict:\s*fail|overall:\s*fail|not\s+passed)\b/.test(lastLines);
+    const strongFail =
+      /\b(test(s)?\s+(have\s+)?failed|result:\s*fail|verdict:\s*fail|overall:\s*fail|not\s+passed)\b/.test(
+        lastLines,
+      );
     // Strong pass: explicit "test passed", "all.*pass", "result: pass"
-    const strongPass = /\b(test(s)?\s+(have\s+)?passed|all\s+.*pass|result:\s*pass|verdict:\s*pass|overall:\s*pass)\b/.test(lastLines);
+    const strongPass =
+      /\b(test(s)?\s+(have\s+)?passed|all\s+.*pass|result:\s*pass|verdict:\s*pass|overall:\s*pass)\b/.test(
+        lastLines,
+      );
 
     // If ambiguous or no clear signal, default to PASS (prevents infinite loops)
     const passed = strongFail ? false : true;
@@ -753,35 +931,11 @@ Do NOT omit the JSON block.`;
         ? 'Functional test passed (parsed from text)'
         : 'Functional test passed (no clear failure detected — defaulting to pass)';
 
-    this.logger.log(`buildResultFromText: strongPass=${strongPass}, strongFail=${strongFail}, passed=${passed}, findings=${findings.length}`);
+    this.logger.log(
+      `buildResultFromText: strongPass=${strongPass}, strongFail=${strongFail}, passed=${passed}, findings=${findings.length}`,
+    );
 
     return { issueId, passed, findings, summary };
-  }
-
-  // ─── Markdown Builder ────────────────────────────────────────
-
-  private buildTestMarkdown(result: FunctionalTestResult): string {
-    const icon = result.passed ? '✅' : '❌';
-    const status = result.passed ? 'PASSED' : 'FAILED';
-
-    const parts = [
-      `## ${icon} Functional Test: ${status}`,
-      '',
-      result.summary,
-    ];
-
-    if (result.findings.length > 0) {
-      parts.push('', '### Acceptance Criteria:');
-      for (const f of result.findings) {
-        const fIcon = f.passed ? '✅' : '❌';
-        parts.push(`${fIcon} **${f.criterion}**`);
-        parts.push(`  ${f.details}`);
-        parts.push('');
-      }
-    }
-
-    parts.push('---', '_Tested by Functional Tester Agent_');
-    return parts.join('\n');
   }
 
   // ─── Diff Fetching ──────────────────────────────────────
@@ -832,12 +986,22 @@ Do NOT omit the JSON block.`;
     delayMs: number,
   ): Promise<any[]> {
     for (let attempt = 1; attempt <= maxRetries; attempt++) {
-      const diffs = await this.gitlabService.getMergeRequestDiffs(gitlabProjectId, mrIid);
-      if (diffs.length > 0) return diffs;
+      try {
+        const diffs = await this.gitlabService.getMergeRequestDiffs(
+          gitlabProjectId,
+          mrIid,
+        );
+        if (diffs.length > 0) return diffs;
+      } catch (err) {
+        this.logger.warn(
+          `Diff fetch attempt ${attempt}/${maxRetries} failed for MR !${mrIid}: ${err.message}`,
+        );
+      }
       if (attempt < maxRetries) {
-        await new Promise(resolve => setTimeout(resolve, delayMs));
+        await new Promise((resolve) => setTimeout(resolve, delayMs));
       }
     }
+    this.logger.warn(`MR !${mrIid} still has no diffs after ${maxRetries} attempts`);
     return [];
   }
 
@@ -850,7 +1014,11 @@ Do NOT omit the JSON block.`;
         data: { status: AgentTaskStatus.FAILED, completedAt: new Date() },
       });
       await this.updateStatus(ctx, AgentStatus.ERROR);
-      await this.log(ctx.agentTaskId, 'ERROR', `Functional test failed: ${reason}`);
+      await this.log(
+        ctx.agentTaskId,
+        'ERROR',
+        `Functional test failed: ${reason}`,
+      );
     } catch (err) {
       this.logger.error(`Failed to mark task as failed: ${err.message}`);
     }
