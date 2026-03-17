@@ -532,6 +532,8 @@ Do NOT omit the JSON block.`;
               agentRole: AgentRole.PEN_TESTER,
               roundNumber: scopedMergedResult.roundNumber ?? 1,
               findings: dualFindingsForThreads,
+              confirmedResolved: scopedMergedResult.resolvedFromPrevious
+                ?.map((r: any) => ({ message: r.description })),
             });
 
             const testMarkdown = buildIssueSummaryWithThreadLinks({
@@ -696,6 +698,8 @@ Do NOT omit the JSON block.`;
         agentRole: AgentRole.PEN_TESTER,
         roundNumber: testResult.roundNumber ?? 1,
         findings: findingsForThreads,
+        confirmedResolved: testResult.resolvedFromPrevious
+          ?.map((r: any) => ({ message: r.description })),
       });
 
       const testMarkdown = buildIssueSummaryWithThreadLinks({

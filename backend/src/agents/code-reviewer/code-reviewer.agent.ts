@@ -413,6 +413,7 @@ ${
         agentRole: AgentRole.CODE_REVIEWER,
         roundNumber: reviewResult.roundNumber ?? 1,
         findings: findingsForThreads,
+        confirmedResolved: reviewResult.resolvedFromPrevious,
       });
 
       // Post issue summary with thread links (backward-compatible)

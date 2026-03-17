@@ -323,6 +323,8 @@ export async function syncFindingThreads(deps: {
   agentRole: AgentRole;
   roundNumber: number;
   findings: FindingForThread[];
+  /** Findings explicitly confirmed as resolved by the agent (from resolvedFromPrevious) */
+  confirmedResolved?: Array<{ message: string }>;
 }): Promise<SyncFindingThreadsResult> {
   const {
     prisma,
@@ -333,6 +335,7 @@ export async function syncFindingThreads(deps: {
     agentRole,
     roundNumber,
     findings,
+    confirmedResolved,
   } = deps;
 
   // 1. Load previous unresolved threads
@@ -352,11 +355,54 @@ export async function syncFindingThreads(deps: {
     ),
   );
 
-  // 3. Resolve threads whose findings are no longer present
-  const resolvedRecords = previousThreads.filter(
-    (t) => !currentFingerprints.has(t.fingerprint),
-  );
+  // 3. Determine which threads should be resolved
+  // A thread is resolved ONLY if the agent explicitly confirmed it (via resolvedFromPrevious)
+  // OR if the finding is no longer present AND confirmedResolved is not provided (backward compat)
+  let resolvedRecords: typeof previousThreads;
+
+  if (confirmedResolved && confirmedResolved.length > 0) {
+    // Strict mode: Only resolve threads that the agent explicitly confirmed as fixed
+    const confirmedMessages = new Set(
+      confirmedResolved.map((r) => r.message.toLowerCase().trim().substring(0, 60)),
+    );
+    resolvedRecords = previousThreads.filter((t) => {
+      // Match by message substring (agent may rephrase slightly)
+      const threadMsg = t.message.toLowerCase().trim().substring(0, 60);
+      return confirmedMessages.has(threadMsg) ||
+        [...confirmedMessages].some((cm) => threadMsg.includes(cm) || cm.includes(threadMsg));
+    });
+
+    // Log threads that disappeared but weren't explicitly confirmed
+    const disappeared = previousThreads.filter(
+      (t) => !currentFingerprints.has(t.fingerprint) && !resolvedRecords.includes(t),
+    );
+    if (disappeared.length > 0) {
+      logger.warn(
+        `${disappeared.length} thread(s) disappeared from findings but not in resolvedFromPrevious — keeping open (safety): ${disappeared.map((t) => t.message.substring(0, 50)).join(', ')}`,
+      );
+    }
+  } else {
+    // Fallback: auto-resolve threads whose fingerprints are no longer present
+    // (backward compatibility for agents that don't yet provide confirmedResolved)
+    resolvedRecords = previousThreads.filter(
+      (t) => !currentFingerprints.has(t.fingerprint),
+    );
+  }
+
+  // 4. Resolve confirmed threads — reply in GitLab thread before resolving
   if (resolvedRecords.length > 0) {
+    for (const thread of resolvedRecords) {
+      try {
+        // Reply in the thread to document the verification
+        await gitlabService.replyToMrDiscussion(
+          gitlabProjectId, mrIid, thread.discussionId,
+          `✅ **Verified fixed** (round ${roundNumber}) — this finding has been resolved.`,
+        );
+      } catch {
+        // Non-fatal: reply failed but we can still resolve
+      }
+    }
+
     await resolveThreads({
       prisma,
       gitlabService,
@@ -366,7 +412,7 @@ export async function syncFindingThreads(deps: {
     });
   }
 
-  // 4. Post only NEW findings (not already tracked by fingerprint)
+  // 5. Post only NEW findings (not already tracked by fingerprint)
   const existingFingerprints = new Set(
     previousThreads.map((t) => t.fingerprint),
   );
@@ -388,9 +434,10 @@ export async function syncFindingThreads(deps: {
     findings: newFindings,
   });
 
-  // 5. Combine still-unresolved previous + newly created
-  const stillUnresolved = previousThreads.filter((t) =>
-    currentFingerprints.has(t.fingerprint),
+  // 6. Combine still-unresolved previous + newly created
+  const resolvedIds = new Set(resolvedRecords.map((t) => t.id));
+  const stillUnresolved = previousThreads.filter(
+    (t) => !resolvedIds.has(t.id),
   );
   const activeThreads = [...stillUnresolved, ...newThreads];
 

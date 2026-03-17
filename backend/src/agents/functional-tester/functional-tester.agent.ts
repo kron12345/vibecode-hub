@@ -455,6 +455,9 @@ Do NOT omit the JSON block.`;
         agentRole: AgentRole.FUNCTIONAL_TESTER,
         roundNumber: testResult.roundNumber ?? 1,
         findings: findingsForThreads,
+        confirmedResolved: testResult.previouslyFailedResolved
+          ?.filter((r: any) => r.resolved)
+          .map((r: any) => ({ message: r.criterion })),
       });
 
       // Update sub-issue statuses based on findings
