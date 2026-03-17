@@ -654,18 +654,51 @@ ${
           : `Changes requested (${findings.length} finding(s))`;
       }
 
-      // Repair "No details" findings by extracting info from the summary text
+      // Repair "No details" findings by extracting info from the summary or raw text
       // Some LLMs (gpt-5.3-codex) put finding details in summary instead of finding objects
       const noDetailFindings = findings.filter(f => f.message === 'No details');
-      if (noDetailFindings.length > 0 && summary && summary.length > 20) {
-        // Parse numbered items from summary: "1. 🔴 Description (file:line)"
-        const summaryItems = summary.match(/\d+\.\s*[🔴🟡🔵⚠️]?\s*\*?\*?(?:critical|warning|info)?:?\*?\*?\s*(.+?)(?=\d+\.\s*[🔴🟡🔵⚠️]|$)/gi) || [];
-        for (let i = 0; i < noDetailFindings.length && i < summaryItems.length; i++) {
-          const item = summaryItems[i].replace(/^\d+\.\s*[🔴🟡🔵⚠️]?\s*\*?\*?(?:critical|warning|info)?:?\*?\*?\s*/i, '').trim();
-          if (item.length > 5) {
-            noDetailFindings[i].message = item.substring(0, 300);
-            this.logger.debug(`Repaired "No details" finding ${i + 1} from summary: ${item.substring(0, 80)}`);
+      if (noDetailFindings.length > 0) {
+        // Strategy 1: Parse numbered items from summary: "1. 🔴 Description (file:line)"
+        if (summary && summary.length > 20) {
+          const summaryItems = summary.match(/\d+\.\s*[🔴🟡🔵⚠️]?\s*\*?\*?(?:critical|warning|info)?:?\*?\*?\s*(.+?)(?=\d+\.\s*[🔴🟡🔵⚠️]|$)/gi) || [];
+          for (let i = 0; i < noDetailFindings.length && i < summaryItems.length; i++) {
+            const item = summaryItems[i].replace(/^\d+\.\s*[🔴🟡🔵⚠️]?\s*\*?\*?(?:critical|warning|info)?:?\*?\*?\s*/i, '').trim();
+            if (item.length > 5) {
+              noDetailFindings[i].message = item.substring(0, 300);
+              this.logger.debug(`Repaired "No details" finding ${i + 1} from summary: ${item.substring(0, 80)}`);
+            }
           }
+        }
+
+        // Strategy 2: Try extracting from the raw text before the JSON
+        // Look for bullet points, numbered lists, or severity markers in the pre-JSON text
+        const stillEmpty = findings.filter(f => f.message === 'No details');
+        if (stillEmpty.length > 0) {
+          const markerPos = cleaned.indexOf(COMPLETION_MARKER);
+          const beforeJson = markerPos > 0 ? cleaned.substring(0, markerPos) : cleaned.substring(0, cleaned.lastIndexOf('{'));
+          if (beforeJson.length > 50) {
+            // Find severity-tagged lines: **critical**, **warning**, 🔴, etc.
+            const detailLines = beforeJson.match(/(?:^|\n)\s*(?:\d+\.\s*)?(?:[🔴🟡🔵]\s*)?(?:\*\*(?:critical|warning|info)\*\*[:\s—–-]*)?(.{10,200}?)(?=\n\s*(?:\d+\.|\*\*|[🔴🟡🔵]|$))/gim) || [];
+            const cleanLines = detailLines
+              .map(l => l.replace(/^\s*\d+\.\s*/, '').replace(/[🔴🟡🔵]\s*/, '').replace(/\*\*/g, '').trim())
+              .filter(l => l.length > 10 && !l.startsWith('```') && !l.startsWith('##'));
+            for (let i = 0; i < stillEmpty.length && i < cleanLines.length; i++) {
+              stillEmpty[i].message = cleanLines[i].substring(0, 300);
+              this.logger.debug(`Repaired "No details" finding ${i + 1} from raw text: ${cleanLines[i].substring(0, 80)}`);
+            }
+          }
+        }
+
+        // Strategy 3: If ALL findings are STILL "No details" after repair,
+        // this review is useless — don't send empty findings to the Coder
+        const finallyEmpty = findings.filter(f => f.message === 'No details');
+        if (finallyEmpty.length === findings.length && findings.length > 0) {
+          this.logger.warn(
+            `All ${findings.length} findings have "No details" after repair attempts — treating as parse failure`,
+          );
+          // Remove the empty findings so rule-based approval kicks in (0 findings = approve)
+          // This prevents the Coder from getting useless "No details" feedback
+          findings.length = 0;
         }
       }
 
