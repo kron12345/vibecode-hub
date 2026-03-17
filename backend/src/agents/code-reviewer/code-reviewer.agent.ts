@@ -16,6 +16,13 @@ import {
   extractArchitectOutOfScopeItems,
   filterOutOfScopeFindings,
 } from '../agent-scope.utils';
+import {
+  postFindingsAsThreads,
+  getUnresolvedThreads,
+  resolveThreads,
+  buildIssueSummaryWithThreadLinks,
+  FindingForThread,
+} from '../finding-thread.utils';
 import { ReviewResult, ReviewFinding } from './review-result.interface';
 import {
   AgentRole,
@@ -289,8 +296,89 @@ ${previousFindings.length > 0
       // Enforce Architect out-of-scope constraints server-side to prevent false review loops.
       reviewResult = this.applyArchitectScopeFilter(reviewResult, outOfScopeItems);
 
-      // Post unified review comment (same rich markdown for local + GitLab)
-      const reviewMarkdown = this.buildReviewMarkdown(reviewResult);
+      // ─── Finding Threads: Post findings as MR discussion threads ───
+      const findingsForThreads: FindingForThread[] = reviewResult.findings.map(f => {
+        const parts = [`**${f.severity.toUpperCase()}** — \`${f.file}${f.line ? `:${f.line}` : ''}\``, '', f.message];
+        if (f.expectedFix) parts.push('', `**Expected Fix:** ${f.expectedFix}`);
+        if (f.suggestion) parts.push('', `💡 ${f.suggestion}`);
+        return {
+          severity: f.severity,
+          message: f.message,
+          file: f.file,
+          line: f.line,
+          threadBody: parts.join('\n'),
+        };
+      });
+
+      // Get previously unresolved threads from this agent
+      const previousThreads = await getUnresolvedThreads({
+        prisma: this.prisma,
+        gitlabService: this.gitlabService,
+        issueId,
+        mrIid,
+        gitlabProjectId,
+        agentRole: AgentRole.CODE_REVIEWER,
+      });
+
+      // Determine which previous threads are now resolved
+      // (findings no longer present = resolved)
+      const currentFingerprints = new Set(
+        findingsForThreads.map(f => {
+          const raw = `${f.severity}:${f.file ?? ''}:${f.message}`.toLowerCase().trim().substring(0, 60);
+          return require('crypto').createHash('sha256').update(raw).digest('hex').substring(0, 16);
+        }),
+      );
+      const resolvedThreadIds = previousThreads
+        .filter(t => !currentFingerprints.has(t.fingerprint))
+        .map(t => t.id);
+      const resolvedThreadRecords = previousThreads.filter(t => !currentFingerprints.has(t.fingerprint));
+
+      // Resolve fixed threads in GitLab + DB
+      if (resolvedThreadIds.length > 0) {
+        await resolveThreads({
+          prisma: this.prisma,
+          gitlabService: this.gitlabService,
+          gitlabProjectId,
+          mrIid,
+          threadIds: resolvedThreadIds,
+        });
+      }
+
+      // Only post NEW findings as threads (skip duplicates by fingerprint)
+      const existingFingerprints = new Set(previousThreads.map(t => t.fingerprint));
+      const newFindings = findingsForThreads.filter(f => {
+        const raw = `${f.severity}:${f.file ?? ''}:${f.message}`.toLowerCase().trim().substring(0, 60);
+        const fp = require('crypto').createHash('sha256').update(raw).digest('hex').substring(0, 16);
+        return !existingFingerprints.has(fp);
+      });
+
+      // Count the round number
+      const roundNumber = (reviewResult.roundNumber ?? 1);
+
+      // Post new findings as threads
+      const newThreads = await postFindingsAsThreads({
+        prisma: this.prisma,
+        gitlabService: this.gitlabService,
+        issueId,
+        mrIid,
+        gitlabProjectId,
+        agentRole: AgentRole.CODE_REVIEWER,
+        roundNumber,
+        findings: newFindings,
+      });
+
+      // Combine new + still-unresolved previous threads for the issue summary
+      const stillUnresolved = previousThreads.filter(t => currentFingerprints.has(t.fingerprint));
+      const allActiveThreads = [...stillUnresolved, ...newThreads];
+
+      // Post issue summary with thread links (backward-compatible)
+      const reviewMarkdown = buildIssueSummaryWithThreadLinks({
+        agentName: 'Code Review',
+        approved: reviewResult.approved,
+        summary: reviewResult.summary,
+        threads: allActiveThreads,
+        resolvedThreads: resolvedThreadRecords,
+      });
       await postAgentComment({
         prisma: this.prisma,
         gitlabService: this.gitlabService,

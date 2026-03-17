@@ -92,6 +92,7 @@ model Issue {
   chatMessages    ChatMessage[]
   agentTasks      AgentTask[]
   comments        IssueComment[]
+  findingThreads  FindingThread[]
 
   createdAt       DateTime @default(now())
   updatedAt       DateTime @updatedAt
@@ -142,6 +143,32 @@ model IssueComment {
 
   @@index([issueId, createdAt])
   @@map("issue_comments")
+}
+
+// ─── Finding Threads (MR Discussion Tracking) ──────────────
+
+model FindingThread {
+  id            String    @id @default(cuid())
+  issueId       String
+  issue         Issue     @relation(fields: [issueId], references: [id], onDelete: Cascade)
+
+  mrIid         Int
+  agentRole     AgentRole
+  discussionId  String       /// GitLab MR discussion ID
+  rootNoteId    Int          /// GitLab note ID (for URL anchor #note_<id>)
+  threadUrl     String       /// Full clickable GitLab URL
+  fingerprint   String       /// Stable finding identifier for deduplication
+  severity      String       /// critical / warning / info
+  message       String       /// Finding description text
+  resolved      Boolean   @default(false)
+  roundNumber   Int       @default(1)
+
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  @@index([issueId, mrIid, resolved])
+  @@index([discussionId])
+  @@map("finding_threads")
 }
 
 // ─── Chat ───────────────────────────────────────────────────

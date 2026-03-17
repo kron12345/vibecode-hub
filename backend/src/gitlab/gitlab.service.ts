@@ -58,8 +58,46 @@ export interface GitLabMergeRequest {
   web_url: string;
   merge_status: string;
   has_conflicts: boolean;
+  diff_refs?: {
+    base_sha: string;
+    head_sha: string;
+    start_sha: string;
+  };
   created_at: string;
   updated_at: string;
+}
+
+export interface GitLabDiscussionNote {
+  id: number;
+  body: string;
+  author: { id: number; username: string; name: string };
+  created_at: string;
+  type: string | null;
+  resolvable: boolean;
+  resolved?: boolean;
+  position?: {
+    old_path: string;
+    new_path: string;
+    old_line: number | null;
+    new_line: number | null;
+  };
+}
+
+export interface GitLabDiscussion {
+  id: string;
+  individual_note: boolean;
+  notes: GitLabDiscussionNote[];
+}
+
+/** Position for creating a diff-bound discussion thread */
+export interface MrDiscussionPosition {
+  position_type: 'text';
+  base_sha: string;
+  head_sha: string;
+  start_sha: string;
+  old_path: string;
+  new_path: string;
+  new_line: number;
 }
 
 export interface GitLabMrDiff {
@@ -711,6 +749,106 @@ export class GitlabService {
     }
 
     return collected;
+  }
+
+  // ─── MR Discussions (Finding Threads) ──────────────────────
+
+  /**
+   * Create a discussion thread on a merge request.
+   * If position is provided, creates a diff-bound thread on a specific line.
+   * Otherwise creates a general (non-diff) thread.
+   */
+  async createMrDiscussion(
+    projectId: number,
+    mrIid: number,
+    body: string,
+    position?: MrDiscussionPosition,
+  ): Promise<GitLabDiscussion> {
+    const payload: Record<string, unknown> = { body };
+    if (position) {
+      payload.position = position;
+    }
+
+    const { data } = await firstValueFrom(
+      this.httpService.post<GitLabDiscussion>(
+        `${this.apiUrl}/projects/${projectId}/merge_requests/${mrIid}/discussions`,
+        payload,
+        { headers: this.headers },
+      ),
+    );
+    this.logger.debug(`Created MR discussion on !${mrIid} (id: ${data.id}, diff: ${!!position})`);
+    return data;
+  }
+
+  /**
+   * List all discussion threads on a merge request (paginated).
+   * Returns both resolved and unresolved threads.
+   */
+  async listMrDiscussions(
+    projectId: number,
+    mrIid: number,
+    options?: { maxPages?: number },
+  ): Promise<GitLabDiscussion[]> {
+    const maxPages = options?.maxPages ?? 10;
+    const collected: GitLabDiscussion[] = [];
+
+    for (let page = 1; page <= maxPages; page++) {
+      const { data } = await firstValueFrom(
+        this.httpService.get<GitLabDiscussion[]>(
+          `${this.apiUrl}/projects/${projectId}/merge_requests/${mrIid}/discussions`,
+          {
+            headers: this.headers,
+            params: { per_page: 100, page },
+          },
+        ),
+      );
+
+      if (!data || data.length === 0) break;
+      collected.push(...data);
+      if (data.length < 100) break;
+    }
+
+    return collected;
+  }
+
+  /**
+   * Resolve or unresolve a discussion thread on a merge request.
+   */
+  async resolveMrDiscussion(
+    projectId: number,
+    mrIid: number,
+    discussionId: string,
+    resolved: boolean,
+  ): Promise<GitLabDiscussion> {
+    const { data } = await firstValueFrom(
+      this.httpService.put<GitLabDiscussion>(
+        `${this.apiUrl}/projects/${projectId}/merge_requests/${mrIid}/discussions/${discussionId}`,
+        { resolved },
+        { headers: this.headers },
+      ),
+    );
+    this.logger.debug(`${resolved ? 'Resolved' : 'Reopened'} MR discussion ${discussionId} on !${mrIid}`);
+    return data;
+  }
+
+  /**
+   * Reply to an existing discussion thread on a merge request.
+   */
+  async replyToMrDiscussion(
+    projectId: number,
+    mrIid: number,
+    discussionId: string,
+    body: string,
+  ): Promise<GitLabDiscussionNote> {
+    const { data } = await firstValueFrom(
+      this.httpService.post<GitLabDiscussionNote>(
+        `${this.apiUrl}/projects/${projectId}/merge_requests/${mrIid}/discussions/${discussionId}/notes`,
+        { body },
+        { headers: this.headers },
+      ),
+    );
+    this.logger.debug(`Replied to MR discussion ${discussionId} on !${mrIid}`);
+    return data;
   }
 
   // ─── Branches ──────────────────────────────────────────────

@@ -18,6 +18,13 @@ import {
   extractArchitectOutOfScopeItems,
   filterOutOfScopeFindings,
 } from '../agent-scope.utils';
+import {
+  postFindingsAsThreads,
+  getUnresolvedThreads,
+  resolveThreads,
+  buildIssueSummaryWithThreadLinks,
+  FindingForThread,
+} from '../finding-thread.utils';
 import { FunctionalTestResult, FunctionalTestFinding } from './functional-test-result.interface';
 import {
   AgentRole,
@@ -339,13 +346,85 @@ Do NOT omit the JSON block.`;
       // Enforce Architect out-of-scope constraints server-side to avoid false FAIL loops.
       testResult = this.applyArchitectScopeFilter(testResult, outOfScopeItems);
 
+      // ─── Finding Threads: Post findings as MR discussion threads ───
+      const failedFindings = testResult.findings.filter(f => !f.passed);
+      const findingsForThreads: FindingForThread[] = failedFindings.map(f => {
+        const parts = [`**${(f.severity ?? 'warning').toUpperCase()}** — ${f.criterion}`, '', f.details];
+        if (f.expectedEvidence) parts.push('', `**Expected:** ${f.expectedEvidence}`);
+        if (f.actualEvidence) parts.push('', `**Observed:** ${f.actualEvidence}`);
+        if (f.conclusiveness === 'inconclusive') parts.push('', '_⚠️ Inconclusive — needs runtime verification_');
+        return {
+          severity: f.severity ?? 'warning',
+          message: f.criterion,
+          threadBody: parts.join('\n'),
+        };
+      });
+
+      const previousThreads = await getUnresolvedThreads({
+        prisma: this.prisma,
+        gitlabService: this.gitlabService,
+        issueId,
+        mrIid,
+        gitlabProjectId,
+        agentRole: AgentRole.FUNCTIONAL_TESTER,
+      });
+
+      const currentFingerprints = new Set(
+        findingsForThreads.map(f => {
+          const raw = `${f.severity}:${f.file ?? ''}:${f.message}`.toLowerCase().trim().substring(0, 60);
+          return require('crypto').createHash('sha256').update(raw).digest('hex').substring(0, 16);
+        }),
+      );
+      const resolvedThreadIds = previousThreads
+        .filter(t => !currentFingerprints.has(t.fingerprint))
+        .map(t => t.id);
+      const resolvedThreadRecords = previousThreads.filter(t => !currentFingerprints.has(t.fingerprint));
+
+      if (resolvedThreadIds.length > 0) {
+        await resolveThreads({
+          prisma: this.prisma,
+          gitlabService: this.gitlabService,
+          gitlabProjectId,
+          mrIid,
+          threadIds: resolvedThreadIds,
+        });
+      }
+
+      const existingFingerprints = new Set(previousThreads.map(t => t.fingerprint));
+      const newFindings = findingsForThreads.filter(f => {
+        const raw = `${f.severity}:${f.file ?? ''}:${f.message}`.toLowerCase().trim().substring(0, 60);
+        const fp = require('crypto').createHash('sha256').update(raw).digest('hex').substring(0, 16);
+        return !existingFingerprints.has(fp);
+      });
+
+      const roundNumber = (testResult.roundNumber ?? 1);
+      const newThreads = await postFindingsAsThreads({
+        prisma: this.prisma,
+        gitlabService: this.gitlabService,
+        issueId,
+        mrIid,
+        gitlabProjectId,
+        agentRole: AgentRole.FUNCTIONAL_TESTER,
+        roundNumber,
+        findings: newFindings,
+      });
+
+      const stillUnresolved = previousThreads.filter(t => currentFingerprints.has(t.fingerprint));
+      const allActiveThreads = [...stillUnresolved, ...newThreads];
+
       // Update sub-issue statuses based on findings
       if (issue.subIssues.length > 0 && testResult.findings.length > 0) {
         await this.updateSubIssueStatuses(issue.subIssues, testResult.findings);
       }
 
       // Post unified comment (same rich markdown for local + GitLab)
-      const testMarkdown = this.buildTestMarkdown(testResult);
+      const testMarkdown = buildIssueSummaryWithThreadLinks({
+        agentName: 'Functional Test',
+        approved: testResult.passed,
+        summary: testResult.summary,
+        threads: allActiveThreads,
+        resolvedThreads: resolvedThreadRecords,
+      });
       await postAgentComment({
         prisma: this.prisma,
         gitlabService: this.gitlabService,

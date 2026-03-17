@@ -1,0 +1,288 @@
+import { Logger } from '@nestjs/common';
+import { createHash } from 'crypto';
+import { AgentRole, FindingThread } from '@prisma/client';
+import { PrismaService } from '../prisma/prisma.service';
+import { GitlabService, MrDiscussionPosition } from '../gitlab/gitlab.service';
+
+const logger = new Logger('FindingThread');
+
+// ─── Interfaces ────────────────────────────────────────────────
+
+export interface FindingForThread {
+  severity: string;
+  message: string;
+  file?: string;
+  line?: number;
+  /** Full markdown body for the thread (including expected fix, etc.) */
+  threadBody: string;
+}
+
+export interface PostFindingsAsThreadsDeps {
+  prisma: PrismaService;
+  gitlabService: GitlabService;
+  issueId: string;
+  mrIid: number;
+  gitlabProjectId: number;
+  agentRole: AgentRole;
+  roundNumber: number;
+  findings: FindingForThread[];
+}
+
+// ─── Helpers ───────────────────────────────────────────────────
+
+const SEVERITY_ICONS: Record<string, string> = {
+  critical: '\uD83D\uDD34',  // red circle
+  warning: '\uD83D\uDFE1',   // yellow circle
+  info: '\uD83D\uDD35',      // blue circle
+};
+
+function severityIcon(severity: string): string {
+  return SEVERITY_ICONS[severity.toLowerCase()] ?? '\u26AA';  // white circle fallback
+}
+
+/**
+ * Generate a stable fingerprint from severity + file + message.
+ * Uses first 60 chars lowercased/trimmed, hashed to a short hex string.
+ */
+function generateFingerprint(severity: string, file: string | undefined, message: string): string {
+  const raw = `${severity}:${file ?? ''}:${message}`
+    .toLowerCase()
+    .trim()
+    .substring(0, 60);
+  return createHash('sha256').update(raw).digest('hex').substring(0, 16);
+}
+
+// ─── postFindingsAsThreads ────────────────────────────────────
+
+/**
+ * Post each finding as a GitLab MR discussion thread and persist
+ * the mapping in the local FindingThread table.
+ *
+ * - Attempts diff-bound threads when file/line/diff_refs are available;
+ *   falls back to a general thread if GitLab rejects the position.
+ * - Each thread is wrapped in try/catch so one failure doesn't block the rest.
+ */
+export async function postFindingsAsThreads(
+  deps: PostFindingsAsThreadsDeps,
+): Promise<FindingThread[]> {
+  const {
+    prisma, gitlabService, issueId, mrIid,
+    gitlabProjectId, agentRole, roundNumber, findings,
+  } = deps;
+
+  if (findings.length === 0) return [];
+
+  // Fetch MR for web_url and diff_refs
+  let mrWebUrl: string;
+  let diffRefs: { base_sha: string; head_sha: string; start_sha: string } | undefined;
+
+  try {
+    const mr = await gitlabService.getMergeRequest(gitlabProjectId, mrIid);
+    mrWebUrl = mr.web_url;
+    diffRefs = mr.diff_refs;
+  } catch (err) {
+    logger.error(`Failed to fetch MR !${mrIid} in project ${gitlabProjectId}: ${err.message}`);
+    return [];
+  }
+
+  const created: FindingThread[] = [];
+
+  for (const finding of findings) {
+    try {
+      const fingerprint = generateFingerprint(finding.severity, finding.file, finding.message);
+
+      // Build thread body with hidden metadata comment
+      const body = [
+        `<!-- vch-agent:${agentRole} round:${roundNumber} fingerprint:${fingerprint} -->`,
+        '',
+        finding.threadBody,
+      ].join('\n');
+
+      // Try diff-bound thread first, fall back to general thread
+      let discussion: Awaited<ReturnType<typeof gitlabService.createMrDiscussion>>;
+
+      if (finding.file && finding.line && diffRefs) {
+        const position: MrDiscussionPosition = {
+          position_type: 'text',
+          base_sha: diffRefs.base_sha,
+          head_sha: diffRefs.head_sha,
+          start_sha: diffRefs.start_sha,
+          old_path: finding.file,
+          new_path: finding.file,
+          new_line: finding.line,
+        };
+
+        try {
+          discussion = await gitlabService.createMrDiscussion(
+            gitlabProjectId, mrIid, body, position,
+          );
+        } catch {
+          // Line not in diff or other position error — fall back to general thread
+          logger.debug(
+            `Diff-bound thread failed for ${finding.file}:${finding.line}, falling back to general thread`,
+          );
+          discussion = await gitlabService.createMrDiscussion(
+            gitlabProjectId, mrIid, body,
+          );
+        }
+      } else {
+        discussion = await gitlabService.createMrDiscussion(
+          gitlabProjectId, mrIid, body,
+        );
+      }
+
+      const rootNoteId = discussion.notes[0]?.id;
+      const threadUrl = `${mrWebUrl}#note_${rootNoteId}`;
+
+      const record = await prisma.findingThread.create({
+        data: {
+          issueId,
+          mrIid,
+          agentRole,
+          discussionId: discussion.id,
+          rootNoteId: rootNoteId ?? 0,
+          threadUrl,
+          fingerprint,
+          severity: finding.severity.toLowerCase(),
+          message: finding.message,
+          resolved: false,
+          roundNumber,
+        },
+      });
+
+      created.push(record);
+    } catch (err) {
+      logger.error(
+        `Failed to post finding thread for [${finding.severity}] ${finding.message.substring(0, 80)}: ${err.message}`,
+      );
+    }
+  }
+
+  logger.log(
+    `Posted ${created.length}/${findings.length} finding threads on MR !${mrIid} (${agentRole}, round ${roundNumber})`,
+  );
+  return created;
+}
+
+// ─── getUnresolvedThreads ─────────────────────────────────────
+
+/**
+ * Query local DB for unresolved FindingThreads for a given issue, MR, and agent role.
+ * Returns the local state without syncing with GitLab (keep it simple for now).
+ */
+export async function getUnresolvedThreads(deps: {
+  prisma: PrismaService;
+  gitlabService: GitlabService;
+  issueId: string;
+  mrIid: number;
+  gitlabProjectId: number;
+  agentRole: AgentRole;
+}): Promise<FindingThread[]> {
+  const { prisma, issueId, mrIid, agentRole } = deps;
+
+  return prisma.findingThread.findMany({
+    where: {
+      issueId,
+      mrIid,
+      agentRole,
+      resolved: false,
+    },
+    orderBy: { createdAt: 'asc' },
+  });
+}
+
+// ─── resolveThreads ──────────────────────────────────────────
+
+/**
+ * Resolve FindingThreads both in GitLab (MR discussion) and locally (DB).
+ * Each resolution is wrapped in try/catch so one failure doesn't block the rest.
+ */
+export async function resolveThreads(deps: {
+  prisma: PrismaService;
+  gitlabService: GitlabService;
+  gitlabProjectId: number;
+  mrIid: number;
+  threadIds: string[];
+}): Promise<void> {
+  const { prisma, gitlabService, gitlabProjectId, mrIid, threadIds } = deps;
+
+  for (const threadId of threadIds) {
+    try {
+      const thread = await prisma.findingThread.findUnique({
+        where: { id: threadId },
+      });
+
+      if (!thread) {
+        logger.warn(`FindingThread ${threadId} not found, skipping resolve`);
+        continue;
+      }
+
+      if (thread.resolved) continue;
+
+      // Resolve in GitLab
+      try {
+        await gitlabService.resolveMrDiscussion(
+          gitlabProjectId, mrIid, thread.discussionId, true,
+        );
+      } catch (err) {
+        logger.warn(
+          `GitLab resolve failed for discussion ${thread.discussionId} on MR !${mrIid}: ${err.message}`,
+        );
+        // Still mark locally as resolved — GitLab state is best-effort
+      }
+
+      // Mark resolved locally
+      await prisma.findingThread.update({
+        where: { id: threadId },
+        data: { resolved: true },
+      });
+    } catch (err) {
+      logger.error(`Failed to resolve FindingThread ${threadId}: ${err.message}`);
+    }
+  }
+}
+
+// ─── buildIssueSummaryWithThreadLinks ─────────────────────────
+
+/**
+ * Build a markdown summary that includes linked finding threads.
+ * Used by agents to post structured issue comments with clickable
+ * links to the corresponding MR discussion threads.
+ */
+export function buildIssueSummaryWithThreadLinks(opts: {
+  agentName: string;
+  approved: boolean;
+  summary: string;
+  threads: FindingThread[];
+  resolvedThreads?: FindingThread[];
+}): string {
+  const { agentName, approved, summary, threads, resolvedThreads } = opts;
+
+  const statusEmoji = approved ? '\u2705' : '\u26A0\uFE0F';
+  const statusText = approved ? 'APPROVED' : 'CHANGES REQUESTED';
+
+  const lines: string[] = [
+    `## ${statusEmoji} ${agentName}: ${statusText}`,
+    '',
+    summary,
+  ];
+
+  // Active (unresolved) findings with thread links
+  if (threads.length > 0) {
+    lines.push('', '### Findings (posted as MR discussion threads):');
+    for (const t of threads) {
+      const icon = severityIcon(t.severity);
+      lines.push(`- ${icon} [${t.message}](${t.threadUrl})`);
+    }
+  }
+
+  // Previously resolved findings
+  if (resolvedThreads && resolvedThreads.length > 0) {
+    lines.push('', '### Resolved from previous round:');
+    for (const t of resolvedThreads) {
+      lines.push(`- \u2705 ~~${t.message}~~ \u2192 fixed`);
+    }
+  }
+
+  return lines.join('\n');
+}

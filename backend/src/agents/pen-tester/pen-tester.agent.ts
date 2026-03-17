@@ -17,6 +17,13 @@ import { McpRegistryService } from '../../mcp/mcp-registry.service';
 import { DualTestService } from '../dual-test.service';
 import { postAgentComment, getAgentCommentHistory, extractLastAgentFindings } from '../agent-comment.utils';
 import {
+  postFindingsAsThreads,
+  getUnresolvedThreads,
+  resolveThreads,
+  buildIssueSummaryWithThreadLinks,
+  FindingForThread,
+} from '../finding-thread.utils';
+import {
   buildArchitectScopeGuardSection,
   extractArchitectOutOfScopeItems,
   filterOutOfScopeFindings,
@@ -475,8 +482,82 @@ Do NOT omit the JSON block.`;
         testResult.summary = `[OVERRIDE] ${criticalCount} critical finding(s) detected — auto-failed. ${testResult.summary}`;
       }
 
-      // Post unified comment (same rich markdown for local + GitLab)
-      const testMarkdown = this.buildTestMarkdown(testResult);
+      // ─── Finding Threads: Post findings as MR discussion threads ───
+      const activeFindings = testResult.findings.filter(f => f.severity !== 'info');
+      const findingsForThreads: FindingForThread[] = activeFindings.map(f => {
+        const parts = [`**${f.severity.toUpperCase()}** [${f.category}]`, '', f.description];
+        if (f.file) parts.push('', `**File:** \`${f.file}${f.line ? `:${f.line}` : ''}\``);
+        if (f.expectedFix) parts.push('', `**Expected Fix:** ${f.expectedFix}`);
+        if (f.exploitScenario) parts.push('', `**Exploit Scenario:** ${f.exploitScenario}`);
+        parts.push('', `**Recommendation:** ${f.recommendation}`);
+        return {
+          severity: f.severity,
+          message: `[${f.category}] ${f.description.substring(0, 80)}`,
+          file: f.file,
+          line: f.line,
+          threadBody: parts.join('\n'),
+        };
+      });
+
+      const previousThreads = await getUnresolvedThreads({
+        prisma: this.prisma,
+        gitlabService: this.gitlabService,
+        issueId,
+        mrIid,
+        gitlabProjectId,
+        agentRole: AgentRole.PEN_TESTER,
+      });
+
+      const currentFingerprints = new Set(
+        findingsForThreads.map(f => {
+          const raw = `${f.severity}:${f.file ?? ''}:${f.message}`.toLowerCase().trim().substring(0, 60);
+          return require('crypto').createHash('sha256').update(raw).digest('hex').substring(0, 16);
+        }),
+      );
+      const resolvedThreadIds = previousThreads
+        .filter(t => !currentFingerprints.has(t.fingerprint))
+        .map(t => t.id);
+      const resolvedThreadRecords = previousThreads.filter(t => !currentFingerprints.has(t.fingerprint));
+
+      if (resolvedThreadIds.length > 0) {
+        await resolveThreads({
+          prisma: this.prisma,
+          gitlabService: this.gitlabService,
+          gitlabProjectId,
+          mrIid,
+          threadIds: resolvedThreadIds,
+        });
+      }
+
+      const existingFingerprints = new Set(previousThreads.map(t => t.fingerprint));
+      const newFindings = findingsForThreads.filter(f => {
+        const raw = `${f.severity}:${f.file ?? ''}:${f.message}`.toLowerCase().trim().substring(0, 60);
+        const fp = require('crypto').createHash('sha256').update(raw).digest('hex').substring(0, 16);
+        return !existingFingerprints.has(fp);
+      });
+
+      const roundNumber = (testResult.roundNumber ?? 1);
+      const newThreads = await postFindingsAsThreads({
+        prisma: this.prisma,
+        gitlabService: this.gitlabService,
+        issueId,
+        mrIid,
+        gitlabProjectId,
+        agentRole: AgentRole.PEN_TESTER,
+        roundNumber,
+        findings: newFindings,
+      });
+
+      const stillUnresolved = previousThreads.filter(t => currentFingerprints.has(t.fingerprint));
+      const allActiveThreads = [...stillUnresolved, ...newThreads];
+
+      const testMarkdown = buildIssueSummaryWithThreadLinks({
+        agentName: 'Security Test',
+        approved: testResult.passed,
+        summary: testResult.summary,
+        threads: allActiveThreads,
+        resolvedThreads: resolvedThreadRecords,
+      });
       await postAgentComment({
         prisma: this.prisma,
         gitlabService: this.gitlabService,

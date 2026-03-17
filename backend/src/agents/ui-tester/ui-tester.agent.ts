@@ -14,6 +14,13 @@ import { McpRegistryService } from '../../mcp/mcp-registry.service';
 import { DualTestService } from '../dual-test.service';
 import { postAgentComment, getAgentCommentHistory, extractLastAgentFindings } from '../agent-comment.utils';
 import {
+  postFindingsAsThreads,
+  getUnresolvedThreads,
+  resolveThreads,
+  buildIssueSummaryWithThreadLinks,
+  FindingForThread,
+} from '../finding-thread.utils';
+import {
   buildArchitectScopeGuardSection,
   extractArchitectOutOfScopeItems,
   filterOutOfScopeFindings,
@@ -504,8 +511,79 @@ Do NOT omit the JSON block.`;
       // Enforce Architect out-of-scope constraints server-side to avoid false FAIL loops.
       testResult = this.applyArchitectScopeFilter(testResult, outOfScopeItems);
 
-      // Post unified comment (same rich markdown for local + GitLab)
-      const testMarkdown = this.buildTestMarkdown(testResult);
+      // ─── Finding Threads: Post findings as MR discussion threads ───
+      const activeFindings = testResult.findings.filter(f => f.severity !== 'info');
+      const findingsForThreads: FindingForThread[] = activeFindings.map(f => {
+        const parts = [`**${f.severity.toUpperCase()}** [${f.type}] — \`${f.page}\``, '', f.description];
+        if (f.expectedState) parts.push('', `**Expected:** ${f.expectedState}`);
+        if (f.observedState) parts.push('', `**Observed:** ${f.observedState}`);
+        if (f.verifiableFromCode === false) parts.push('', '_⚠️ Needs browser verification_');
+        return {
+          severity: f.severity,
+          message: `[${f.type}] ${f.page}: ${f.description.substring(0, 80)}`,
+          threadBody: parts.join('\n'),
+        };
+      });
+
+      const previousThreads = await getUnresolvedThreads({
+        prisma: this.prisma,
+        gitlabService: this.gitlabService,
+        issueId,
+        mrIid,
+        gitlabProjectId,
+        agentRole: AgentRole.UI_TESTER,
+      });
+
+      const currentFingerprints = new Set(
+        findingsForThreads.map(f => {
+          const raw = `${f.severity}:${f.file ?? ''}:${f.message}`.toLowerCase().trim().substring(0, 60);
+          return require('crypto').createHash('sha256').update(raw).digest('hex').substring(0, 16);
+        }),
+      );
+      const resolvedThreadIds = previousThreads
+        .filter(t => !currentFingerprints.has(t.fingerprint))
+        .map(t => t.id);
+      const resolvedThreadRecords = previousThreads.filter(t => !currentFingerprints.has(t.fingerprint));
+
+      if (resolvedThreadIds.length > 0) {
+        await resolveThreads({
+          prisma: this.prisma,
+          gitlabService: this.gitlabService,
+          gitlabProjectId,
+          mrIid,
+          threadIds: resolvedThreadIds,
+        });
+      }
+
+      const existingFingerprints = new Set(previousThreads.map(t => t.fingerprint));
+      const newFindings = findingsForThreads.filter(f => {
+        const raw = `${f.severity}:${f.file ?? ''}:${f.message}`.toLowerCase().trim().substring(0, 60);
+        const fp = require('crypto').createHash('sha256').update(raw).digest('hex').substring(0, 16);
+        return !existingFingerprints.has(fp);
+      });
+
+      const roundNumber = (testResult.roundNumber ?? 1);
+      const newThreads = await postFindingsAsThreads({
+        prisma: this.prisma,
+        gitlabService: this.gitlabService,
+        issueId,
+        mrIid,
+        gitlabProjectId,
+        agentRole: AgentRole.UI_TESTER,
+        roundNumber,
+        findings: newFindings,
+      });
+
+      const stillUnresolved = previousThreads.filter(t => currentFingerprints.has(t.fingerprint));
+      const allActiveThreads = [...stillUnresolved, ...newThreads];
+
+      const testMarkdown = buildIssueSummaryWithThreadLinks({
+        agentName: 'UI Test',
+        approved: testResult.passed,
+        summary: testResult.summary,
+        threads: allActiveThreads,
+        resolvedThreads: resolvedThreadRecords,
+      });
       await postAgentComment({
         prisma: this.prisma,
         gitlabService: this.gitlabService,
