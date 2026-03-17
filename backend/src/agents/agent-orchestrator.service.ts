@@ -1055,6 +1055,37 @@ export class AgentOrchestratorService implements OnModuleInit, OnModuleDestroy {
     );
   }
 
+  /**
+   * Handle generic agent task failure (Review, Tester, Documenter).
+   * Looks up the associated issue from the task and pauses the pipeline.
+   */
+  @OnEvent('agent.taskFailed')
+  async handleAgentTaskFailed(payload: {
+    projectId: string;
+    chatSessionId: string;
+    agentTaskId: string;
+    agentRole: string;
+    reason: string;
+  }) {
+    const { projectId, chatSessionId, agentRole, reason } = payload;
+    this.logger.error(
+      `Pipeline stop: ${agentRole} task failed in session ${chatSessionId}: ${reason}`,
+    );
+
+    // Find the issue associated with this task
+    const task = await this.prisma.agentTask.findUnique({
+      where: { id: payload.agentTaskId },
+      select: { issueId: true },
+    });
+
+    await this.pausePipelineForSessionFailure(
+      projectId,
+      chatSessionId,
+      task?.issueId ?? 'unknown',
+      `${agentRole} failed: ${reason}`,
+    );
+  }
+
   private buildSessionFailureFilter(projectId: string, chatSessionId: string) {
     return {
       status: AgentTaskStatus.FAILED,

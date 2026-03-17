@@ -1282,6 +1282,15 @@ For code-level docs (README, API, JSDoc), keep \`wikiPage: false\` or omit it.`;
         'ERROR',
         `Documentation failed: ${reason}`,
       );
+
+      // Emit failure event so orchestrator can pause the pipeline
+      this.eventEmitter.emit('agent.taskFailed', {
+        projectId: ctx.projectId,
+        chatSessionId: ctx.chatSessionId,
+        agentTaskId: ctx.agentTaskId,
+        agentRole: this.role,
+        reason,
+      });
     } catch (err) {
       this.logger.error(`Failed to mark task as failed: ${err.message}`);
     }

@@ -859,7 +859,7 @@ ${
    */
   private parseFindings(rawFindings: any): ReviewFinding[] {
     if (!Array.isArray(rawFindings)) return [];
-    return rawFindings
+    const result = rawFindings
       .filter((f: any) => f && typeof f === 'object')
       .map((f: any) => ({
         severity: this.normalizeSeverity(f.severity || f.type || f.level),
@@ -887,6 +887,20 @@ ${
           ? f.status
           : undefined,
       }));
+
+    // Post-validation: detect field-mixing (expectedFix text in message field)
+    for (const finding of result) {
+      if (finding.message && /^(Erwarteter Fix|Expected Fix|Fix:|Suggestion:|Empfehlung:)/i.test(finding.message)) {
+        // Move the fix text to expectedFix if not already set
+        if (!finding.expectedFix) {
+          finding.expectedFix = finding.message;
+        }
+        // Try to use suggestion as the real message, or mark as needs-detail
+        finding.message = finding.suggestion ?? `Finding in ${finding.file}${finding.line ? `:${finding.line}` : ''} (see expectedFix for details)`;
+      }
+    }
+
+    return result;
   }
 
   private normalizeSeverity(raw: any): 'info' | 'warning' | 'critical' {
@@ -1113,6 +1127,15 @@ ${
       });
       await this.updateStatus(ctx, AgentStatus.ERROR);
       await this.log(ctx.agentTaskId, 'ERROR', `Review failed: ${reason}`);
+
+      // Emit failure event so orchestrator can pause the pipeline
+      this.eventEmitter.emit('agent.taskFailed', {
+        projectId: ctx.projectId,
+        chatSessionId: ctx.chatSessionId,
+        agentTaskId: ctx.agentTaskId,
+        agentRole: this.role,
+        reason,
+      });
     } catch (err) {
       this.logger.error(`Failed to mark task as failed: ${err.message}`);
     }
