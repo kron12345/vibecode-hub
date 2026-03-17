@@ -744,3 +744,189 @@ Dokumentation aller Prompts/Anforderungen die zur Entwicklung genutzt wurden.
 
 **Commands:** `npx nest build` (grün), `systemctl --user restart vibcode-api`
 **Status:** Komplett implementiert, Build grün, Service live
+
+## Session 13 — 2026-03-16 — Architect Scope Loop Fix
+
+### Prompt 1: Scope-Loop Analyse
+> Kannst du folgendes Problem analysieren und mir sagen ob du einen Fehler findest: Zum Architect-Problem hast du einen wichtigen Punkt: Der Reviewer/Tester bemängelt Sachen die laut Architect gar nicht im Scope sind. Das ist ein Prompt-Problem — der Reviewer muss die Architect-Kommentare als Kontext bekommen.
+
+**Ergebnis:** Bestätigt: Code Reviewer bekam keine Agent-Kommentar-Historie im Prompt. Tester hatten Historie, aber ohne harte Scope-Regel. Damit konnten out-of-scope Punkte zu falschen Findings führen.
+
+### Prompt 2: Fix umsetzen
+> Wenn der Architect out of scope sagt sollten die tester es auch nicht bemängeln.
+
+**Implementierung:**
+- Neue Utility: `backend/src/agents/agent-scope.utils.ts`
+  - Extrahiert Architect-`out of scope` Punkte aus Comment-History
+  - Baut Prompt-Sektion "Architect Scope Guard"
+  - Filtert Findings serverseitig gegen Scope-Regeln
+- Code Reviewer:
+  - Injektiert `getAgentCommentHistory()` in den Prompt
+  - Nutzt Scope-Guard im Prompt
+  - Filtert out-of-scope Findings vor Approval-Entscheidung
+- Functional/UI/Pen Tester:
+  - Scope-Guard im Prompt ergänzt
+  - Serverseitige Finding-Filterung vor PASS/FAIL
+  - Recompute der PASS/FAIL-Entscheidung nach Filterung
+- Doku aktualisiert:
+  - `docs/ARCHITECTURE.md` (Context Injection + Scope Guard)
+  - `docs/API.md` Changelog (2026-03-16)
+
+**Geänderte Dateien:**
+- `backend/src/agents/agent-scope.utils.ts`
+- `backend/src/agents/code-reviewer/code-reviewer.agent.ts`
+- `backend/src/agents/functional-tester/functional-tester.agent.ts`
+- `backend/src/agents/ui-tester/ui-tester.agent.ts`
+- `backend/src/agents/pen-tester/pen-tester.agent.ts`
+- `docs/ARCHITECTURE.md`
+- `docs/API.md`
+
+**Commands:** `cd backend && npm run build` (grün), `cd backend && npm run test -- --runInBand` (keine Tests gefunden)
+**Status:** Fix implementiert, Build grün, Scope-basierte Fehl-Loop entschärft
+
+## Session 14 — 2026-03-16 — Pipeline Stop/Resume + CLI Timeout
+
+### Prompt 1: Requirements bestätigt
+> 1 Ja nur die Chat-Session die betroffen ist 2. 90 Minuten ist gut, ich möchte sowas aber auch Konfigurieren können nimmer das bei settings mit auf und stelle es per default auf 90 minuten. 3. Ja er soll den letzten fehlgeschlagen Taskt nehmen und ab da weiter machen.
+
+**Implementierung:**
+- Session-scoped Pipeline-Stop bei Coder-Failure:
+  - `agent.codingFailed` skippt nicht mehr aufs nächste Issue.
+  - Stattdessen: SYSTEM-Message + Suggestion-Chips (`▶️ Resume pipeline`) in der betroffenen Session.
+- Resume-Flow ab FAILED Task:
+  - Neue Endpoints:
+    - `GET /api/agents/pipeline/latest-failure?projectId&chatSessionId`
+    - `POST /api/agents/pipeline/resume` (`failedTaskId` optional)
+  - Orchestrator dispatcht Resume je nach `AgentTaskType` (Coder/Review/Tester/Docs/Architect/etc.).
+- Fehlertransparenz verbessert:
+  - `LlmCompletionResult.errorMessage` + `McpAgentLoopResult.errorMessage`
+  - Provider/MCP/Coder propagieren konkrete Fehlergründe (inkl. CLI Timeout/HTTP Fehler).
+- CLI Timeout Default + Settings:
+  - Default für `pipeline.cliTimeoutMinutes` auf **90** gesetzt (Backend + Frontend-Fallback/Placeholder).
+  - MCP-Agent-Loop reicht Timeout an `llmService.complete()` durch.
+- UI-Projektseite:
+  - Fehlerbanner für aktive Session mit Task-Typ, Zeit, Reason.
+  - Resume-Button im Banner (+ Suggestion-Shortcut).
+
+**Geänderte Dateien (Auszug):**
+- `backend/src/agents/agent-orchestrator.service.ts`
+- `backend/src/agents/agents.controller.ts`
+- `backend/src/mcp/mcp-agent-loop.service.ts`
+- `backend/src/mcp/mcp.interfaces.ts`
+- `backend/src/llm/llm.interfaces.ts`
+- `backend/src/llm/providers/{cli-base,gemini-cli,ollama,openai,anthropic,google}.ts`
+- `backend/src/agents/{coder,code-reviewer,functional-tester,ui-tester,pen-tester}/*.ts`
+- `backend/src/settings/system-settings.service.ts`
+- `frontend/src/app/services/api.service.ts`
+- `frontend/src/app/pages/{project,settings}/...`
+- `frontend/src/assets/i18n/{de,en,it,fr}.json`
+- `docs/{API,ARCHITECTURE}.md`
+
+**Commands:** `cd backend && npm run build` (grün), `cd frontend && npx ng build` (grün, nur bestehende Angular-Warnungen)
+**Status:** Umsetzung fertig, Build grün
+
+## Session 15 — 2026-03-16 — Gemini CLI Provider/Model Alignment
+
+### Prompt 1: UI Tester auf Gemini CLI + Modell fixen
+> Bei den Ui tester soll die Gemini CLI testen die Einstellungen sind aber komisch bei Provider fehlt Gemini CLI und Modell abe ich auf gemini 3 pro gestellt es müsste aber gemini-3.1-pro sein. Kannst du vorher das modell in cli gegenchecken und dann die einstellungen mit den logiken gerade ziehen ?
+
+**CLI Gegencheck:**
+- `gemini --help` verfügbar
+- Direkt-Test:
+  - `gemini -m gemini-3.1-pro ...` → `ModelNotFoundError (404)`
+  - `gemini -m gemini-3-pro ...` → `ModelNotFoundError (404)`
+  - `gemini-3.1-pro-preview` wird vom CLI akzeptiert (teils 429 Capacity, aber kein ModelNotFound)
+
+**Implementierung:**
+- Settings UI Providerliste ergänzt:
+  - `GEMINI_CLI` ist wieder auswählbar
+- Provider-Model-Discovery aktualisiert:
+  - `gemini-3.1-pro` (Alias), `gemini-3.1-pro-preview`, `gemini-2.5-pro`, `gemini-2.5-flash`, `gemini-2.5-flash-lite`
+- Gemini-CLI Provider robust gemacht:
+  - Alias-Normalisierung im Backend:
+    - `gemini-3.1-pro` → `gemini-3.1-pro-preview`
+    - `gemini-3-pro` → `gemini-3.1-pro-preview`
+  - Default ohne explizites Modell: `gemini-3.1-pro-preview`
+- Presets ausgerichtet:
+  - UI Tester CLI-Preset auf `GEMINI_CLI` + `gemini-3.1-pro`
+  - Seed-Preset ebenfalls auf `GEMINI_CLI` + `gemini-3.1-pro`
+
+**Geänderte Dateien:**
+- `frontend/src/app/pages/settings/settings.page.ts`
+- `backend/src/settings/provider-discovery.service.ts`
+- `backend/src/llm/providers/gemini-cli.provider.ts`
+- `backend/src/settings/agent-presets.ts`
+- `backend/prisma/seed-agent-roles.ts`
+- `docs/API.md`
+
+**Commands:** `cd backend && npm run build` (grün), `cd frontend && npx ng build` (grün, nur bestehende NG8102-Warnungen)
+**Status:** Gemini CLI/Model-Setup konsistent, UI Tester kann korrekt auf Gemini CLI konfiguriert werden
+
+## Session 17 — 2026-03-17 — Expectation Pattern (Anti-Loop Protocol)
+
+### Prompt 1: Pipeline-Analyse des ersten Issues
+> Guten morgen, ich habe die pipeline angeschaut. Sie scheint immer noch zu laufen wenn auch sehr langsam. Kannst du mal den ersten Issue anschauen, da scheint ja alles gut zu sein. Berichte mir mal wie viele durchgänge er gebraucht hat und wo die größten Probleme waren.
+
+**Analyse:**
+- Issue "Configure NestJS Passport JWT strategy with Keycloak JWKS validation" brauchte **52 Tasks und ~15 Stunden**
+- 19 Code Reviews (12 rejected, 6 approved, 1 failed), 16 Fix-Runden, 7 Functional Tests (6 failed)
+- Hauptprobleme: aud/azp-Validierung Ping-Pong (5 Reviews mit wechselnden Perspektiven), Live JWKS als Fail (4x)
+- Reviewer-Code-Analyse: OR-Semantik (`aud.includes(clientId) || azp === clientId`) war die finale korrekte Lösung
+
+### Prompt 2: Verbesserungsvorschläge mit Multi-KI-Analyse
+> Ja schaue da mal rein aber dann von allen testern also reviewer, functional, ui und pen tester. Ich glaube es wäre gut wenn sie genau finding und ihre Erwartungshaltung aufschreiben.
+
+**Multi-KI-Analyse:**
+- Parallele Analyse durch **Gemini CLI** (gemini-3.1-pro), **Codex CLI** (gpt-5.3-codex), **Claude Sonnet** (claude-sonnet-4-6)
+- Alle 3 identifizieren dieselben 3 Wurzelprobleme: Zustandslosigkeit, fehlendes Expected/Observed, keine Inconclusive-Kategorie
+- Codex entdeckt zusätzlich: UI Tester Schema-Drift Bug (userPrompt nutzt Functional Tester JSON-Format)
+
+### Prompt 3: Implementierung
+> Okay dann stoppe die Pipeline und setze alles um. Nimm dir den Rat von Codex zu Herzen.
+
+**Implementierung — Expectation Pattern (Anti-Loop Protocol):**
+
+1. **Interface-Erweiterungen** (alle optional, backward-compatible):
+   - `ReviewFinding`: +expectedFix, +firstReportedRound, +status (FindingStatus)
+   - `FunctionalTestFinding`: +conclusiveness, +expectedEvidence, +actualEvidence, +firstFailedRound, +status
+   - `UiTestFinding`: +verifiableFromCode, +expectedState, +observedState, +persistsSinceRound, +status
+   - `SecurityFinding`: +expectedFix, +exploitScenario, +verificationMethod, +persistsSinceRound, +status
+   - Alle Result-Interfaces: +roundNumber, +resolvedFromPrevious
+
+2. **System-Prompts** (alle 4 Agents):
+   - Neuer "Expectation Pattern (Anti-Loop Protocol)" Block mit Re-Review/Re-Test Protocol
+   - Erweiterte Completion Format JSON-Beispiele mit allen neuen Feldern
+   - Code Reviewer: No-Rephrasing Rule, Persistence Escalation
+   - Functional Tester: Inconclusive-Kategorie, "INCONCLUSIVE ≠ FAIL" Decision Rule
+   - UI Tester: verifiableFromCode-Einschränkung, Schema-Drift Fix
+   - Pen Tester: Exploit-Szenario-Pflicht für Critical, No-Oscillation-Regel
+
+3. **Parsing** (alle 4 Agents):
+   - `parseFindings()`: Extrahiert alle neuen Felder aus LLM-JSON
+   - `parseTestResult()`/`parseReviewResult()`: Extrahiert roundNumber + resolvedFromPrevious
+
+4. **Feedback an Coder** (alle 4 Agents):
+   - `handleChangesRequested()`/`handleFailed()`: EXPECTED FIX, persistence markers, Expected/Observed
+   - Coder `buildFixPrompt()`: Expectation-Driven Fixing Section + Common Traps
+
+5. **Decision-Logic**:
+   - Functional Tester: Inconclusive Findings zählen nicht als FAIL (nur definitive)
+
+6. **Infrastruktur**:
+   - `extractLastAgentFindings()` Helper in `agent-comment.utils.ts`
+
+**Geänderte Dateien:**
+- `backend/src/agents/code-reviewer/review-result.interface.ts`
+- `backend/src/agents/code-reviewer/code-reviewer.agent.ts`
+- `backend/src/agents/functional-tester/functional-test-result.interface.ts`
+- `backend/src/agents/functional-tester/functional-tester.agent.ts`
+- `backend/src/agents/ui-tester/ui-test-result.interface.ts`
+- `backend/src/agents/ui-tester/ui-tester.agent.ts`
+- `backend/src/agents/pen-tester/pen-test-result.interface.ts`
+- `backend/src/agents/pen-tester/pen-tester.agent.ts`
+- `backend/src/agents/coder/coder.agent.ts`
+- `backend/src/agents/agent-comment.utils.ts`
+- `docs/ARCHITECTURE.md`
+
+**Commands:** `cd backend && npx nest build` (grün)
+**Status:** Expectation Pattern implementiert, Build grün, Pipeline gestoppt für Neustart

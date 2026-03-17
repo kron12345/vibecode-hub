@@ -330,12 +330,15 @@ Eigener MCP-Server, der dem Coder Agent sichere Shell-Befehle im Workspace ermö
 
 ### Agent Comment System
 - **Utility**: `agent-comment.utils.ts` — `postAgentComment()` speichert identischen rich Markdown in lokaler DB UND als GitLab Issue Note. `gitlabNoteId` wird gespeichert für 2-Wege-Sync.
-- **Context Injection**: `getAgentCommentHistory()` lädt alle bisherigen Agent-Kommentare eines Issues als formatierten String. Wird in die LLM-Prompts von Functional Tester, UI Tester, Pen Tester und Documenter injiziert.
+- **Context Injection**: `getAgentCommentHistory()` lädt alle bisherigen Agent-Kommentare eines Issues als formatierten String. Wird in die LLM-Prompts von Code Reviewer, Functional Tester, UI Tester, Pen Tester und Documenter injiziert.
+- **Architect Scope Guard**: `agent-scope.utils.ts` extrahiert "out of scope"-Hinweise aus Architect-Kommentaren. Reviewer/Tester nutzen diese im Prompt und filtern entsprechende Findings serverseitig vor PASS/FAIL.
 - **Agent-Chat**: Jeder Agent in der Pipeline sieht was seine Vorgänger geschrieben haben → weniger Redundanz, bessere Analyse.
 
 ### Code Reviewer Agent
 - Nutzt **Ollama** (über BaseAgent.callLlm()) für Review
 - Holt MR-Diffs via GitLab API, baut Review-Prompt
+- **Kontext-Injection**: Bekommt alle bisherigen Agent-Kommentare (inkl. Architect Grounding)
+- **Scope-Filter**: Architect "out of scope"-Punkte werden nicht als Findings gewertet
 - APPROVED: ≤2 Warnings, keine Critical Findings → Functional Tester
 - CHANGES REQUESTED: → Coder re-triggered mit Review-Findings
 - Postet Review als unified Agent-Kommentar (lokal + GitLab)
@@ -344,6 +347,7 @@ Eigener MCP-Server, der dem Coder Agent sichere Shell-Befehle im Workspace ermö
 - **MCP Agent Loop** — Shell-Zugriff auf Workspace (filesystem, shell, git MCP-Server)
 - Holt Issue-Description + Acceptance Criteria (Sub-Issues) + MR-Diffs
 - **Kontext-Injection**: Bekommt Kommentare von Coder + Code Reviewer als LLM-Kontext
+- **Scope-Filter**: Architect "out of scope"-Punkte werden vor PASS/FAIL rausgefiltert
 - Kann Build/Tests selbst ausführen (`npm run build`, `npm test`, `mvn compile`, `mvn test`)
 - LLM prüft ob Code die Criteria erfüllt — verifiziert durch echte Build/Test-Ergebnisse
 - **Fallback**: Plain LLM-Call wenn kein Workspace/MCP verfügbar
@@ -361,6 +365,7 @@ Eigener MCP-Server, der dem Coder Agent sichere Shell-Befehle im Workspace ermö
   - **Provider-Fallback**: CLI-Provider (Claude Code, Codex, etc.) unterstützen keine Inline-Images → automatischer Fallback auf Cloud-Provider
 - **Fallback**: Dual-LLM-Call wenn kein Workspace/MCP verfügbar (zwei Provider, Findings gemergt)
 - **Kontext-Injection**: Bekommt Kommentare von Coder + Code Reviewer + Functional Tester als LLM-Kontext
+- **Scope-Filter**: Architect "out of scope"-Punkte werden vor PASS/FAIL rausgefiltert
 - Prüft: Layout, Responsivität, Accessibility (WCAG 2.1 AA), Visuals, Interaktionen
 - **retryJsonExtraction**: Zweistufig — bei leeren Findings ODER komplettem Parse-Failure
 - PASS: Keine Critical Findings, ≤3 Warnings → Pen Tester
@@ -377,6 +382,7 @@ Eigener MCP-Server, der dem Coder Agent sichere Shell-Befehle im Workspace ermö
 - Security-Header-Check (CSP, HSTS, X-Frame-Options, etc.) gegen Preview-URL — abschaltbar via `pentester.skipHeaderCheck`
 - **Tech-Stack-Kontext**: Project techStack (Framework, Backend, Projekttyp) wird ins LLM-Prompt injiziert → kontextbewusste Analyse
 - **Kontext-Injection**: Bekommt alle bisherigen Agent-Kommentare als LLM-Kontext
+- **Scope-Filter**: Architect "out of scope"-Punkte werden vor PASS/FAIL rausgefiltert
 - **Fallback**: Dual-LLM-Call wenn kein Workspace/MCP verfügbar
 - **Konfigurierbare Schwellen**: `pentester.maxWarnings` (default: 3) — PASS/FAIL wird server-seitig anhand der Findings berechnet, nicht blind dem LLM vertraut
 - **Rule-based Override**: Critical Findings → immer FAIL, unabhängig vom LLM-Urteil
@@ -404,12 +410,35 @@ Eigener MCP-Server, der dem Coder Agent sichere Shell-Befehle im Workspace ermö
 - **Empfehlung**: Zusätzlich `OLLAMA_MAX_LOADED_MODELS=1` als Ollama-Server-Config (Belt & Suspenders)
 - **UI**: Konfigurierbar in Settings → Pipeline-Konfiguration
 
+### Expectation Pattern (Anti-Loop Protocol)
+- **Problem**: Reviewer/Tester melden dasselbe Finding in 5+ Runden mit wechselnden Formulierungen → Coder dreht sich im Kreis
+- **Lösung**: Alle 4 Testing-Agents (Code Reviewer, Functional Tester, UI Tester, Pen Tester) nutzen ein strukturiertes Expectation Pattern:
+  1. **Re-Review Protocol**: Agent prüft seine eigenen vorherigen Findings und klassifiziert sie als `resolved`, `unresolved`, oder `blocked`
+  2. **Mandatory Expectations**: Jedes REJECT/FAIL Finding enthält ein `expectedFix`-Feld mit konkretem Code/Pseudocode
+  3. **No Rephrasing**: Gleiche Findings werden mit identischem Text weitergetragen, nicht umformuliert
+  4. **Persistence Tracking**: `firstReportedRound`/`persistsSinceRound` macht Loop-Dauer sichtbar
+  5. **Inconclusive**: Functional Tester kann Findings als `inconclusive` markieren (nicht testbar ohne Runtime) — zählt nicht als FAIL
+  6. **Positive Feedback**: `resolvedFromPrevious` bestätigt was erfolgreich gefixt wurde
+- **Erweiterte Interfaces**: `ReviewFinding`, `FunctionalTestFinding`, `UiTestFinding`, `SecurityFinding` — alle optional, backward-compatible
+- **Coder-Integration**: `buildFixPrompt()` enthält Expectation-Driven Fixing Section, Coder soll `EXPECTED FIX` literal umsetzen
+- **Helper**: `extractLastAgentFindings()` in `agent-comment.utils.ts` extrahiert letzte Findings eines spezifischen Agents
+
 ### Max Fix Attempts (Review-Loop-Schutz)
 - **Problem**: Code Review / Tests können Coder endlos re-triggern (Feedback-Loop)
 - **Lösung**: Zähler für `FIX_CODE`-Tasks pro Issue, konfigurierbar via `pipeline.maxFixAttempts` (default: 20)
 - **Konsolidiert**: Alle 4 fixIssue-Pfade (Review, Pipeline, Test, User-Comment) nutzen `retriggerCoder()`
 - **Bei Limit**: Issue → `NEEDS_REVIEW` Status (rot), GitLab-Label `status::needs-review`, erklärender Kommentar
 - **UI**: Konfigurierbar in Settings → Pipeline-Konfiguration
+
+### Pipeline Failure Stop + Resume (Session-Scoped)
+- **Problem**: Bei CLI-/Provider-Fehlern konnte der Flow weiterlaufen (z.B. Coder-Timeout → nächstes Issue), was Loops und unklare Fehlerbilder erzeugt.
+- **Stop-Regel**: `agent.codingFailed` pausiert jetzt die betroffene `chatSessionId`-Pipeline (kein Auto-Skip auf das nächste Issue).
+- **Sichtbarkeit**:
+  - Backend liefert den letzten FAILED Task pro Session (`GET /api/agents/pipeline/latest-failure`)
+  - UI zeigt Task-Typ, Zeit und Fehlergrund mit Resume-Action.
+- **Resume**: `POST /api/agents/pipeline/resume` setzt den Flow ab dem letzten FAILED Task fort (Dispatch über `AgentTaskType`).
+- **Fehlergrund-Propagation**: LLM-Provider liefern `errorMessage` → MCP Loop übernimmt sie → Coder/Tester speichern den Grund in FAILED-Ausgaben/Logs.
+- **CLI Timeout**: `pipeline.cliTimeoutMinutes` Default ist 90 Minuten (weiterhin in Settings konfigurierbar).
 
 ### Documenter Agent
 - LLM analysiert MR-Diffs + bestehende Docs
