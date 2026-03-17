@@ -32,18 +32,28 @@ export abstract class CliBaseProvider implements LlmProvider {
   }
 
   /**
-   * Build the user prompt from non-system messages.
-   * Extracts text content only (CLI tools don't support inline images).
+   * Build the full prompt for CLI tools.
+   * Combines system prompt + user messages into one string.
+   * CLI tools don't have separate system/user message support,
+   * so the system prompt is prepended as context.
    */
   protected getUserPrompt(options: LlmCompletionOptions): string {
-    return options.messages
+    const systemPrompt = this.getSystemPrompt(options);
+    const userMessages = options.messages
       .filter((m) => m.role !== 'system')
       .map((m) => getTextContent(m.content))
       .join('\n\n');
+
+    // Prepend system prompt so CLI tools see the JSON format requirements,
+    // Expectation Pattern rules, severity definitions, etc.
+    if (systemPrompt) {
+      return `${systemPrompt}\n\n---\n\n${userMessages}`;
+    }
+    return userMessages;
   }
 
-  /** Default timeout: 10 minutes. CLI tasks that need more should pass timeoutMs. */
-  static readonly DEFAULT_TIMEOUT_MS = 10 * 60 * 1000;
+  /** Default timeout: 90 minutes. CLI tasks that need more should pass timeoutMs. */
+  static readonly DEFAULT_TIMEOUT_MS = 90 * 60 * 1000;
 
   async complete(options: LlmCompletionOptions): Promise<LlmCompletionResult> {
     const args = this.buildArgs(options);
@@ -69,26 +79,30 @@ export abstract class CliBaseProvider implements LlmProvider {
         },
         (error, stdout, stderr) => {
           if (error) {
-            const isTimeout = error.killed || (error as any).signal === 'SIGTERM';
+            const isTimeout =
+              error.killed || (error as any).signal === 'SIGTERM';
+            const stderrText = (stderr || '').trim();
+            const stderrSnippet = stderrText
+              ? ` — stderr: ${stderrText.substring(0, 300)}`
+              : '';
             if (isTimeout) {
               this.logger.warn(
                 `CLI ${this.command} killed after ${Math.round(timeoutMs / 1000)}s timeout`,
               );
             } else {
-              this.logger.error(
-                `CLI ${this.command} failed: ${error.message}`,
-              );
+              this.logger.error(`CLI ${this.command} failed: ${error.message}`);
             }
             if (stderr) {
               this.logger.debug(`stderr: ${stderr.substring(0, 500)}`);
             }
-            // Return partial stdout if available (process may have produced output before timeout)
-            if (stdout && stdout.trim().length > 0) {
-              this.logger.log(`Returning partial output (${stdout.length} chars) despite error`);
-              resolve({ content: stdout.trim(), finishReason: 'stop' });
-            } else {
-              resolve({ content: '', finishReason: 'error' });
-            }
+            const reason = isTimeout
+              ? `CLI ${this.command} timed out after ${Math.round(timeoutMs / 1000)}s${stderrSnippet}`
+              : `CLI ${this.command} failed: ${error.message}${stderrSnippet}`;
+            resolve({
+              content: (stdout || '').trim(),
+              finishReason: 'error',
+              errorMessage: reason,
+            });
             return;
           }
 
