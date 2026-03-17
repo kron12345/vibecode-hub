@@ -44,13 +44,16 @@ function severityIcon(severity: string): string {
  * Generate a stable fingerprint from severity + file + message.
  * Uses first 60 chars lowercased/trimmed, hashed to a short hex string.
  */
-function generateFingerprint(severity: string, file: string | undefined, message: string): string {
-  const raw = `${severity}:${file ?? ''}:${message}`
+function generateFingerprint(severity: string, file: string | undefined, message: string, line?: number): string {
+  const raw = `${severity}:${file ?? ''}:${line ?? ''}:${message}`
     .toLowerCase()
     .trim()
-    .substring(0, 60);
+    .substring(0, 100);
   return createHash('sha256').update(raw).digest('hex').substring(0, 16);
 }
+
+/** Re-export for agents that need to compute fingerprints for dedup checks */
+export { generateFingerprint };
 
 // ─── postFindingsAsThreads ────────────────────────────────────
 
@@ -89,7 +92,7 @@ export async function postFindingsAsThreads(
 
   for (const finding of findings) {
     try {
-      const fingerprint = generateFingerprint(finding.severity, finding.file, finding.message);
+      const fingerprint = generateFingerprint(finding.severity, finding.file, finding.message, finding.line);
 
       // Build thread body with hidden metadata comment
       const body = [
@@ -131,7 +134,11 @@ export async function postFindingsAsThreads(
         );
       }
 
-      const rootNoteId = discussion.notes[0]?.id;
+      const rootNoteId = discussion.notes?.[0]?.id;
+      if (!rootNoteId) {
+        logger.warn(`Discussion created but no root note ID returned — skipping DB save`);
+        continue;
+      }
       const threadUrl = `${mrWebUrl}#note_${rootNoteId}`;
 
       const record = await prisma.findingThread.create({
@@ -219,23 +226,22 @@ export async function resolveThreads(deps: {
 
       if (thread.resolved) continue;
 
-      // Resolve in GitLab
+      // Resolve in GitLab first — only mark locally if GitLab succeeds
       try {
         await gitlabService.resolveMrDiscussion(
           gitlabProjectId, mrIid, thread.discussionId, true,
         );
+
+        // Mark resolved locally only after GitLab confirms
+        await prisma.findingThread.update({
+          where: { id: threadId },
+          data: { resolved: true },
+        });
       } catch (err) {
         logger.warn(
-          `GitLab resolve failed for discussion ${thread.discussionId} on MR !${mrIid}: ${err.message}`,
+          `GitLab resolve failed for discussion ${thread.discussionId} on MR !${mrIid}: ${err.message} — keeping local state unresolved`,
         );
-        // Still mark locally as resolved — GitLab state is best-effort
       }
-
-      // Mark resolved locally
-      await prisma.findingThread.update({
-        where: { id: threadId },
-        data: { resolved: true },
-      });
     } catch (err) {
       logger.error(`Failed to resolve FindingThread ${threadId}: ${err.message}`);
     }

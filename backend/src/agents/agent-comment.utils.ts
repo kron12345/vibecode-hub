@@ -173,7 +173,8 @@ export function extractLastAgentFindings(
     status?: string;
   }> = [];
 
-  // Pattern for code reviewer / pen tester findings
+  // Pattern 1: Old format — code reviewer / pen tester findings (inline markdown)
+  // 🔴 **severity** — `file:line`\n  message\n  💡 suggestion
   const reviewFindingPattern = /[🔴🟡🔵]\s+\*\*(\w+)\*\*\s+[—–-]\s+`([^`]+)`\s*\n\s+(.+?)(?:\n\s+💡\s+(.+?))?(?=\n[🔴🟡🔵]|\n---|\n\n|\n##|$)/gs;
   let match: RegExpExecArray | null;
   while ((match = reviewFindingPattern.exec(lastComment)) !== null) {
@@ -185,7 +186,23 @@ export function extractLastAgentFindings(
     });
   }
 
-  // Pattern for functional tester findings
+  // Pattern 2: New format — MR discussion thread links
+  // - 🔴 [message text](thread_url)
+  const threadLinkPattern = /- [🔴🟡🔵]\s+\[(.+?)\]\(([^)]+)\)/g;
+  while ((match = threadLinkPattern.exec(lastComment)) !== null) {
+    // Only add if not already captured by pattern 1 (avoid duplicates)
+    const msg = match[1].trim();
+    if (!findings.some(f => f.message === msg)) {
+      findings.push({
+        message: msg,
+        severity: lastComment.charAt(match.index + 2) === '🔴' ? 'critical'
+          : lastComment.charAt(match.index + 2) === '🟡' ? 'warning' : 'info',
+      });
+    }
+  }
+
+  // Pattern 3: Functional tester findings (old format)
+  // ✅/❌ **criterion**\n  details
   const funcFindingPattern = /[✅❌]\s+\*\*(.+?)\*\*\s*\n\s+(.+?)(?=\n[✅❌]|\n---|\n\n|\n##|$)/gs;
   while ((match = funcFindingPattern.exec(lastComment)) !== null) {
     findings.push({

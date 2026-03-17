@@ -166,8 +166,8 @@ model FindingThread {
   createdAt     DateTime  @default(now())
   updatedAt     DateTime  @updatedAt
 
+  @@unique([discussionId])
   @@index([issueId, mrIid, resolved])
-  @@index([discussionId])
   @@map("finding_threads")
 }
 

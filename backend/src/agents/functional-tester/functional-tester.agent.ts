@@ -24,6 +24,7 @@ import {
   resolveThreads,
   buildIssueSummaryWithThreadLinks,
   FindingForThread,
+  generateFingerprint,
 } from '../finding-thread.utils';
 import { FunctionalTestResult, FunctionalTestFinding } from './functional-test-result.interface';
 import {
@@ -371,8 +372,8 @@ Do NOT omit the JSON block.`;
 
       const currentFingerprints = new Set(
         findingsForThreads.map(f => {
-          const raw = `${f.severity}:${f.file ?? ''}:${f.message}`.toLowerCase().trim().substring(0, 60);
-          return require('crypto').createHash('sha256').update(raw).digest('hex').substring(0, 16);
+          // Use shared fingerprint function
+          return generateFingerprint(f.severity, f.file, f.message, f.line);
         }),
       );
       const resolvedThreadIds = previousThreads
@@ -392,8 +393,8 @@ Do NOT omit the JSON block.`;
 
       const existingFingerprints = new Set(previousThreads.map(t => t.fingerprint));
       const newFindings = findingsForThreads.filter(f => {
-        const raw = `${f.severity}:${f.file ?? ''}:${f.message}`.toLowerCase().trim().substring(0, 60);
-        const fp = require('crypto').createHash('sha256').update(raw).digest('hex').substring(0, 16);
+        // Use shared fingerprint function
+        const fp = generateFingerprint(f.severity, f.file, f.message, f.line);
         return !existingFingerprints.has(fp);
       });
 
