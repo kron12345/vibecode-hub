@@ -444,17 +444,43 @@ Do NOT omit the JSON block.`;
               `🔀 **Dual-test** (${strategy}): ${stats.primaryCount} + ${stats.secondaryCount} → ${stats.mergedCount} findings [${dualResult.providers.primary} + ${dualResult.providers.secondary}]`,
             );
 
-            // Skip normal parsing, go straight to result handling
-            const testMarkdown = this.buildTestMarkdown(scopedMergedResult);
+            // ─── Finding Threads for dual-test path ───
+            const dualActiveFindings = scopedMergedResult.findings.filter(f => f.severity !== 'info');
+            const dualFindingsForThreads: FindingForThread[] = dualActiveFindings.map(f => {
+              const parts = [`**${f.severity.toUpperCase()}** [${f.type}] — \`${f.page}\``, '', f.description];
+              if (f.expectedState) parts.push('', `**Expected:** ${f.expectedState}`);
+              if (f.observedState) parts.push('', `**Observed:** ${f.observedState}`);
+              return { severity: f.severity, message: `[${f.type}] ${f.page}: ${f.description.substring(0, 80)}`, threadBody: parts.join('\n') };
+            });
+
+            const dualPrevThreads = await getUnresolvedThreads({
+              prisma: this.prisma, gitlabService: this.gitlabService,
+              issueId, mrIid, gitlabProjectId, agentRole: AgentRole.UI_TESTER,
+            });
+            const dualCurrentFps = new Set(dualFindingsForThreads.map(f => generateFingerprint(f.severity, f.file, f.message, f.line)));
+            const dualResolvedIds = dualPrevThreads.filter(t => !dualCurrentFps.has(t.fingerprint)).map(t => t.id);
+            const dualResolvedRecords = dualPrevThreads.filter(t => !dualCurrentFps.has(t.fingerprint));
+            if (dualResolvedIds.length > 0) {
+              await resolveThreads({ prisma: this.prisma, gitlabService: this.gitlabService, gitlabProjectId, mrIid, threadIds: dualResolvedIds });
+            }
+            const dualExistingFps = new Set(dualPrevThreads.map(t => t.fingerprint));
+            const dualNewFindings = dualFindingsForThreads.filter(f => !dualExistingFps.has(generateFingerprint(f.severity, f.file, f.message, f.line)));
+            const dualNewThreads = await postFindingsAsThreads({
+              prisma: this.prisma, gitlabService: this.gitlabService,
+              issueId, mrIid, gitlabProjectId, agentRole: AgentRole.UI_TESTER,
+              roundNumber: scopedMergedResult.roundNumber ?? 1, findings: dualNewFindings,
+            });
+            const dualStillUnresolved = dualPrevThreads.filter(t => dualCurrentFps.has(t.fingerprint));
+            const dualAllThreads = [...dualStillUnresolved, ...dualNewThreads];
+
+            const testMarkdown = buildIssueSummaryWithThreadLinks({
+              agentName: 'UI Test', approved: scopedMergedResult.passed,
+              summary: scopedMergedResult.summary, threads: dualAllThreads, resolvedThreads: dualResolvedRecords,
+            });
             await postAgentComment({
-              prisma: this.prisma,
-              gitlabService: this.gitlabService,
-              issueId,
-              gitlabProjectId,
-              issueIid: issue.gitlabIid!,
-              agentTaskId: ctx.agentTaskId,
-              authorName: 'UI Tester',
-              markdownContent: testMarkdown,
+              prisma: this.prisma, gitlabService: this.gitlabService,
+              issueId, gitlabProjectId, issueIid: issue.gitlabIid!,
+              agentTaskId: ctx.agentTaskId, authorName: 'UI Tester', markdownContent: testMarkdown,
             });
 
             if (scopedMergedResult.passed) {
