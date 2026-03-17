@@ -19,12 +19,9 @@ import {
   filterOutOfScopeFindings,
 } from '../agent-scope.utils';
 import {
-  postFindingsAsThreads,
-  getUnresolvedThreads,
-  resolveThreads,
+  syncFindingThreads,
   buildIssueSummaryWithThreadLinks,
   FindingForThread,
-  generateFingerprint,
 } from '../finding-thread.utils';
 import { FunctionalTestResult, FunctionalTestFinding } from './functional-test-result.interface';
 import {
@@ -361,57 +358,16 @@ Do NOT omit the JSON block.`;
         };
       });
 
-      const previousThreads = await getUnresolvedThreads({
+      const { activeThreads: allActiveThreads, resolvedThreads: resolvedThreadRecords } = await syncFindingThreads({
         prisma: this.prisma,
         gitlabService: this.gitlabService,
         issueId,
         mrIid,
         gitlabProjectId,
         agentRole: AgentRole.FUNCTIONAL_TESTER,
+        roundNumber: testResult.roundNumber ?? 1,
+        findings: findingsForThreads,
       });
-
-      const currentFingerprints = new Set(
-        findingsForThreads.map(f => {
-          // Use shared fingerprint function
-          return generateFingerprint(f.severity, f.file, f.message, f.line);
-        }),
-      );
-      const resolvedThreadIds = previousThreads
-        .filter(t => !currentFingerprints.has(t.fingerprint))
-        .map(t => t.id);
-      const resolvedThreadRecords = previousThreads.filter(t => !currentFingerprints.has(t.fingerprint));
-
-      if (resolvedThreadIds.length > 0) {
-        await resolveThreads({
-          prisma: this.prisma,
-          gitlabService: this.gitlabService,
-          gitlabProjectId,
-          mrIid,
-          threadIds: resolvedThreadIds,
-        });
-      }
-
-      const existingFingerprints = new Set(previousThreads.map(t => t.fingerprint));
-      const newFindings = findingsForThreads.filter(f => {
-        // Use shared fingerprint function
-        const fp = generateFingerprint(f.severity, f.file, f.message, f.line);
-        return !existingFingerprints.has(fp);
-      });
-
-      const roundNumber = (testResult.roundNumber ?? 1);
-      const newThreads = await postFindingsAsThreads({
-        prisma: this.prisma,
-        gitlabService: this.gitlabService,
-        issueId,
-        mrIid,
-        gitlabProjectId,
-        agentRole: AgentRole.FUNCTIONAL_TESTER,
-        roundNumber,
-        findings: newFindings,
-      });
-
-      const stillUnresolved = previousThreads.filter(t => currentFingerprints.has(t.fingerprint));
-      const allActiveThreads = [...stillUnresolved, ...newThreads];
 
       // Update sub-issue statuses based on findings
       if (issue.subIssues.length > 0 && testResult.findings.length > 0) {

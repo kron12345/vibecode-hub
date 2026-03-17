@@ -248,6 +248,76 @@ export async function resolveThreads(deps: {
   }
 }
 
+// ─── syncFindingThreads (DRY — replaces duplicated logic in all agents) ──
+
+export interface SyncFindingThreadsResult {
+  /** All currently active (unresolved) threads */
+  activeThreads: FindingThread[];
+  /** Threads that were resolved in this sync */
+  resolvedThreads: FindingThread[];
+  /** Newly created threads */
+  newThreads: FindingThread[];
+}
+
+/**
+ * One-call function that handles the full thread lifecycle:
+ * 1. Load previous unresolved threads for this agent/issue/MR
+ * 2. Compare with current findings by fingerprint
+ * 3. Resolve threads for findings that disappeared
+ * 4. Post new threads for findings not already tracked
+ * 5. Return active + resolved + new for summary building
+ *
+ * Replaces the duplicated resolve/dedup/post logic in all 4 agents.
+ */
+export async function syncFindingThreads(deps: {
+  prisma: PrismaService;
+  gitlabService: GitlabService;
+  issueId: string;
+  mrIid: number;
+  gitlabProjectId: number;
+  agentRole: AgentRole;
+  roundNumber: number;
+  findings: FindingForThread[];
+}): Promise<SyncFindingThreadsResult> {
+  const { prisma, gitlabService, issueId, mrIid, gitlabProjectId, agentRole, roundNumber, findings } = deps;
+
+  // 1. Load previous unresolved threads
+  const previousThreads = await getUnresolvedThreads({
+    prisma, gitlabService, issueId, mrIid, gitlabProjectId, agentRole,
+  });
+
+  // 2. Compute fingerprints for current findings
+  const currentFingerprints = new Set(
+    findings.map(f => generateFingerprint(f.severity, f.file, f.message, f.line)),
+  );
+
+  // 3. Resolve threads whose findings are no longer present
+  const resolvedRecords = previousThreads.filter(t => !currentFingerprints.has(t.fingerprint));
+  if (resolvedRecords.length > 0) {
+    await resolveThreads({
+      prisma, gitlabService, gitlabProjectId, mrIid,
+      threadIds: resolvedRecords.map(t => t.id),
+    });
+  }
+
+  // 4. Post only NEW findings (not already tracked by fingerprint)
+  const existingFingerprints = new Set(previousThreads.map(t => t.fingerprint));
+  const newFindings = findings.filter(f =>
+    !existingFingerprints.has(generateFingerprint(f.severity, f.file, f.message, f.line)),
+  );
+
+  const newThreads = await postFindingsAsThreads({
+    prisma, gitlabService, issueId, mrIid, gitlabProjectId, agentRole, roundNumber,
+    findings: newFindings,
+  });
+
+  // 5. Combine still-unresolved previous + newly created
+  const stillUnresolved = previousThreads.filter(t => currentFingerprints.has(t.fingerprint));
+  const activeThreads = [...stillUnresolved, ...newThreads];
+
+  return { activeThreads, resolvedThreads: resolvedRecords, newThreads };
+}
+
 // ─── buildIssueSummaryWithThreadLinks ─────────────────────────
 
 /**

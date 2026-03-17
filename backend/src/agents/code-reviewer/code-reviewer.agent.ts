@@ -17,12 +17,9 @@ import {
   filterOutOfScopeFindings,
 } from '../agent-scope.utils';
 import {
-  postFindingsAsThreads,
-  getUnresolvedThreads,
-  resolveThreads,
+  syncFindingThreads,
   buildIssueSummaryWithThreadLinks,
   FindingForThread,
-  generateFingerprint,
 } from '../finding-thread.utils';
 import { ReviewResult, ReviewFinding } from './review-result.interface';
 import {
@@ -311,66 +308,16 @@ ${previousFindings.length > 0
         };
       });
 
-      // Get previously unresolved threads from this agent
-      const previousThreads = await getUnresolvedThreads({
+      const { activeThreads: allActiveThreads, resolvedThreads: resolvedThreadRecords } = await syncFindingThreads({
         prisma: this.prisma,
         gitlabService: this.gitlabService,
         issueId,
         mrIid,
         gitlabProjectId,
         agentRole: AgentRole.CODE_REVIEWER,
+        roundNumber: reviewResult.roundNumber ?? 1,
+        findings: findingsForThreads,
       });
-
-      // Determine which previous threads are now resolved
-      // (findings no longer present = resolved)
-      const currentFingerprints = new Set(
-        findingsForThreads.map(f => {
-          // Use shared fingerprint function
-          return generateFingerprint(f.severity, f.file, f.message, f.line);
-        }),
-      );
-      const resolvedThreadIds = previousThreads
-        .filter(t => !currentFingerprints.has(t.fingerprint))
-        .map(t => t.id);
-      const resolvedThreadRecords = previousThreads.filter(t => !currentFingerprints.has(t.fingerprint));
-
-      // Resolve fixed threads in GitLab + DB
-      if (resolvedThreadIds.length > 0) {
-        await resolveThreads({
-          prisma: this.prisma,
-          gitlabService: this.gitlabService,
-          gitlabProjectId,
-          mrIid,
-          threadIds: resolvedThreadIds,
-        });
-      }
-
-      // Only post NEW findings as threads (skip duplicates by fingerprint)
-      const existingFingerprints = new Set(previousThreads.map(t => t.fingerprint));
-      const newFindings = findingsForThreads.filter(f => {
-        // Use shared fingerprint function
-        const fp = generateFingerprint(f.severity, f.file, f.message, f.line);
-        return !existingFingerprints.has(fp);
-      });
-
-      // Count the round number
-      const roundNumber = (reviewResult.roundNumber ?? 1);
-
-      // Post new findings as threads
-      const newThreads = await postFindingsAsThreads({
-        prisma: this.prisma,
-        gitlabService: this.gitlabService,
-        issueId,
-        mrIid,
-        gitlabProjectId,
-        agentRole: AgentRole.CODE_REVIEWER,
-        roundNumber,
-        findings: newFindings,
-      });
-
-      // Combine new + still-unresolved previous threads for the issue summary
-      const stillUnresolved = previousThreads.filter(t => currentFingerprints.has(t.fingerprint));
-      const allActiveThreads = [...stillUnresolved, ...newThreads];
 
       // Post issue summary with thread links (backward-compatible)
       const reviewMarkdown = buildIssueSummaryWithThreadLinks({
