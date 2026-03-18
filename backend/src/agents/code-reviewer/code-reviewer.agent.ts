@@ -497,15 +497,32 @@ ${
         .catch(() => {});
     }
 
-    // Complete task
-    await this.prisma.agentTask.update({
-      where: { id: ctx.agentTaskId },
-      data: {
-        status: AgentTaskStatus.COMPLETED,
-        output: sanitizeJsonOutput(reviewResult) as any,
-        completedAt: new Date(),
-      },
-    });
+    // Complete task — with diagnostic logging if JSONB save fails
+    const sanitizedOutput = sanitizeJsonOutput(reviewResult);
+    try {
+      await this.prisma.agentTask.update({
+        where: { id: ctx.agentTaskId },
+        data: {
+          status: AgentTaskStatus.COMPLETED,
+          output: sanitizedOutput as any,
+          completedAt: new Date(),
+        },
+      });
+    } catch (saveErr) {
+      // Log the EXACT data that failed to save for debugging
+      this.logger.error(`JSONB save failed in handleApproved: ${saveErr.message}`);
+      this.logger.error(`Sanitized output type: ${typeof sanitizedOutput}, JSON.stringify length: ${JSON.stringify(sanitizedOutput ?? null).length}`);
+      this.logger.error(`Sanitized output sample: ${JSON.stringify(sanitizedOutput ?? null).substring(0, 500)}`);
+      // Retry with a minimal safe output
+      await this.prisma.agentTask.update({
+        where: { id: ctx.agentTaskId },
+        data: {
+          status: AgentTaskStatus.COMPLETED,
+          output: { summary: reviewResult.summary?.substring(0, 200) ?? 'Save failed', approved: reviewResult.approved, findings: [] } as any,
+          completedAt: new Date(),
+        },
+      });
+    }
 
     await this.updateStatus(ctx, AgentStatus.IDLE);
 
@@ -550,15 +567,34 @@ ${
         .catch(() => {});
     }
 
-    // Complete review task
-    await this.prisma.agentTask.update({
-      where: { id: ctx.agentTaskId },
-      data: {
-        status: AgentTaskStatus.COMPLETED,
-        output: sanitizeJsonOutput(reviewResult) as any,
-        completedAt: new Date(),
-      },
-    });
+    // Complete review task — with fallback if JSONB save fails
+    const sanitizedChangesOutput = sanitizeJsonOutput(reviewResult);
+    try {
+      await this.prisma.agentTask.update({
+        where: { id: ctx.agentTaskId },
+        data: {
+          status: AgentTaskStatus.COMPLETED,
+          output: sanitizedChangesOutput as any,
+          completedAt: new Date(),
+        },
+      });
+    } catch (saveErr) {
+      this.logger.error(`JSONB save failed in handleChangesRequested: ${saveErr.message}`);
+      this.logger.error(`Output sample: ${JSON.stringify(sanitizedChangesOutput ?? null).substring(0, 500)}`);
+      // Retry with minimal safe output — preserve findings count + summary for pipeline logic
+      await this.prisma.agentTask.update({
+        where: { id: ctx.agentTaskId },
+        data: {
+          status: AgentTaskStatus.COMPLETED,
+          output: {
+            summary: reviewResult.summary?.substring(0, 200) ?? 'Save failed',
+            approved: reviewResult.approved,
+            findings: reviewResult.findings.map(f => ({ severity: f.severity, file: f.file, message: (f.message ?? '').substring(0, 200) })),
+          } as any,
+          completedAt: new Date(),
+        },
+      });
+    }
 
     await this.updateStatus(ctx, AgentStatus.IDLE);
 
