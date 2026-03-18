@@ -908,6 +908,17 @@ export class CoderAgent extends BaseAgent {
       '- Do NOT modify unrelated files',
       '- If asked to fix security vulnerabilities, use "npm audit fix" or update dependency versions in pom.xml/package.json',
       '- When done, respond with a brief summary of what you changed',
+      '',
+      'Code Structure (IMPORTANT):',
+      '- Keep files SMALL and focused: max ~300 lines per file. If a file grows beyond that, split it.',
+      '- One class/service per file. One component per file. Name files after what they contain.',
+      '- Use logical folder structure: group by feature/domain, not by type.',
+      '  Good: auth/keycloak.service.ts, auth/auth.guard.ts, auth/auth.interceptor.ts',
+      '  Bad: services/service1.ts, services/service2.ts (all services in one folder)',
+      '- Extract shared logic into utils/helpers instead of copy-pasting between files.',
+      '- Avoid deep nesting: max 3 levels of if/for/try. Extract helper methods instead.',
+      '- Prefer composition over inheritance. Use dependency injection.',
+      '- NO spaghetti code: each function should do ONE thing. If a function exceeds ~50 lines, split it.',
       knowledgeSection,
     ].join('\n');
 
