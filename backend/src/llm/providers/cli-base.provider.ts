@@ -68,16 +68,22 @@ export abstract class CliBaseProvider implements LlmProvider {
     );
 
     return new Promise((resolve) => {
+      let resolved = false;
+
       const child = execFile(
         this.command,
         args,
         {
           timeout: timeoutMs,
+          killSignal: 'SIGKILL', // Hard kill — SIGTERM may be ignored by CLI tools
           maxBuffer: 10 * 1024 * 1024, // 10 MB
           env: { ...process.env },
           ...(options.cwd && { cwd: options.cwd }),
         },
         (error, stdout, stderr) => {
+          if (resolved) return; // Guard against late callbacks after hard deadline
+          resolved = true;
+          clearTimeout(hardDeadline);
           if (error) {
             const isTimeout =
               error.killed || (error as any).signal === 'SIGTERM';
@@ -118,6 +124,22 @@ export abstract class CliBaseProvider implements LlmProvider {
         child.stdin.write(prompt);
         child.stdin.end();
       }
+
+      // Hard deadline: if execFile callback never fires (SIGKILL-resistant process),
+      // force-resolve after timeout + 60s grace period
+      const hardDeadline = setTimeout(() => {
+        if (resolved) return;
+        resolved = true;
+        this.logger.error(
+          `CLI ${this.command} HARD DEADLINE: process did not exit after ${Math.round((timeoutMs + 60000) / 1000)}s — force-resolving`,
+        );
+        try { child.kill('SIGKILL'); } catch { /* best effort */ }
+        resolve({
+          content: '',
+          finishReason: 'error',
+          errorMessage: `CLI ${this.command} exceeded hard deadline (${Math.round(timeoutMs / 1000)}s + 60s grace)`,
+        });
+      }, timeoutMs + 60_000);
     });
   }
 }
