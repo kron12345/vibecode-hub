@@ -36,11 +36,18 @@ export function sanitizeJsonOutput(obj: unknown): unknown {
     // - BigInt/Symbol/Function → stripped
     // - Circular refs → throws (caught below)
     const jsonStr = JSON.stringify(obj);
-    // Strip control chars that PostgreSQL rejects (NUL, etc.)
-    const cleaned = jsonStr.replace(/[\x00-\x08\x0B\x0C\x0E-\x1F\x7F]/g, '');
+    // Strip:
+    // 1. Escaped NUL and control chars: \u0000-\u001f (except \n \r \t)
+    // 2. Lone surrogates: \uD800-\uDFFF (invalid in PostgreSQL JSONB)
+    // 3. Raw control chars that somehow survived
+    const cleaned = jsonStr
+      .replace(/\\u00[01][0-9a-f]/gi, '') // escaped \u0000-\u001f
+      .replace(/\\u[dD][89aAbB][0-9a-fA-F]{2}/g, '') // escaped lone surrogates
+      .replace(/[\x00-\x08\x0B\x0C\x0E-\x1F\x7F]/g, '') // raw control chars
+      .replace(/[\uD800-\uDFFF]/g, ''); // raw lone surrogates
     return JSON.parse(cleaned);
   } catch {
-    // If stringify fails (circular ref, etc.), return a safe fallback
+    // If stringify or parse fails, return a safe fallback
     return { error: 'Output could not be serialized to JSON', type: typeof obj };
   }
 }
