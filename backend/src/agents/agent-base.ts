@@ -24,7 +24,7 @@ export const ENVIRONMENT_FILE = 'ENVIRONMENT.md';
  * Use this before `output: result as any` in agentTask.update().
  */
 export function sanitizeJsonOutput(obj: unknown): unknown {
-  if (obj === null || obj === undefined) return obj;
+  if (obj === null || obj === undefined) return null; // undefined → null (valid JSON)
   if (typeof obj === 'string') {
     // Remove NUL bytes and control chars (except \n, \r, \t)
     return obj.replace(/[\x00-\x08\x0B\x0C\x0E-\x1F\x7F]/g, '');
@@ -35,7 +35,10 @@ export function sanitizeJsonOutput(obj: unknown): unknown {
   if (typeof obj === 'object') {
     const clean: Record<string, unknown> = {};
     for (const [key, value] of Object.entries(obj as Record<string, unknown>)) {
-      clean[key] = sanitizeJsonOutput(value);
+      // Skip undefined values entirely (they're not valid JSON)
+      if (value !== undefined) {
+        clean[key] = sanitizeJsonOutput(value);
+      }
     }
     return clean;
   }
