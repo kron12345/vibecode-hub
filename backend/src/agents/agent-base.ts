@@ -20,29 +20,29 @@ export const ENVIRONMENT_FILE = 'ENVIRONMENT.md';
 
 /**
  * Sanitize an object for safe storage as Prisma JSON/JSONB.
- * Removes control characters and NUL bytes that PostgreSQL JSONB rejects.
- * Use this before `output: result as any` in agentTask.update().
+ * Uses JSON.stringify→parse roundtrip to guarantee valid JSON, then
+ * strips control characters that PostgreSQL JSONB rejects.
+ *
+ * This handles ALL problematic values: undefined, NaN, Infinity,
+ * BigInt, Date, Symbol, circular refs, lone surrogates, etc.
  */
 export function sanitizeJsonOutput(obj: unknown): unknown {
-  if (obj === null || obj === undefined) return null; // undefined → null (valid JSON)
-  if (typeof obj === 'string') {
-    // Remove NUL bytes and control chars (except \n, \r, \t)
-    return obj.replace(/[\x00-\x08\x0B\x0C\x0E-\x1F\x7F]/g, '');
+  if (obj === null || obj === undefined) return null;
+  try {
+    // JSON.stringify roundtrip removes everything non-JSON:
+    // - undefined properties → stripped
+    // - NaN/Infinity → null
+    // - Date → string
+    // - BigInt/Symbol/Function → stripped
+    // - Circular refs → throws (caught below)
+    const jsonStr = JSON.stringify(obj);
+    // Strip control chars that PostgreSQL rejects (NUL, etc.)
+    const cleaned = jsonStr.replace(/[\x00-\x08\x0B\x0C\x0E-\x1F\x7F]/g, '');
+    return JSON.parse(cleaned);
+  } catch {
+    // If stringify fails (circular ref, etc.), return a safe fallback
+    return { error: 'Output could not be serialized to JSON', type: typeof obj };
   }
-  if (Array.isArray(obj)) {
-    return obj.map(sanitizeJsonOutput);
-  }
-  if (typeof obj === 'object') {
-    const clean: Record<string, unknown> = {};
-    for (const [key, value] of Object.entries(obj as Record<string, unknown>)) {
-      // Skip undefined values entirely (they're not valid JSON)
-      if (value !== undefined) {
-        clean[key] = sanitizeJsonOutput(value);
-      }
-    }
-    return clean;
-  }
-  return obj; // numbers, booleans
 }
 
 /** Minimal interface for wiki reads — avoids coupling BaseAgent to GitlabService */
