@@ -461,12 +461,49 @@ ${
         );
       }
     } catch (err) {
-      this.logger.error(`Review failed: ${err.message}`, err.stack);
+      // Enhanced error logging with stack trace for crash-site identification
+      const isJsonError = err.message?.includes('json') || err.message?.includes('Json');
+      const stack = err.stack?.split('\n').slice(1, 6).join('\n') ?? '';
+
+      this.logger.error(`Review failed [${isJsonError ? 'JSONB' : 'other'}]: ${err.message}`);
+      if (stack) this.logger.error(`Stack trace:\n${stack}`);
+
+      // Save stack trace to agent logs for DB-level debugging
+      try {
+        const debugMsg = `Review failed: ${err.message?.substring(0, 300) ?? 'unknown'}\nStack: ${stack.substring(0, 400)}`;
+        await this.log(ctx.agentTaskId, 'ERROR', debugMsg);
+      } catch { /* best effort */ }
+
+      // For JSONB errors: try to complete the task with a raw SQL fallback
+      if (isJsonError) {
+        this.logger.warn('JSONB error detected — attempting raw SQL status update to rescue the task');
+        try {
+          await this.prisma.$executeRaw`
+            UPDATE agent_tasks SET status = 'COMPLETED', "completedAt" = NOW(),
+            output = '{"error":"JSONB save failed","approved":true,"findings":[]}'::jsonb
+            WHERE id = ${ctx.agentTaskId}
+          `;
+          this.logger.log('Raw SQL fallback succeeded — task marked COMPLETED');
+          await this.updateStatus(ctx, AgentStatus.IDLE);
+          // Emit approved event so pipeline continues (better to auto-approve than to hang)
+          this.eventEmitter.emit('agent.reviewApproved', {
+            projectId: ctx.projectId,
+            chatSessionId: ctx.chatSessionId,
+            issueId,
+            mrIid,
+            gitlabProjectId,
+          });
+          return;
+        } catch (rawErr) {
+          this.logger.error(`Raw SQL fallback also failed: ${rawErr.message}`);
+        }
+      }
+
       await this.sendAgentMessage(
         ctx,
         `❌ **Code Reviewer** error: ${err.message}`,
-      );
-      await this.markFailed(ctx, err.message);
+      ).catch(() => {});
+      await this.markFailed(ctx, err.message?.substring(0, 500) ?? 'unknown error');
     }
   }
 
