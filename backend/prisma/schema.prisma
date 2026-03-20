@@ -332,6 +332,7 @@ enum AgentTaskType {
   FIX_CODE
   DEPLOY
   INFRA_COMMAND
+  RESOLVE_LOOP
 }
 
 enum AgentTaskStatus {

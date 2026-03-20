@@ -21,6 +21,7 @@ import { FunctionalTesterAgent } from './functional-tester/functional-tester.age
 import { UiTesterAgent } from './ui-tester/ui-tester.agent';
 import { PenTesterAgent } from './pen-tester/pen-tester.agent';
 import { DocumenterAgent } from './documenter/documenter.agent';
+import { LoopResolverService } from './loop-resolver/loop-resolver.service';
 import { FeatureInterviewResult } from './interviewer/interview-result.interface';
 import {
   AgentRole,
@@ -87,6 +88,7 @@ export class AgentOrchestratorService implements OnModuleInit, OnModuleDestroy {
     private readonly uiTester: UiTesterAgent,
     private readonly penTester: PenTesterAgent,
     private readonly documenter: DocumenterAgent,
+    private readonly loopResolver: LoopResolverService,
   ) {}
 
   onModuleInit() {
@@ -2584,6 +2586,24 @@ export class AgentOrchestratorService implements OnModuleInit, OnModuleDestroy {
       this.logger.log(
         `Re-triggering Coder for issue ${issueId} (attempt ${fixCount + 1}/${maxAttempts}, source: ${feedbackSource})`,
       );
+
+      // ─── Loop Resolver: intervene if threshold reached ───
+      const loopThreshold = pipelineCfg.loopResolverThreshold ?? 3;
+      const loopEnabled = pipelineCfg.loopResolverEnabled !== false;
+      if (loopEnabled && fixCount >= loopThreshold && fixCount % loopThreshold === 0) {
+        this.logger.log(
+          `Loop threshold reached (${fixCount}/${loopThreshold}) for issue ${issueId} — running Loop Resolver`,
+        );
+        const analysis = await this.loopResolver.analyze(
+          issueId,
+          projectId,
+          feedback,
+          feedbackSource,
+        );
+        if (analysis.clarificationComment) {
+          feedback = `--- LOOP RESOLVER CLARIFICATION ---\n${analysis.clarificationComment}\n\n--- ORIGINAL FEEDBACK ---\n${feedback}`;
+        }
+      }
 
       let coderInstance = await this.prisma.agentInstance.findFirst({
         where: {

@@ -17,6 +17,7 @@ import { UiTesterAgent } from './ui-tester/ui-tester.agent';
 import { PenTesterAgent } from './pen-tester/pen-tester.agent';
 import { DocumenterAgent } from './documenter/documenter.agent';
 import { DualTestService } from './dual-test.service';
+import { LoopResolverService } from './loop-resolver/loop-resolver.service';
 
 @Module({
   imports: [
@@ -30,6 +31,7 @@ import { DualTestService } from './dual-test.service';
   providers: [
     AgentOrchestratorService,
     DualTestService,
+    LoopResolverService,
     InterviewerAgent,
     DevopsAgent,
     ArchitectAgent,

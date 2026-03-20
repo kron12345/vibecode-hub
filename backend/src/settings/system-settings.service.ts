@@ -65,10 +65,14 @@ export interface PipelineConfig {
   stuckCheckIntervalMinutes?: number;
   /** Git operation timeout in seconds (default: 60) */
   gitTimeoutSeconds?: number;
-  /** CLI tool (Claude Code, Codex CLI) timeout in minutes (default: 10) */
+  /** CLI tool (Claude Code, Codex CLI) timeout in minutes (default: 90) */
   cliTimeoutMinutes?: number;
   /** Max MR diffs reviewed per agent run (default: 25) */
   maxReviewDiffs?: number;
+  /** Loop Resolver: intervene after N fix attempts on the same issue (default: 3) */
+  loopResolverThreshold?: number;
+  /** Loop Resolver: enable/disable automatic loop intervention (default: true) */
+  loopResolverEnabled?: boolean;
 }
 
 /**
@@ -97,9 +101,7 @@ export class SystemSettingsService implements OnModuleInit {
     const rows = await this.prisma.systemSetting.findMany();
     this.cache.clear();
     for (const row of rows) {
-      const value = row.encrypted
-        ? this.decryptSafe(row.value)
-        : row.value;
+      const value = row.encrypted ? this.decryptSafe(row.value) : row.value;
       this.cache.set(row.key, value);
     }
     this.logger.log(`Settings cache loaded: ${this.cache.size} entries`);
@@ -146,7 +148,11 @@ export class SystemSettingsService implements OnModuleInit {
   }
 
   get searxngUrl(): string {
-    return this.get('search.searxng_url', 'SEARXNG_URL', 'http://localhost:8088');
+    return this.get(
+      'search.searxng_url',
+      'SEARXNG_URL',
+      'http://localhost:8088',
+    );
   }
 
   get anthropicApiKey(): string {
@@ -181,7 +187,11 @@ export class SystemSettingsService implements OnModuleInit {
   // ─── DevOps Getters ──────────────────────────────────────
 
   get devopsWorkspacePath(): string {
-    return this.get('devops.workspace_path', 'DEVOPS_WORKSPACE_PATH', './workspaces/');
+    return this.get(
+      'devops.workspace_path',
+      'DEVOPS_WORKSPACE_PATH',
+      './workspaces/',
+    );
   }
 
   // ─── Preview Getters ──────────────────────────────────────
@@ -229,11 +239,17 @@ export class SystemSettingsService implements OnModuleInit {
   }
 
   /** TTS engine defaults: engine → { url, defaultVoice } */
-  private static readonly TTS_ENGINE_DEFAULTS: Record<TtsEngine, { url: string; voice: string }> = {
-    'piper': { url: 'http://localhost:8302', voice: 'de_DE-thorsten_emotional-medium' },
-    'qwen3': { url: 'http://localhost:8301', voice: 'serena' },
+  private static readonly TTS_ENGINE_DEFAULTS: Record<
+    TtsEngine,
+    { url: string; voice: string }
+  > = {
+    piper: {
+      url: 'http://localhost:8302',
+      voice: 'de_DE-thorsten_emotional-medium',
+    },
+    qwen3: { url: 'http://localhost:8301', voice: 'serena' },
     'f5-tts': { url: 'http://localhost:8303', voice: 'default' },
-    'chatterbox': { url: 'http://localhost:8304', voice: 'thorsten_de' },
+    chatterbox: { url: 'http://localhost:8304', voice: 'thorsten_de' },
   };
 
   get ttsEngine(): TtsEngine {
@@ -244,13 +260,19 @@ export class SystemSettingsService implements OnModuleInit {
   get ttsUrl(): string {
     const customUrl = this.get('voice.tts.url', undefined, '');
     if (customUrl) return customUrl;
-    return SystemSettingsService.TTS_ENGINE_DEFAULTS[this.ttsEngine]?.url ?? 'http://localhost:8302';
+    return (
+      SystemSettingsService.TTS_ENGINE_DEFAULTS[this.ttsEngine]?.url ??
+      'http://localhost:8302'
+    );
   }
 
   get ttsVoice(): string {
     const customVoice = this.get('voice.tts.voice', undefined, '');
     if (customVoice) return customVoice;
-    return SystemSettingsService.TTS_ENGINE_DEFAULTS[this.ttsEngine]?.voice ?? 'default';
+    return (
+      SystemSettingsService.TTS_ENGINE_DEFAULTS[this.ttsEngine]?.voice ??
+      'default'
+    );
   }
 
   get ttsSpeed(): number {
@@ -335,7 +357,7 @@ export class SystemSettingsService implements OnModuleInit {
       timeoutMinutes: 30,
       maxParallelOllamaModels: 1,
       maxFixAttempts: 5,
-      cliTimeoutMinutes: 30,
+      cliTimeoutMinutes: 90,
       merge: {
         autoMerge: true,
         method: 'merge',
