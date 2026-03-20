@@ -16,6 +16,7 @@ import {
   postAgentComment,
   getAgentCommentHistory,
   extractLastAgentFindings,
+  extractLoopResolverClarifications,
 } from '../agent-comment.utils';
 import {
   syncFindingThreads,
@@ -415,12 +416,14 @@ export class UiTesterAgent extends BaseAgent {
               )}\n\nFor each finding above: if fixed, report in \`resolvedFromPrevious\`. If still present, carry forward with SAME description.\n`
           : '';
 
+      const loopResolverSection = extractLoopResolverClarifications(commentHistory);
+
       const userPrompt = `Analyze the UI changes in this merge request${previousFindings.length > 0 ? ' (Re-test after fix attempt)' : ''}:
 
 **Issue:** ${issue.title}
 **Description:** ${issue.description || 'N/A'}
 ${previewUrl ? `**Preview URL:** ${previewUrl}` : ''}
-${previousFindingsSection}${historySection}
+${loopResolverSection ? `\n${loopResolverSection}\n` : ''}${previousFindingsSection}${historySection}
 ${scopeGuardSection}
 ## Code Changes (${reviewDiffs.length} UI-related file(s)):
 

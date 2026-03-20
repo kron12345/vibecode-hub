@@ -16,6 +16,7 @@ import {
   postAgentComment,
   getAgentCommentHistory,
   extractLastAgentFindings,
+  extractLoopResolverClarifications,
 } from '../agent-comment.utils';
 import {
   buildArchitectScopeGuardSection,
@@ -287,11 +288,14 @@ export class FunctionalTesterAgent extends BaseAgent {
               .join('\n\n')}\n`
           : '';
 
+      // Extract Loop Resolver clarifications (if any) — must be respected by tester
+      const loopResolverSection = extractLoopResolverClarifications(commentHistory);
+
       const userPrompt = `Verify the following merge request${previousFindings.length > 0 ? ' (Re-test after fix attempt)' : ''} implements the issue requirements:
 
 **Issue:** ${issue.title}
 **Description:** ${issue.description || 'N/A'}
-${previousFindingsSection}${historySection}${knowledgeSection}
+${loopResolverSection ? `\n${loopResolverSection}\n` : ''}${previousFindingsSection}${historySection}${knowledgeSection}
 ${scopeGuardSection}
 ## Acceptance Criteria:
 ${acceptanceCriteria || '_No sub-issues / acceptance criteria defined — verify based on issue description._'}

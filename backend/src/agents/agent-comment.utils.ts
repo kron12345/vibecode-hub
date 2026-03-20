@@ -117,6 +117,42 @@ export async function getAgentCommentHistory(
 }
 
 /**
+ * Extract Loop Resolver clarifications from comment history.
+ * Returns a formatted string with all Loop Resolver interventions,
+ * so testing agents know which findings were declassified or which
+ * requirements were clarified.
+ */
+export function extractLoopResolverClarifications(
+  commentHistory: string | null,
+): string {
+  if (!commentHistory) return '';
+
+  const marker = /## Loop Resolver — Intervention/g;
+  const matches = [...commentHistory.matchAll(marker)];
+  if (matches.length === 0) return '';
+
+  // Extract all Loop Resolver blocks
+  const blocks: string[] = [];
+  for (const match of matches) {
+    const start = match.index!;
+    // Find end: next agent comment or end of string
+    const nextAgent = commentHistory.indexOf('\n[', start + 10);
+    const end = nextAgent > start ? nextAgent : commentHistory.length;
+    blocks.push(commentHistory.substring(start, end).trim());
+  }
+
+  if (blocks.length === 0) return '';
+
+  return [
+    '## LOOP RESOLVER CLARIFICATIONS (MANDATORY — must be respected)',
+    'The Loop Resolver has analyzed previous fix loops and issued the following corrections.',
+    'You MUST respect these clarifications. Do NOT re-flag findings that were explicitly declassified.',
+    '',
+    ...blocks,
+  ].join('\n');
+}
+
+/**
  * Extract the LAST set of findings from a specific agent's comments in the comment history.
  * Returns structured finding objects for injection into re-evaluation prompts.
  * Only returns findings from the agent's MOST RECENT comment — not the full history.

@@ -14,6 +14,7 @@ import {
   postAgentComment,
   getAgentCommentHistory,
   extractLastAgentFindings,
+  extractLoopResolverClarifications,
 } from '../agent-comment.utils';
 import {
   buildArchitectScopeGuardSection,
@@ -273,11 +274,13 @@ export class CodeReviewerAgent extends BaseAgent {
               )}\n\nFor each finding above: check if it is now fixed in the current code. Report fixed items in \`resolvedFromPrevious\`. Carry unfixed items forward in \`findings\` with the SAME message text.\n`
           : '';
 
+      const loopResolverSection = extractLoopResolverClarifications(commentHistory);
+
       const userPrompt = `Review the following merge request${previousFindings.length > 0 ? ' (Re-review after fix attempt)' : ''}:
 
 **Issue:** ${issue.title}
 **Description:** ${issue.description || 'N/A'}
-${previousFindingsSection}${historySection}${knowledgeSection}
+${loopResolverSection ? `\n${loopResolverSection}\n` : ''}${previousFindingsSection}${historySection}${knowledgeSection}
 ${scopeGuardSection}
 ## MR Diffs (${reviewDiffs.length} of ${diffs.length} file(s)):
 

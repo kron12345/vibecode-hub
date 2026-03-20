@@ -19,6 +19,7 @@ import {
   postAgentComment,
   getAgentCommentHistory,
   extractLastAgentFindings,
+  extractLoopResolverClarifications,
 } from '../agent-comment.utils';
 import {
   syncFindingThreads,
@@ -330,6 +331,8 @@ export class PenTesterAgent extends BaseAgent {
               )}\n\nFor each finding above: if fixed, report in \`resolvedFromPrevious\`. If still present, carry forward with SAME description.\n`
           : '';
 
+      const loopResolverSection = extractLoopResolverClarifications(commentHistory);
+
       const userPrompt = `Perform a security analysis of this merge request${previousFindings.length > 0 ? ' (Re-test after fix attempt)' : ''}:
 
 **Issue:** ${issue.title}
@@ -339,7 +342,7 @@ export class PenTesterAgent extends BaseAgent {
 ${techStackContext}
 
 **Warning threshold:** PASS if ≤${maxWarnings} warnings and 0 critical findings.
-${previousFindingsSection}${historySection}
+${loopResolverSection ? `\n${loopResolverSection}\n` : ''}${previousFindingsSection}${historySection}
 ${scopeGuardSection}
 ## MR Diffs (${reviewDiffs.length} of ${diffs.length} file(s)):
 
