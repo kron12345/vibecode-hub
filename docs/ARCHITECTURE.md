@@ -53,27 +53,46 @@
 
 ```
 vibcode-hub/
-├── frontend/          # Angular 21 SPA
+├── nx.json                    # NX workspace config
+├── tsconfig.base.json         # Shared TypeScript config + @vibcode/shared path
+├── libs/shared/               # @vibcode/shared — Types, Enums, Interfaces
+│   └── src/
+│       ├── enums.ts           # ProjectStatus, AgentRole, etc.
+│       ├── models.ts          # Project, Issue, ChatSession, etc.
+│       ├── config.ts          # PipelineConfig, AgentRoleConfig, etc.
+│       └── monitor.ts         # HardwareSnapshot, ActivityItem, etc.
+├── frontend/                  # Angular 21 SPA
 │   ├── src/app/
-│   │   ├── pages/     # Lazy-loaded Seiten
-│   │   ├── services/  # API, Auth, WebSocket Services
-│   │   └── app.ts     # Root Component
-│   └── src/environments/
-├── backend/           # NestJS API
+│   │   ├── pages/
+│   │   │   ├── settings/      # SettingsPage + 3 Sub-Components
+│   │   │   ├── project/       # ProjectPage + PipelineView, ChatPanel, IssueBoard
+│   │   │   └── ...
+│   │   ├── services/          # API, Auth, WebSocket, Voice Services
+│   │   └── app.ts             # Root Component
+│   └── project.json           # NX targets
+├── backend/                   # NestJS API
+│   ├── prompts/               # Agent System-Prompts (Markdown)
 │   ├── src/
-│   │   ├── auth/      # Keycloak JWT Guard
-│   │   ├── prisma/    # DB Service (global)
-│   │   ├── projects/  # Projekt-CRUD
-│   │   ├── issues/    # Issue-Verwaltung
-│   │   ├── chat/      # Chat-Sessions & Messages + EventEmitter
-│   │   ├── llm/       # LLM Abstraction Layer (7 Provider)
-│   │   ├── agents/    # Agent-Orchestrierung + Interviewer
-│   │   ├── gitlab/    # GitLab API Integration
-│   │   └── common/    # Decorators, Guards, Filters
-│   └── prisma/
-│       └── schema.prisma
-├── docs/              # Spezifikation, Architektur, Prompts
-└── shared/            # Geteilte Types (Frontend ↔ Backend)
+│   │   ├── auth/              # Keycloak JWT Guard + WsJwtGuard
+│   │   ├── agents/
+│   │   │   ├── agent-orchestrator.service.ts   # Thin event router
+│   │   │   ├── pipeline-flow.service.ts        # Agent lifecycle
+│   │   │   ├── pipeline-retry.service.ts       # Fix loops, resume
+│   │   │   ├── pipeline-cleanup.service.ts     # Zombie/stuck cleanup
+│   │   │   ├── agent-result-parser.ts          # Shared JSON parsing
+│   │   │   ├── prompt-loader.ts                # Loads prompts/*.md
+│   │   │   └── {role}/                         # 10 Agent implementations
+│   │   ├── gitlab/
+│   │   │   ├── gitlab.service.ts               # Facade (extends chain)
+│   │   │   ├── gitlab-core.service.ts          # HTTP helpers, auth
+│   │   │   ├── gitlab-issues.service.ts        # Issue CRUD, labels
+│   │   │   ├── gitlab-wiki.service.ts          # Wiki CRUD
+│   │   │   └── gitlab-mr.service.ts            # MRs, diffs, pipelines
+│   │   ├── llm/               # LLM Abstraction Layer (8 Provider)
+│   │   ├── mcp/               # MCP Server Registry + Agent Loop
+│   │   └── common/            # Guards, Filters, Middleware
+│   └── project.json           # NX targets
+└── docs/                      # Specs, Architecture, API, Prompts Log
 ```
 
 ## Workspace Isolation (Git Worktrees)

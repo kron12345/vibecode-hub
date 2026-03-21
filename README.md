@@ -25,12 +25,14 @@ VibCode Hub provides a web interface where you describe what you want to build. 
 
 | Layer | Technology |
 |---|---|
+| Monorepo | NX (package-based), @vibcode/shared types |
 | Frontend | Angular 21, Tailwind CSS v4, Keycloak PKCE Auth |
-| Backend | NestJS, Prisma ORM (PostgreSQL), Passport JWT |
-| Auth | Keycloak (OIDC/PKCE) |
+| Backend | NestJS 11, Prisma 7 (PostgreSQL), Passport JWT |
+| Auth | Keycloak (OIDC/PKCE), WebSocket JWT Guard |
 | VCS | GitLab CE (API v4) |
-| LLM | Ollama, Anthropic, OpenAI, Google AI |
-| Database | PostgreSQL 16 |
+| LLM | Ollama, Anthropic, OpenAI, Google AI, Claude Code, Codex CLI, Gemini CLI |
+| Database | PostgreSQL 17 |
+| Security | Rate limiting (@nestjs/throttler), CORS validation, input DTOs |
 
 ---
 
@@ -46,11 +48,12 @@ VibCode Hub provides a web interface where you describe what you want to build. 
 
 ## Installation
 
-### 1. Clone the repository
+### 1. Clone and install NX
 
 ```bash
 git clone https://github.com/your-org/vibcode-hub.git
 cd vibcode-hub
+npm install          # Installs NX at root level
 ```
 
 ### 2. Backend setup

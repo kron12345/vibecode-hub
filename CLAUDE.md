@@ -18,6 +18,12 @@ VibCode Hub — AI-Entwicklerteam-Portal. Nutzer steuert AI-Agenten (Ticket Crea
 ## Build & Development Commands
 
 ```bash
+# NX Monorepo (empfohlen)
+npx nx build backend                 # Backend Build
+npx nx build frontend                # Frontend Build
+npx nx run-many -t build             # Alle Projekte bauen
+npx nx run-many -t test              # Alle Tests
+
 # Frontend (Angular 21)
 cd frontend && npx ng serve          # Dev-Server auf :4200
 cd frontend && npx ng build          # Production Build
@@ -26,7 +32,7 @@ cd frontend && npx ng test           # Unit Tests
 # Backend (NestJS)
 cd backend && npm run start:dev      # Dev-Server auf :3100
 cd backend && npm run build          # Production Build
-cd backend && npm run test           # Unit Tests
+cd backend && npm run test           # Unit Tests (101 Tests)
 cd backend && npm run test:e2e       # E2E Tests
 
 # Prisma
@@ -40,7 +46,21 @@ cd backend && npx prisma studio                       # DB GUI
 - **frontend/** — Angular 21 SPA, Keycloak PKCE Auth, lazy-loaded pages
 - **backend/** — NestJS REST API + WebSocket, Prisma ORM, Keycloak JWT Guard
 - **backend/prisma/schema.prisma** — Datenmodell (Projects, Issues, Chat, Agents, Tasks, Logs)
+- **backend/prompts/** — Agent System-Prompts als Markdown (kein Rebuild noetig bei Aenderung)
+- **libs/shared/** — `@vibcode/shared` TypeScript Types, Enums, Interfaces (Frontend + Backend)
 - **docs/** — SPEC.md (Anforderungen), ARCHITECTURE.md (Technik), PROMPTS.md (Prompt-Log)
+
+### Backend-Modulstruktur (nach Refactoring)
+
+| Modul | Dateien | Zweck |
+|---|---|---|
+| Orchestrator | `agent-orchestrator.service.ts` | Duenner Event-Router |
+| Pipeline Flow | `pipeline-flow.service.ts` | Agent-Lifecycle, alle start* Methoden |
+| Pipeline Retry | `pipeline-retry.service.ts` | Fix-Loops, Resume, Failure-Handling |
+| Pipeline Cleanup | `pipeline-cleanup.service.ts` | Zombie/Stuck-Task Cleanup |
+| Result Parser | `agent-result-parser.ts` | Shared JSON-Extraction, Normalization |
+| Prompt Loader | `prompt-loader.ts` | Laedt Prompts aus `backend/prompts/*.md` |
+| GitLab | `gitlab-core/issues/wiki/mr.service.ts` | Aufgeteilter GitLab API Client |
 
 ## Key Patterns
 
