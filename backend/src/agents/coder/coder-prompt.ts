@@ -58,6 +58,8 @@ export function buildSystemPrompt(
     '- For Flyway migrations: create SQL files in src/main/resources/db/migration/ with naming V{N}__{description}.sql',
     '- application.properties/yml goes in src/main/resources/',
     '- Do NOT modify the Maven wrapper (mvnw) files',
+    '- Maven offline: Dependencies are pre-cached in ~/.m2/repository. Use `mvn compile -B -o` or `mvn test -B -o` (offline flag) when possible.',
+    '  If offline mode fails (missing dependency), retry WITHOUT -o to download it, then continue with -o.',
     '',
     'Rules:',
     '- ALWAYS use relative paths (e.g., "src/app.ts", "src/main/java/com/example/MyClass.java")',

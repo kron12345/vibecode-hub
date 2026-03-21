@@ -951,6 +951,37 @@ export class DevopsAgent extends BaseAgent {
         return;
       }
 
+      // Step 1b: Resolve all plugin dependencies (Surefire providers etc.)
+      // Without this, `mvn test` fails offline because Surefire runtime deps are not cached.
+      const resolvePluginsResult = await this.executeCommand(
+        'mvn dependency:resolve-plugins -B -q',
+        projectDir,
+        this.getDevopsCommandTimeoutMs(),
+      );
+
+      if (resolvePluginsResult.exitCode !== 0) {
+        this.logger.warn(
+          `Maven dependency:resolve-plugins failed (non-fatal): ${resolvePluginsResult.stderr.slice(0, 300)}`,
+        );
+      }
+
+      // Step 1c: Pre-warm Surefire by running test-compile + test phase.
+      // This forces Maven to download surefire-junit-platform and other runtime providers
+      // into ~/.m2/repository so that agents can run `mvn test` without internet access.
+      const testCompileResult = await this.executeCommand(
+        'mvn test -DfailIfNoTests=false -Dsurefire.failIfNoSpecifiedTests=false -B -q',
+        projectDir,
+        this.getDevopsCommandTimeoutMs(),
+      );
+
+      // Non-fatal: tests may fail (no DB, no test classes, etc.) but the important
+      // thing is that Maven resolved and downloaded all Surefire provider JARs.
+      if (testCompileResult.exitCode !== 0) {
+        this.logger.debug(
+          `Surefire pre-warm finished (exit ${testCompileResult.exitCode}) — providers should be cached`,
+        );
+      }
+
       // Step 2: Compile to verify code compiles
       const compileResult = await this.executeCommand(
         'mvn compile -B -q',

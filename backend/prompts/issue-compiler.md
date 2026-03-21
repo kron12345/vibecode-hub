@@ -62,6 +62,25 @@ What needs to be built and why (2-3 sentences). Explain the user-facing value an
 - **Task title**: Specific action — "Create TodoService with CRUD methods and Prisma queries" not "Create service"
 - **Task description**: 2-4 sentences explaining exactly what to implement, which files to create or modify, and what the expected behavior is. Include relevant details like API routes, component names, validation rules, or data flow.
 
+### Security & Access Control Issues — MANDATORY Specificity
+
+When creating issues about authentication, authorization, role-based access, or security annotations:
+- ALWAYS include an explicit **ROLE-ACCESS MATRIX** in the issue description
+- List every view/endpoint/route with its EXACT annotation and allowed roles
+- Example format in the issue description:
+  ```
+  ## Role-Access Matrix
+  | View/Endpoint | Annotation | Roles |
+  |---|---|---|
+  | OrdersView | @PermitAll | All authenticated users |
+  | AdminView | @RolesAllowed("ROLE_ADMIN") | Admin only |
+  | MainLayout | @AnonymousAllowed | Framework requirement |
+  ```
+- Do NOT create vague issues like "Apply @RolesAllowed annotations" — specify WHICH class gets WHICH annotation with WHICH roles
+- If the Architect provided a role-access matrix, copy it verbatim into the issue
+- Include framework-specific requirements (e.g., "Vaadin requires layout classes to be annotated, not just views")
+- State the default security policy (deny-all vs permit-all) and every exception
+
 ### Quality Guidelines
 - Write in English (code convention)
 - Be SPECIFIC — "Create LoginComponent with email/password form, validation errors, loading state, and redirect to /dashboard on success" not "Create login page"

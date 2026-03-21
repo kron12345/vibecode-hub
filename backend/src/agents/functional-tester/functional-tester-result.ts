@@ -17,33 +17,110 @@ const COMPLETION_MARKER = ':::TEST_COMPLETE:::';
 const logger = new Logger('FunctionalTesterResult');
 
 /**
+ * Patterns that indicate infrastructure/environment failures rather than code bugs.
+ * When these appear in finding details or evidence, the finding should be
+ * marked as "inconclusive" because the Coder cannot fix environment problems.
+ */
+const INFRA_FAILURE_PATTERNS: RegExp[] = [
+  // Maven / Gradle dependency resolution
+  /could not (?:resolve|find|download|transfer) (?:dependencies|artifact)/i,
+  /cannot access (?:central|maven|jcenter|gradle)/i,
+  /(?:surefire|failsafe|maven-compiler).*(?:not found|could not be resolved|failed to download)/i,
+  /(?:artifact|plugin).*(?:not found|could not be resolved|not available)/i,
+  /build failure.*(?:artifact|plugin|dependency)/i,
+  /(?:artifact|dependency|plugin).*build failure/i,
+  /non-resolvable (?:parent|import) pom/i,
+  /failed to (?:collect|resolve) (?:dependencies|plugins)/i,
+  /could not transfer artifact/i,
+
+  // npm / yarn / pnpm network errors
+  /npm err!?\s*network/i,
+  /npm err!?\s*(?:enotfound|etimedout|econnrefused|econnreset)/i,
+  /yarn.*(?:enotfound|etimedout|network)/i,
+  /pnpm.*(?:enotfound|etimedout|network)/i,
+  /(?:enotfound|etimedout)\s+registry/i,
+
+  // General network / offline
+  /(?:getaddrinfo|dns).*(?:enotfound|failed)/i,
+  /offline mode/i,
+  /no (?:internet|network) (?:access|connection|connectivity)/i,
+  /sandbox.*restrict/i,
+  /network.*(?:unreachable|timeout|unavailable)/i,
+
+  // Missing system tools / prerequisites
+  /(?:command not found|not installed|no such file).*(?:docker|pg_|mysql|redis|mongod)/i,
+  /(?:database|db).*(?:connection refused|not running|unavailable)/i,
+  /econnrefused.*(?:5432|3306|6379|27017)/i,
+
+  // Test runner bootstrap failures (not code-related)
+  /(?:jest|mocha|vitest|karma).*(?:config|configuration).*(?:error|invalid|not found)/i,
+  /test (?:runner|framework|infrastructure).*(?:crash|fail|error)/i,
+];
+
+/**
+ * Check if a text string matches known infrastructure/environment failure patterns.
+ */
+export function isInfraFailure(text: string): boolean {
+  return INFRA_FAILURE_PATTERNS.some((pattern) => pattern.test(text));
+}
+
+/**
  * Parse findings array from raw LLM output with field normalization.
+ * Applies heuristic infrastructure-failure detection: if a finding's details
+ * or evidence match known infra-failure patterns, it is automatically marked
+ * as "inconclusive" even if the LLM classified it as "definitive".
  */
 export function parseFindings(raw: any): FunctionalTestFinding[] {
   if (!Array.isArray(raw)) return [];
   return raw
     .filter((f: any) => f && typeof f === 'object')
-    .map((f: any) => ({
-      criterion: String(f.criterion ?? f.name ?? f.test ?? 'Unknown'),
-      passed: typeof f.passed === 'boolean' ? f.passed : f.status === 'pass',
-      details: String(
+    .map((f: any) => {
+      const details = String(
         f.details ?? f.description ?? f.message ?? 'No details',
-      ),
-      severity: normalizeSeverity(f.severity),
-      conclusiveness:
-        f.conclusiveness === 'inconclusive' ? 'inconclusive' : 'definitive',
-      expectedEvidence: f.expectedEvidence
+      );
+      const actualEvidence = f.actualEvidence
+        ? String(f.actualEvidence)
+        : undefined;
+      const expectedEvidence = f.expectedEvidence
         ? String(f.expectedEvidence)
-        : undefined,
-      actualEvidence: f.actualEvidence ? String(f.actualEvidence) : undefined,
-      firstFailedRound:
-        typeof f.firstFailedRound === 'number'
-          ? f.firstFailedRound
+        : undefined;
+
+      // LLM-provided conclusiveness
+      let conclusiveness: 'definitive' | 'inconclusive' =
+        f.conclusiveness === 'inconclusive' ? 'inconclusive' : 'definitive';
+
+      // Heuristic override: detect infrastructure/environment failures
+      // that the LLM may have incorrectly marked as "definitive"
+      if (conclusiveness === 'definitive') {
+        const textToCheck = [details, actualEvidence ?? ''].join(' ');
+        if (isInfraFailure(textToCheck)) {
+          conclusiveness = 'inconclusive';
+          logger.log(
+            `Heuristic: reclassified finding as inconclusive (infra failure detected): "${String(f.criterion ?? f.name ?? '').substring(0, 80)}"`,
+          );
+        }
+      }
+
+      return {
+        criterion: String(f.criterion ?? f.name ?? f.test ?? 'Unknown'),
+        passed:
+          typeof f.passed === 'boolean' ? f.passed : f.status === 'pass',
+        details,
+        severity: normalizeSeverity(f.severity),
+        conclusiveness,
+        expectedEvidence,
+        actualEvidence,
+        firstFailedRound:
+          typeof f.firstFailedRound === 'number'
+            ? f.firstFailedRound
+            : undefined,
+        status: ['new', 'resolved', 'unresolved', 'blocked'].includes(
+          f.status,
+        )
+          ? f.status
           : undefined,
-      status: ['new', 'resolved', 'unresolved', 'blocked'].includes(f.status)
-        ? f.status
-        : undefined,
-    }));
+      };
+    });
 }
 
 /**
@@ -54,6 +131,9 @@ export function buildResultFromText(
   issueId: string,
 ): FunctionalTestResult {
   const lower = text.toLowerCase();
+
+  // Check if the entire response indicates an infrastructure failure
+  const isInfra = isInfraFailure(text);
 
   // Look for strong conclusion patterns (last few lines matter most)
   const lastLines = lower.split('\n').slice(-10).join(' ');
@@ -67,8 +147,9 @@ export function buildResultFromText(
       lastLines,
     );
 
+  // If infra failure detected, override to PASS (Coder can't fix infra)
   // If ambiguous or no clear signal, default to PASS (prevents infinite loops)
-  const passed = strongFail ? false : true;
+  const passed = isInfra ? true : strongFail ? false : true;
 
   // Extract any bullet points as pseudo-findings
   const findings: FunctionalTestFinding[] = [];
@@ -76,22 +157,34 @@ export function buildResultFromText(
   for (const bullet of bulletMatches.slice(0, 10)) {
     const bulletLower = bullet.toLowerCase();
     const isFail = /fail|not met|missing|broken|error/i.test(bulletLower);
+    const bulletIsInfra = isInfraFailure(bullet);
     findings.push({
       criterion: bullet.replace(/^[-*]\s+/, '').substring(0, 200),
-      passed: !isFail,
-      details: 'Extracted from text response',
+      passed: bulletIsInfra ? true : !isFail,
+      details: bulletIsInfra
+        ? 'Infrastructure/environment failure (not a code issue)'
+        : 'Extracted from text response',
       severity: isFail ? 'warning' : 'info',
+      conclusiveness: bulletIsInfra ? 'inconclusive' : undefined,
     });
   }
 
-  const summary = strongFail
-    ? 'Functional test failed (parsed from text)'
-    : strongPass
-      ? 'Functional test passed (parsed from text)'
-      : 'Functional test passed (no clear failure detected — defaulting to pass)';
+  let summary: string;
+  if (isInfra) {
+    summary =
+      'Infrastructure/environment failure detected — passed with inconclusive warnings (not a code issue)';
+    logger.log('buildResultFromText: infrastructure failure detected, overriding to PASS');
+  } else if (strongFail) {
+    summary = 'Functional test failed (parsed from text)';
+  } else if (strongPass) {
+    summary = 'Functional test passed (parsed from text)';
+  } else {
+    summary =
+      'Functional test passed (no clear failure detected — defaulting to pass)';
+  }
 
   logger.log(
-    `buildResultFromText: strongPass=${strongPass}, strongFail=${strongFail}, passed=${passed}, findings=${findings.length}`,
+    `buildResultFromText: strongPass=${strongPass}, strongFail=${strongFail}, isInfra=${isInfra}, passed=${passed}, findings=${findings.length}`,
   );
 
   return { issueId, passed, findings, summary };

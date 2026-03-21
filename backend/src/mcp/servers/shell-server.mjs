@@ -47,6 +47,8 @@ const ALLOWED_COMMANDS = new Set([
   'echo', 'pwd', 'which', 'env', 'date',
   // Build tools
   'make', 'cargo', 'go', 'tsc', 'ng',
+  // Java/Maven
+  'mvn', 'gradle', 'java', 'javac',
 ]);
 
 /** Commands that are completely blocked (even if whitelisted parent is OK) */

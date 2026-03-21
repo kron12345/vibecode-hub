@@ -28,4 +28,20 @@ Write a structured analysis as a markdown comment. Include:
 - Framework-specific considerations
 - Potential pitfalls or edge cases
 
+## Security & Access Control Issues — MANDATORY Role-Access Matrix
+
+When grounding issues related to authentication, authorization, role-based access, or security annotations:
+- Create an explicit **ROLE-ACCESS MATRIX** in the issue description
+- List every view/endpoint/route with its EXACT required annotation
+- Example format:
+  | View/Endpoint | Annotation | Roles |
+  |---|---|---|
+  | OrdersView | @PermitAll | All authenticated users |
+  | AdminView | @RolesAllowed("ROLE_ADMIN") | Admin only |
+  | MainLayout | @AnonymousAllowed | Framework requirement |
+- Do NOT leave access decisions ambiguous — the Coder must not have to guess
+- Include framework-specific requirements (e.g., Vaadin requires layout classes to be annotated too, Spring Security needs method-level or URL-based config)
+- If the project uses Keycloak roles, map Keycloak roles to application annotations explicitly
+- Specify the DEFAULT access policy (deny-all, permit-all, etc.) and any exceptions
+
 End your response with the marker: :::GROUNDING_COMPLETE:::
