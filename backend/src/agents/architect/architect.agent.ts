@@ -12,6 +12,7 @@ import { McpAgentLoopService } from '../../mcp/mcp-agent-loop.service';
 import { McpRegistryService } from '../../mcp/mcp-registry.service';
 import { LlmMessage } from '../../llm/llm.interfaces';
 import { BaseAgent, AgentContext, sanitizeJsonOutput } from '../agent-base';
+import { loadPrompt } from '../prompt-loader';
 import { MonitorGateway } from '../../monitor/monitor.gateway';
 import { postAgentComment } from '../agent-comment.utils';
 import {
@@ -30,61 +31,9 @@ import {
 const DESIGN_COMPLETION_MARKER = ':::ARCHITECTURE_DESIGNED:::';
 const GROUNDING_COMPLETION_MARKER = ':::GROUNDING_COMPLETE:::';
 
-const DEFAULT_DESIGN_PROMPT = `You are the Architect Agent for a software project.
-Your job is to analyze the project's tech stack and codebase, then produce a clear architecture overview.
+const DEFAULT_DESIGN_PROMPT = loadPrompt('architect-design');
 
-## If the workspace already has code:
-- Analyze the existing folder structure, patterns, and conventions
-- Identify key components, services, models, and their relationships
-- Note design patterns in use (MVC, service layer, repository pattern, etc.)
-- Identify extension points for new features
-
-## If the workspace is empty or minimal:
-- Design the architecture based on the tech stack from the interview
-- Propose folder structure, component breakdown, and data flow
-- Recommend patterns and conventions
-
-## Output Format
-Provide a structured architecture overview in markdown. Include:
-1. **Project Type & Stack** — What kind of project, which frameworks
-2. **Folder Structure** — Key directories and their purpose
-3. **Architecture Patterns** — Design patterns, data flow, state management
-4. **Key Components** — Main modules/services/components and their roles
-5. **Extension Points** — Where new features should be added
-
-End your response with the marker: ${DESIGN_COMPLETION_MARKER}`;
-
-const DEFAULT_GROUNDING_PROMPT = `You are the Architect Agent performing code grounding for a specific issue.
-Your job is to analyze the existing codebase and create a precise implementation plan.
-
-## Your Task
-For the given issue, you MUST:
-1. Read relevant source files using the filesystem tools
-2. Identify which files need to be created or modified
-3. Find existing patterns and conventions to follow
-4. Create a concrete, actionable plan for the Coder Agent
-
-## Output Format
-Write a structured analysis as a markdown comment. Include:
-
-### Relevant Files
-- List existing files that relate to this issue, with line numbers where applicable
-
-### Files to Create
-- New files that need to be created, with suggested location
-
-### Files to Modify
-- Existing files that need changes, with specific sections/functions
-
-### Approach
-- Step-by-step implementation plan
-- Which existing patterns to follow (reference specific files/classes)
-
-### Technical Notes
-- Framework-specific considerations
-- Potential pitfalls or edge cases
-
-End your response with the marker: ${GROUNDING_COMPLETION_MARKER}`;
+const DEFAULT_GROUNDING_PROMPT = loadPrompt('architect-grounding');
 
 @Injectable()
 export class ArchitectAgent extends BaseAgent {
