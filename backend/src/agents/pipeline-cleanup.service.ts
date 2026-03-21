@@ -8,7 +8,7 @@ import { PrismaService } from '../prisma/prisma.service';
 import { SystemSettingsService } from '../settings/system-settings.service';
 import { ChatService } from '../chat/chat.service';
 import { ChatGateway } from '../chat/chat.gateway';
-import { AgentTaskStatus, AgentStatus, IssueStatus } from '@prisma/client';
+import { AgentTaskStatus, AgentStatus, IssueStatus, MessageRole } from '@prisma/client';
 
 /** Default: tasks with no activity for > 30 minutes are considered stuck */
 const DEFAULT_INACTIVITY_TIMEOUT_MINUTES = 30;
@@ -77,7 +77,7 @@ export class PipelineCleanupService implements OnModuleInit, OnModuleDestroy {
       reason.length > 1500 ? `${reason.substring(0, 1500)}…` : reason;
     const msg = await this.chatService.addMessage({
       chatSessionId,
-      role: 'SYSTEM' as any,
+      role: MessageRole.SYSTEM,
       content:
         `⛔ Pipeline paused for this session.\n\n` +
         `Issue: ${issueId}\n` +

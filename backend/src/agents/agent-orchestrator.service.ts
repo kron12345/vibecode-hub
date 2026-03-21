@@ -16,6 +16,7 @@ import {
   AgentTaskStatus,
   ChatSessionType,
   IssueStatus,
+  MessageRole,
   ProjectStatus,
   SessionStatus,
 } from '@prisma/client';
@@ -326,7 +327,7 @@ export class AgentOrchestratorService {
     if (chatSession) {
       await this.chatService.addMessage({
         chatSessionId,
-        role: 'SYSTEM' as any,
+        role: MessageRole.SYSTEM,
         content:
           '✅ **Project setup complete!** The environment is ready.\n\n' +
           'This chat is now your **Infrastructure Chat** — use it to install packages, ' +

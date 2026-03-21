@@ -1,11 +1,12 @@
 import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
+import { LLMProvider } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { decrypt } from './crypto.util';
 import { TtsEngine, VoiceConfig } from '../voice/voice.interfaces';
 
 export interface AgentRoleConfig {
-  provider: string;
+  provider: LLMProvider;
   model: string;
   systemPrompt: string;
   parameters: {
@@ -28,7 +29,7 @@ export interface AgentRoleConfig {
   color: string;
   icon: string;
   /** Dual-testing: secondary provider (e.g. 'CLAUDE_CODE') */
-  dualProvider?: string;
+  dualProvider?: LLMProvider;
   /** Dual-testing: secondary model (e.g. 'sonnet') */
   dualModel?: string;
   /** Dual-testing strategy: merge (union), consensus (intersection), enrich (primary→secondary) */
@@ -316,13 +317,18 @@ export class SystemSettingsService implements OnModuleInit {
     const raw = this.get(`agents.roles.${role}`, undefined, '');
     if (raw) {
       try {
-        return JSON.parse(raw);
+        const parsed = JSON.parse(raw);
+        // Cast provider strings to LLMProvider enum at the source —
+        // all downstream consumers get the correct type without `as any`.
+        if (parsed.provider) parsed.provider = parsed.provider as LLMProvider;
+        if (parsed.dualProvider) parsed.dualProvider = parsed.dualProvider as LLMProvider;
+        return parsed;
       } catch {
         /* fall through */
       }
     }
     return {
-      provider: 'OLLAMA',
+      provider: LLMProvider.OLLAMA,
       model: 'llama3.1',
       systemPrompt: '',
       parameters: { temperature: 0.3, maxTokens: 4096 },
@@ -383,7 +389,7 @@ export class SystemSettingsService implements OnModuleInit {
   }
 
   /** Backwards-compatible: get simple provider+model for a role */
-  getAgentDefault(role: string): { provider: string; model: string } {
+  getAgentDefault(role: string): { provider: LLMProvider; model: string } {
     const config = this.getAgentRoleConfig(role);
     return { provider: config.provider, model: config.model };
   }

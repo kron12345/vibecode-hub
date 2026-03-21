@@ -4,6 +4,7 @@
  * manifest updates, route extraction from diffs, and LLM prompt construction.
  */
 import { Logger } from '@nestjs/common';
+import { LLMProvider } from '@prisma/client';
 import { LlmService } from '../../llm/llm.service';
 import { LlmContentPart } from '../../llm/llm.interfaces';
 import { SystemSettingsService } from '../../settings/system-settings.service';
@@ -73,23 +74,28 @@ Use this exact format for each:
   // Use the configured provider — but only if it supports multimodal.
   // CLI providers (CLAUDE_CODE, CODEX_CLI, etc.) don't support inline images.
   // Fallback chain: ANTHROPIC > GOOGLE > OPENAI > configured provider
-  let provider = config.provider;
-  const cliProviders = [
-    'CLAUDE_CODE',
-    'CODEX_CLI',
-    'GEMINI_CLI',
-    'QWEN3_CODER',
+  let provider: LLMProvider = config.provider;
+  const cliProviders: LLMProvider[] = [
+    LLMProvider.CLAUDE_CODE,
+    LLMProvider.CODEX_CLI,
+    LLMProvider.GEMINI_CLI,
+    LLMProvider.QWEN3_CODER,
   ];
   if (cliProviders.includes(provider)) {
     // Try cloud providers that support multimodal
-    for (const fallback of ['ANTHROPIC', 'GOOGLE', 'OPENAI']) {
+    const cloudFallbacks: { provider: LLMProvider; keyPath: string }[] = [
+      { provider: LLMProvider.ANTHROPIC, keyPath: 'llm.anthropic.apiKey' },
+      { provider: LLMProvider.GOOGLE, keyPath: 'llm.google.apiKey' },
+      { provider: LLMProvider.OPENAI, keyPath: 'llm.openai.apiKey' },
+    ];
+    for (const fallback of cloudFallbacks) {
       const fbConfig = settings.get(
-        `llm.${fallback.toLowerCase()}.apiKey`,
+        fallback.keyPath,
         undefined,
         '',
       );
       if (fbConfig) {
-        provider = fallback;
+        provider = fallback.provider;
         logger.log(
           `Visual analysis: CLI provider ${config.provider} doesn't support images, falling back to ${provider}`,
         );
@@ -98,7 +104,7 @@ Use this exact format for each:
     }
     // If no cloud provider available, fall back to Ollama (supports images with multimodal models)
     if (cliProviders.includes(provider)) {
-      provider = 'OLLAMA';
+      provider = LLMProvider.OLLAMA;
       logger.log(
         'Visual analysis: falling back to OLLAMA for multimodal',
       );

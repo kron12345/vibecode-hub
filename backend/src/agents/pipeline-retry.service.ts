@@ -13,6 +13,7 @@ import {
   AgentTaskType,
   AgentTaskStatus,
   IssueStatus,
+  MessageRole,
 } from '@prisma/client';
 
 export type FeedbackSource =
@@ -196,12 +197,12 @@ export class PipelineRetryService {
       });
 
       if (!coderInstance) {
-        const config = this.settings.getAgentRoleConfig('CODER');
+        const config = this.settings.getAgentRoleConfig(AgentRole.CODER);
         coderInstance = await this.prisma.agentInstance.create({
           data: {
             projectId,
             role: AgentRole.CODER,
-            provider: config.provider as any,
+            provider: config.provider,
             model: config.model,
             status: AgentStatus.IDLE,
           },
@@ -661,7 +662,7 @@ export class PipelineRetryService {
 
     const resumeMsg = await this.chatService.addMessage({
       chatSessionId,
-      role: 'SYSTEM' as any,
+      role: MessageRole.SYSTEM,
       content: `▶️ Pipeline resumed from failed task ${failedTask.type} (${failedTask.id}).`,
     });
     this.chatGateway.emitToSession(chatSessionId, 'newMessage', resumeMsg);

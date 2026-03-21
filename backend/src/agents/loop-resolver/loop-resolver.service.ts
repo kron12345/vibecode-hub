@@ -145,7 +145,7 @@ ${commentHistory.slice(-3000)}
 Analyze the root cause of this loop and produce a JSON response.`;
 
       // 6. Get Architect config for model (needs good reasoning)
-      const architectConfig = this.settings.getAgentRoleConfig('ARCHITECT');
+      const architectConfig = this.settings.getAgentRoleConfig(AgentRole.ARCHITECT);
 
       // 7. Create visible AgentTask
       let architectInstance = await this.prisma.agentInstance.findFirst({
@@ -160,7 +160,7 @@ Analyze the root cause of this loop and produce a JSON response.`;
           data: {
             projectId,
             role: AgentRole.ARCHITECT,
-            provider: architectConfig.provider as any,
+            provider: architectConfig.provider,
             model: architectConfig.model,
             status: AgentStatus.IDLE,
           },

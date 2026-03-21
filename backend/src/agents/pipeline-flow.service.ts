@@ -143,13 +143,13 @@ export class PipelineFlowService {
       throw new NotFoundException(`Project ${projectId} not found`);
     }
 
-    const config = this.settings.getAgentRoleConfig('INTERVIEWER');
+    const config = this.settings.getAgentRoleConfig(AgentRole.INTERVIEWER);
 
     const agentInstance = await this.prisma.agentInstance.create({
       data: {
         projectId,
         role: AgentRole.INTERVIEWER,
-        provider: config.provider as any,
+        provider: config.provider,
         model: config.model,
         status: AgentStatus.IDLE,
       },
@@ -219,13 +219,13 @@ export class PipelineFlowService {
       throw new NotFoundException(`Project ${projectId} not found`);
     }
 
-    const config = this.settings.getAgentRoleConfig('DEVOPS');
+    const config = this.settings.getAgentRoleConfig(AgentRole.DEVOPS);
 
     const agentInstance = await this.prisma.agentInstance.create({
       data: {
         projectId,
         role: AgentRole.DEVOPS,
-        provider: config.provider as any,
+        provider: config.provider,
         model: config.model,
         status: AgentStatus.IDLE,
       },
@@ -270,13 +270,13 @@ export class PipelineFlowService {
       return;
     }
 
-    const config = this.settings.getAgentRoleConfig('DEVOPS');
+    const config = this.settings.getAgentRoleConfig(AgentRole.DEVOPS);
 
     const agentInstance = await this.prisma.agentInstance.create({
       data: {
         projectId,
         role: AgentRole.DEVOPS,
-        provider: config.provider as any,
+        provider: config.provider,
         model: config.model,
         status: AgentStatus.IDLE,
       },
@@ -310,13 +310,13 @@ export class PipelineFlowService {
     chatSessionId: string,
     sessionTitle: string,
   ) {
-    const config = this.settings.getAgentRoleConfig('INTERVIEWER');
+    const config = this.settings.getAgentRoleConfig(AgentRole.INTERVIEWER);
 
     const agentInstance = await this.prisma.agentInstance.create({
       data: {
         projectId,
         role: AgentRole.INTERVIEWER,
-        provider: config.provider as any,
+        provider: config.provider,
         model: config.model,
         status: AgentStatus.IDLE,
       },
@@ -352,13 +352,13 @@ export class PipelineFlowService {
   // ─── Architect ──────────────────────────────────────────────
 
   async startArchitectDesign(projectId: string, chatSessionId: string) {
-    const config = this.settings.getAgentRoleConfig('ARCHITECT');
+    const config = this.settings.getAgentRoleConfig(AgentRole.ARCHITECT);
 
     const agentInstance = await this.prisma.agentInstance.create({
       data: {
         projectId,
         role: AgentRole.ARCHITECT,
-        provider: config.provider as any,
+        provider: config.provider,
         model: config.model,
         status: AgentStatus.IDLE,
       },
@@ -386,13 +386,13 @@ export class PipelineFlowService {
   }
 
   async startArchitectGrounding(projectId: string, chatSessionId: string) {
-    const config = this.settings.getAgentRoleConfig('ARCHITECT');
+    const config = this.settings.getAgentRoleConfig(AgentRole.ARCHITECT);
 
     const agentInstance = await this.prisma.agentInstance.create({
       data: {
         projectId,
         role: AgentRole.ARCHITECT,
-        provider: config.provider as any,
+        provider: config.provider,
         model: config.model,
         status: AgentStatus.IDLE,
       },
@@ -429,13 +429,13 @@ export class PipelineFlowService {
       throw new NotFoundException(`Project ${projectId} not found`);
     }
 
-    const config = this.settings.getAgentRoleConfig('ISSUE_COMPILER');
+    const config = this.settings.getAgentRoleConfig(AgentRole.ISSUE_COMPILER);
 
     const agentInstance = await this.prisma.agentInstance.create({
       data: {
         projectId,
         role: AgentRole.ISSUE_COMPILER,
-        provider: config.provider as any,
+        provider: config.provider,
         model: config.model,
         status: AgentStatus.IDLE,
       },
@@ -478,13 +478,13 @@ export class PipelineFlowService {
       throw new NotFoundException(`Project ${projectId} not found`);
     }
 
-    const config = this.settings.getAgentRoleConfig('CODER');
+    const config = this.settings.getAgentRoleConfig(AgentRole.CODER);
 
     const agentInstance = await this.prisma.agentInstance.create({
       data: {
         projectId,
         role: AgentRole.CODER,
-        provider: config.provider as any,
+        provider: config.provider,
         model: config.model,
         status: AgentStatus.IDLE,
       },
@@ -526,13 +526,13 @@ export class PipelineFlowService {
     mrIid: number,
     gitlabProjectId: number,
   ) {
-    const config = this.settings.getAgentRoleConfig('CODE_REVIEWER');
+    const config = this.settings.getAgentRoleConfig(AgentRole.CODE_REVIEWER);
 
     const agentInstance = await this.prisma.agentInstance.create({
       data: {
         projectId,
         role: AgentRole.CODE_REVIEWER,
-        provider: config.provider as any,
+        provider: config.provider,
         model: config.model,
         status: AgentStatus.IDLE,
       },
@@ -572,13 +572,13 @@ export class PipelineFlowService {
     mrIid: number,
     gitlabProjectId: number,
   ) {
-    const config = this.settings.getAgentRoleConfig('FUNCTIONAL_TESTER');
+    const config = this.settings.getAgentRoleConfig(AgentRole.FUNCTIONAL_TESTER);
 
     const agentInstance = await this.prisma.agentInstance.create({
       data: {
         projectId,
         role: AgentRole.FUNCTIONAL_TESTER,
-        provider: config.provider as any,
+        provider: config.provider,
         model: config.model,
         status: AgentStatus.IDLE,
       },
@@ -618,13 +618,13 @@ export class PipelineFlowService {
     mrIid: number,
     gitlabProjectId: number,
   ) {
-    const config = this.settings.getAgentRoleConfig('UI_TESTER');
+    const config = this.settings.getAgentRoleConfig(AgentRole.UI_TESTER);
 
     const agentInstance = await this.prisma.agentInstance.create({
       data: {
         projectId,
         role: AgentRole.UI_TESTER,
-        provider: config.provider as any,
+        provider: config.provider,
         model: config.model,
         status: AgentStatus.IDLE,
       },
@@ -664,13 +664,13 @@ export class PipelineFlowService {
     mrIid: number,
     gitlabProjectId: number,
   ) {
-    const config = this.settings.getAgentRoleConfig('PEN_TESTER');
+    const config = this.settings.getAgentRoleConfig(AgentRole.PEN_TESTER);
 
     const agentInstance = await this.prisma.agentInstance.create({
       data: {
         projectId,
         role: AgentRole.PEN_TESTER,
-        provider: config.provider as any,
+        provider: config.provider,
         model: config.model,
         status: AgentStatus.IDLE,
       },
@@ -710,13 +710,13 @@ export class PipelineFlowService {
     mrIid: number,
     gitlabProjectId: number,
   ) {
-    const config = this.settings.getAgentRoleConfig('DOCUMENTER');
+    const config = this.settings.getAgentRoleConfig(AgentRole.DOCUMENTER);
 
     const agentInstance = await this.prisma.agentInstance.create({
       data: {
         projectId,
         role: AgentRole.DOCUMENTER,
-        provider: config.provider as any,
+        provider: config.provider,
         model: config.model,
         status: AgentStatus.IDLE,
       },
