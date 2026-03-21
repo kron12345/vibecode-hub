@@ -317,10 +317,13 @@ ${
       );
 
       // If parsing returned 0 findings but the response was substantial, retry JSON extraction
+      // Skip retry when secondary timed out — trust primary as-is to avoid phantom findings
+      const secondaryTimedOut = this.dualTestService.isDualConfigured(config) && !dualResult.secondary;
       if (
         reviewResult &&
         reviewResult.findings.length === 0 &&
-        dualResult.primary.content.length > 500
+        dualResult.primary.content.length > 500 &&
+        !secondaryTimedOut
       ) {
         const retryJson = await this.dualTestService.retryJsonExtraction(
           config,

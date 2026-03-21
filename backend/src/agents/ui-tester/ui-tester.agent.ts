@@ -645,10 +645,13 @@ Do NOT omit the JSON block.`;
       let testResult = this.parseTestResult(resultContent, issueId);
 
       // Retry JSON extraction if parsing returned 0 findings but response was substantial
+      // Skip retry when dual-testing is configured (secondary may have timed out)
+      const dualConfigured = this.dualTestService.isDualConfigured(config);
       if (
         testResult &&
         testResult.findings.length === 0 &&
-        resultContent.length > 500
+        resultContent.length > 500 &&
+        !dualConfigured
       ) {
         const retryJson = await this.dualTestService.retryJsonExtraction(
           config,

@@ -201,15 +201,10 @@ Analyze the root cause of this loop and produce a JSON response.`;
         return noAction;
       }
 
-      // 10. Parse response — strip markdown fences before extracting JSON
+      // 10. Parse response — robust JSON extraction
       let analysis: LoopAnalysis;
       try {
-        const cleaned = response.content
-          .replace(/```(?:json)?\s*/g, '')
-          .replace(/```\s*/g, '');
-        const jsonMatch = cleaned.match(/\{[\s\S]*\}/);
-        if (!jsonMatch) throw new Error('No JSON found in response');
-        analysis = JSON.parse(jsonMatch[0]);
+        analysis = this.extractJson(response.content);
       } catch (parseErr) {
         this.logger.warn(
           `Loop Resolver JSON parse failed: ${parseErr.message} — treating as no-action`,
@@ -317,6 +312,53 @@ Analyze the root cause of this loop and produce a JSON response.`;
       }
       return noAction;
     }
+  }
+
+  /**
+   * Robust JSON extraction: tries multiple strategies to find valid JSON.
+   * Opus tends to embed JSON in narrative text — scanning backwards for the
+   * last balanced {} pair catches it reliably.
+   */
+  private extractJson(raw: string): LoopAnalysis {
+    const stripped = raw
+      .replace(/```(?:json)?\s*/g, '')
+      .replace(/```\s*/g, '')
+      .trim();
+
+    // Strategy 1: Find the LAST balanced {} pair (Opus puts JSON at the end)
+    let depth = 0;
+    let end = -1;
+    let start = -1;
+    for (let i = stripped.length - 1; i >= 0; i--) {
+      if (stripped[i] === '}') {
+        if (depth === 0) end = i;
+        depth++;
+      } else if (stripped[i] === '{') {
+        depth--;
+        if (depth === 0 && end !== -1) {
+          start = i;
+          break;
+        }
+      }
+    }
+
+    if (start !== -1 && end !== -1) {
+      try {
+        const parsed = JSON.parse(stripped.substring(start, end + 1));
+        if (typeof parsed.loopDetected === 'boolean' || typeof parsed.action === 'string') {
+          return parsed;
+        }
+      } catch { /* try next strategy */ }
+    }
+
+    // Strategy 2: Greedy regex (fallback)
+    const jsonMatch = stripped.match(/\{[\s\S]*\}/);
+    if (jsonMatch) {
+      const parsed = JSON.parse(jsonMatch[0]);
+      if (typeof parsed.action === 'string') return parsed;
+    }
+
+    throw new Error('No valid LoopAnalysis JSON found in response');
   }
 
   private async completeTask(

@@ -91,7 +91,10 @@ export class AgentOrchestratorService implements OnModuleInit, OnModuleDestroy {
     private readonly loopResolver: LoopResolverService,
   ) {}
 
-  onModuleInit() {
+  async onModuleInit() {
+    // Clean up zombie tasks from previous process (e.g., after service restart)
+    await this.cleanupZombieTasks();
+
     const pipelineCfg = this.settings.getPipelineConfig();
     const intervalMs = (pipelineCfg.stuckCheckIntervalMinutes ?? 5) * 60 * 1000;
     this.stuckCheckTimer = setInterval(() => {
@@ -104,10 +107,23 @@ export class AgentOrchestratorService implements OnModuleInit, OnModuleDestroy {
     );
   }
 
-  onModuleDestroy() {
+  async onModuleDestroy() {
     if (this.stuckCheckTimer) {
       clearInterval(this.stuckCheckTimer);
       this.stuckCheckTimer = null;
+    }
+
+    // Mark all running tasks as FAILED before shutdown
+    try {
+      const result = await this.prisma.agentTask.updateMany({
+        where: { status: AgentTaskStatus.RUNNING },
+        data: { status: AgentTaskStatus.COMPLETED, completedAt: new Date() },
+      });
+      if (result.count > 0) {
+        this.logger.warn(`Marked ${result.count} running task(s) as COMPLETED during shutdown`);
+      }
+    } catch (err) {
+      this.logger.error(`Shutdown task cleanup failed: ${err.message}`);
     }
   }
 
@@ -2687,6 +2703,51 @@ export class AgentOrchestratorService implements OnModuleInit, OnModuleDestroy {
    *
    * This ensures we only clean up truly dead tasks, not slow-but-working ones.
    */
+  /**
+   * On startup, mark all RUNNING tasks as COMPLETED.
+   * After a restart, no backing CLI process exists — these are zombies.
+   */
+  private async cleanupZombieTasks(): Promise<void> {
+    const zombies = await this.prisma.agentTask.findMany({
+      where: { status: AgentTaskStatus.RUNNING },
+      select: { id: true, type: true },
+    });
+
+    if (zombies.length === 0) return;
+
+    this.logger.warn(
+      `Found ${zombies.length} zombie task(s) from previous process — marking as COMPLETED`,
+    );
+
+    await this.prisma.agentTask.updateMany({
+      where: { status: AgentTaskStatus.RUNNING },
+      data: {
+        status: AgentTaskStatus.COMPLETED,
+        completedAt: new Date(),
+      },
+    });
+
+    // Reset any IN_PROGRESS issues back to OPEN so pipeline can retry them
+    const zombieIssueIds = (
+      await this.prisma.agentTask.findMany({
+        where: { id: { in: zombies.map((z) => z.id) } },
+        select: { issueId: true },
+      })
+    )
+      .map((t) => t.issueId)
+      .filter((id): id is string => !!id);
+
+    if (zombieIssueIds.length > 0) {
+      await this.prisma.issue.updateMany({
+        where: {
+          id: { in: zombieIssueIds },
+          status: { in: [IssueStatus.IN_PROGRESS, IssueStatus.IN_REVIEW, IssueStatus.TESTING] },
+        },
+        data: { status: IssueStatus.OPEN },
+      });
+    }
+  }
+
   async cleanupStuckTasks(): Promise<void> {
     const inactivityMinutes =
       parseInt(

@@ -958,6 +958,43 @@ export class CoderAgent extends BaseAgent {
       );
     }
 
+    // Retry once if LLM returned text without editing any files
+    if (result.toolCallsExecuted === 0 && result.finishReason === 'complete') {
+      this.logger.warn(
+        `MCP agent loop returned 0 tool calls — retrying with explicit file-edit instruction`,
+      );
+
+      const retryResult = await this.mcpAgentLoop.run({
+        provider: config.provider,
+        model,
+        systemPrompt,
+        userPrompt: [
+          'CRITICAL: Your previous attempt returned TEXT ONLY without editing any files.',
+          'You MUST use the file tools (write_file, edit_file) to make actual code changes.',
+          'Do NOT explain what needs to be done — ACTUALLY DO IT by calling the tools.',
+          '',
+          'Original task:',
+          prompt,
+        ].join('\n'),
+        mcpServers,
+        maxIterations: 30,
+        temperature: config.parameters.temperature,
+        maxTokens: config.parameters.maxTokens,
+        agentTaskId,
+        cwd: workspace,
+      });
+
+      this.logger.log(
+        `MCP retry finished: ${retryResult.finishReason}, ${retryResult.toolCallsExecuted} tool calls`,
+      );
+
+      if (retryResult.toolCallsExecuted === 0) {
+        this.logger.warn('MCP retry also returned 0 tool calls — giving up');
+      }
+
+      return retryResult.content;
+    }
+
     return result.content;
   }
 
