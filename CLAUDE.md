@@ -286,6 +286,39 @@ Diese Dokumentation wird NICHT auf Nachfrage gepflegt, sondern AUTOMATISCH nach 
 ### Bei neuen/geänderten UI-Texten:
 → Alle i18n-Dateien aktualisieren: `frontend/src/assets/i18n/{de,en,it,fr}.json`
 
+### Bei Änderungen an Features/UI/Pipeline/Settings:
+→ GitHub Wiki aktualisieren (Repo: `/tmp/vibcode-wiki/` oder frisch klonen)
+→ Betroffene Wiki-Seiten updaten, neue Screenshots bei UI-Änderungen
+→ `git push origin master` im Wiki-Repo
+
+### GitHub Wiki Pflege
+
+Das Wiki liegt in einem separaten Git-Repo: `github.com/kron12345/vibecode-hub.wiki.git`
+
+```bash
+# Wiki klonen (falls nicht vorhanden)
+git clone https://github.com/kron12345/vibecode-hub.wiki.git /tmp/vibcode-wiki
+# Bearbeiten, dann pushen
+cd /tmp/vibcode-wiki && git add -A && git commit -m "update: ..." && git push origin master
+```
+
+| Wiki-Seite | Wann aktualisieren |
+|---|---|
+| `Home.md` | Bei neuen Major Features |
+| `Agent-Pipeline.md` | Bei neuen Agents oder Pipeline-Änderungen |
+| `Settings-Guide.md` | Bei neuen Settings oder Config-Optionen |
+| `LLM-Providers.md` | Bei neuen Providern oder Model-Updates |
+| `Creating-Projects.md` | Bei Änderungen am Interview/Setup Flow |
+| `Dev-Sessions.md` | Bei Branching/Session-Änderungen |
+| `Chat-Interface.md` | Bei Chat-Features (Voice, Uploads, etc.) |
+| `MCP-Servers.md` | Bei neuen MCP-Servern oder Registry-Änderungen |
+| `Architecture.md` | Bei strukturellen Backend/Frontend-Änderungen |
+| `Security.md` | Bei Security-Features (Auth, Rate Limiting, etc.) |
+| `Deployment-Guide.md` | Bei Docker/Nginx/systemd-Änderungen |
+| `Issue-Management.md` | Bei Issue-Status oder Workflow-Änderungen |
+| `Troubleshooting.md` | Bei bekannten Problemen + Lösungen |
+| `FAQ.md` | Bei häufig gestellten Fragen |
+
 ### Docs-Dateien
 
 | Datei | Inhalt | Wann aktualisieren |
@@ -298,6 +331,7 @@ Diese Dokumentation wird NICHT auf Nachfrage gepflegt, sondern AUTOMATISCH nach 
 | `docs/DEVELOPMENT.md` | Arbeitsregeln, MCP-Pflicht | Bei neuen Konventionen |
 | `docs/PROMPTS.md` | Alle Prompts + Ergebnisse | Am Ende jeder Session |
 | `CLAUDE.md` | Kompakt-Anleitung + Quality Gates | Bei neuen Patterns/Commands |
+| **GitHub Wiki** | 15 Seiten + Screenshots | Bei Feature/UI/Pipeline-Änderungen |
 
 ## i18n (Mehrsprachigkeit)
 
