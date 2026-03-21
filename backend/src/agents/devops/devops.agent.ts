@@ -30,35 +30,25 @@ import {
   AgentRole,
   AgentStatus,
   AgentTaskStatus,
-  AgentTaskType,
   ProjectStatus,
 } from '@prisma/client';
 
+// Extracted helpers
+import { MCP_SERVER_REGISTRY, buildCiYml, buildGitignore } from './devops-ci';
+import {
+  buildEnvironmentDoc,
+  buildKnowledgeBaseDoc,
+  buildReadme,
+  buildChangelog,
+  buildContributing,
+  buildWikiHome,
+  buildWikiSidebar,
+  buildWikiArchOverview,
+} from './devops-environment';
+import { buildInfraSystemPrompt } from './devops-infra';
+
 const execFileAsync = promisify(execFile);
 const execAsync = promisify(exec);
-
-/** Known MCP server definitions — maps name → command + args */
-const MCP_SERVER_REGISTRY: Record<
-  string,
-  { command: string; args: string[]; transport?: string; url?: string }
-> = {
-  'angular-mcp-server': { command: 'angular-mcp-server', args: [] },
-  prisma: { command: 'npx', args: ['prisma', 'mcp'] },
-  context7: { command: 'npx', args: ['-y', '@upstash/context7-mcp@latest'] },
-  typescript: { command: 'npx', args: ['-y', 'typescript-mcp-server'] },
-  eslint: { command: 'npx', args: ['-y', 'eslint-mcp-server'] },
-  tailwindcss: { command: 'npx', args: ['-y', '@anthropic/tailwindcss-mcp'] },
-  vaadin: {
-    command: '',
-    args: [],
-    transport: 'http',
-    url: 'https://mcp.vaadin.com/',
-  },
-  'spring-docs': {
-    command: 'npx',
-    args: ['-y', '@enokdev/springdocs-mcp@latest'],
-  },
-};
 
 /** Timeout constants (milliseconds) */
 const TIMEOUT_CLONE = 120_000;
@@ -555,133 +545,6 @@ export class DevopsAgent extends BaseAgent {
     );
   }
 
-  // ─── Step 6f: Build Verification (Maven/Gradle) ───────────
-
-  /**
-   * For Java/Maven projects: resolve dependencies and compile to verify the build works.
-   * This pre-caches all Maven dependencies so agents can compile/test without network issues.
-   */
-  private async stepBuildVerification(
-    ctx: AgentContext,
-    result: DevopsSetupResult,
-    projectDir: string,
-    interviewResult: InterviewResult,
-  ): Promise<void> {
-    const start = Date.now();
-    const framework = (interviewResult.techStack?.framework ?? '')
-      .toLowerCase()
-      .replace(/\s+/g, '-');
-    const language = (interviewResult.techStack?.language ?? '').toLowerCase();
-
-    const isMaven =
-      ['spring', 'spring-boot', 'vaadin', 'quarkus'].some((f) =>
-        framework.includes(f),
-      ) || language.includes('java');
-
-    if (!isMaven) {
-      result.steps.push(
-        this.step('buildVerification', 'skipped', 'Not a Maven project', start),
-      );
-      return;
-    }
-
-    // Check if pom.xml exists
-    const fs = await import('fs');
-    const path = await import('path');
-    const pomPath = path.join(projectDir, 'pom.xml');
-    if (!fs.existsSync(pomPath)) {
-      result.steps.push(
-        this.step('buildVerification', 'skipped', 'No pom.xml found', start),
-      );
-      return;
-    }
-
-    try {
-      await this.sendAgentMessage(
-        ctx,
-        '📦 Maven: Resolving dependencies and verifying build...',
-      );
-
-      // Step 1: Resolve all dependencies (pre-cache in ~/.m2/repository)
-      const resolveResult = await this.executeCommand(
-        'mvn dependency:resolve -B -q',
-        projectDir,
-        TIMEOUT_COMMAND,
-      );
-
-      if (resolveResult.exitCode !== 0) {
-        this.logger.warn(
-          `Maven dependency:resolve failed: ${resolveResult.stderr.slice(0, 300)}`,
-        );
-        await this.sendAgentMessage(
-          ctx,
-          `⚠️ Maven dependency resolution failed (non-fatal): ${resolveResult.stderr.slice(0, 200)}`,
-        );
-        result.steps.push(
-          this.step(
-            'buildVerification',
-            'failed',
-            'Dependency resolution failed',
-            start,
-          ),
-        );
-        return;
-      }
-
-      // Step 2: Compile to verify code compiles
-      const compileResult = await this.executeCommand(
-        'mvn compile -B -q',
-        projectDir,
-        TIMEOUT_COMMAND,
-      );
-
-      if (compileResult.exitCode !== 0) {
-        this.logger.warn(
-          `Maven compile failed: ${compileResult.stderr.slice(0, 300)}`,
-        );
-        await this.sendAgentMessage(
-          ctx,
-          `⚠️ Maven compile failed (non-fatal): ${compileResult.stderr.slice(0, 200)}`,
-        );
-        result.steps.push(
-          this.step('buildVerification', 'failed', 'Compilation failed', start),
-        );
-        return;
-      }
-
-      await this.sendAgentMessage(
-        ctx,
-        '✅ Maven build verified — dependencies cached, compilation OK',
-      );
-      result.steps.push(
-        this.step(
-          'buildVerification',
-          'success',
-          'Maven deps resolved + compile OK',
-          start,
-        ),
-      );
-      await this.log(
-        ctx.agentTaskId,
-        'INFO',
-        'Maven build verification passed',
-      );
-    } catch (err) {
-      result.steps.push(
-        this.step('buildVerification', 'failed', err.message, start),
-      );
-      await this.sendAgentMessage(
-        ctx,
-        `⚠️ Build verification failed (non-fatal): ${err.message}`,
-      );
-      await this.log(
-        ctx.agentTaskId,
-        'WARN',
-        `Build verification failed: ${err.message}`,
-      );
-    }
-  }
-
   // ─── Step 6: Generate .mcp.json ────────────────────────────
 
   private async stepGenerateMcpConfig(
@@ -779,7 +642,7 @@ export class DevopsAgent extends BaseAgent {
         interviewResult.techStack?.language ?? ''
       ).toLowerCase();
 
-      const ciYml = this.buildCiYml(framework, language);
+      const ciYml = buildCiYml(framework, language);
 
       const ciPath = path.join(projectDir, '.gitlab-ci.yml');
       await fs.writeFile(ciPath, ciYml, 'utf-8');
@@ -816,288 +679,6 @@ export class DevopsAgent extends BaseAgent {
     }
   }
 
-  /** Build a deterministic .gitlab-ci.yml based on the tech stack */
-  private buildCiYml(rawFramework: string, rawLanguage: string): string {
-    const framework = rawFramework.toLowerCase().replace(/\s+/g, '-');
-    const language = rawLanguage
-      .toLowerCase()
-      .replace(/[\s\d.]+/g, '')
-      .trim();
-
-    // Angular / React / Vue / Node projects
-    if (
-      ['angular', 'react', 'vue', 'next', 'nuxt', 'svelte'].includes(
-        framework,
-      ) ||
-      ['typescript', 'javascript'].includes(language)
-    ) {
-      return `stages:
-  - install
-  - lint
-  - test
-  - build
-
-variables:
-  NODE_ENV: "test"
-
-install:
-  stage: install
-  tags: [docker, vibcode]
-  image: node:22-alpine
-  script:
-    - npm ci --prefer-offline
-  cache:
-    key: \${CI_COMMIT_REF_SLUG}
-    paths:
-      - node_modules/
-    policy: pull-push
-
-lint:
-  stage: lint
-  tags: [docker, vibcode]
-  image: node:22-alpine
-  needs: [install]
-  cache:
-    key: \${CI_COMMIT_REF_SLUG}
-    paths:
-      - node_modules/
-    policy: pull
-  script:
-    - npm run lint --if-present
-
-test:
-  stage: test
-  tags: [docker, vibcode]
-  image: node:22-alpine
-  needs: [install]
-  cache:
-    key: \${CI_COMMIT_REF_SLUG}
-    paths:
-      - node_modules/
-    policy: pull
-  script:
-    - npm test --if-present
-  allow_failure: true
-
-build:
-  stage: build
-  tags: [docker, vibcode]
-  image: node:22-alpine
-  needs: [install]
-  cache:
-    key: \${CI_COMMIT_REF_SLUG}
-    paths:
-      - node_modules/
-    policy: pull
-  script:
-    - npm run build
-  artifacts:
-    paths:
-      - dist/
-    expire_in: 1 week
-`;
-    }
-
-    // Python projects
-    if (
-      ['python', 'django', 'flask', 'fastapi'].includes(framework) ||
-      language === 'python'
-    ) {
-      return `stages:
-  - install
-  - lint
-  - test
-  - build
-
-install:
-  stage: install
-  tags: [docker, vibcode]
-  image: python:3.12-slim
-  script:
-    - pip install -r requirements.txt
-  cache:
-    key: \${CI_COMMIT_REF_SLUG}
-    paths:
-      - .venv/
-
-lint:
-  stage: lint
-  tags: [docker, vibcode]
-  image: python:3.12-slim
-  needs: [install]
-  script:
-    - pip install ruff
-    - ruff check .
-  allow_failure: true
-
-test:
-  stage: test
-  tags: [docker, vibcode]
-  image: python:3.12-slim
-  needs: [install]
-  script:
-    - pip install pytest
-    - pytest --tb=short
-  allow_failure: true
-
-build:
-  stage: build
-  tags: [docker, vibcode]
-  image: python:3.12-slim
-  needs: [install]
-  script:
-    - echo "Build step — customize as needed"
-`;
-    }
-
-    // Rust projects
-    if (framework === 'rust' || language === 'rust') {
-      return `stages:
-  - lint
-  - test
-  - build
-
-lint:
-  stage: lint
-  tags: [docker, vibcode]
-  image: rust:latest
-  script:
-    - rustup component add clippy
-    - cargo clippy -- -D warnings
-  allow_failure: true
-
-test:
-  stage: test
-  tags: [docker, vibcode]
-  image: rust:latest
-  script:
-    - cargo test
-  allow_failure: true
-
-build:
-  stage: build
-  tags: [docker, vibcode]
-  image: rust:latest
-  script:
-    - cargo build --release
-  artifacts:
-    paths:
-      - target/release/
-    expire_in: 1 week
-`;
-    }
-
-    // Go projects
-    if (framework === 'go' || language === 'go') {
-      return `stages:
-  - lint
-  - test
-  - build
-
-lint:
-  stage: lint
-  tags: [docker, vibcode]
-  image: golang:1.22
-  script:
-    - go vet ./...
-  allow_failure: true
-
-test:
-  stage: test
-  tags: [docker, vibcode]
-  image: golang:1.22
-  script:
-    - go test ./...
-  allow_failure: true
-
-build:
-  stage: build
-  tags: [docker, vibcode]
-  image: golang:1.22
-  script:
-    - go build -o app ./...
-  artifacts:
-    paths:
-      - app
-    expire_in: 1 week
-`;
-    }
-
-    // Java / Spring Boot / Vaadin / Maven projects
-    if (
-      ['java', 'spring', 'spring-boot', 'vaadin', 'quarkus'].includes(
-        framework,
-      ) ||
-      language === 'java'
-    ) {
-      return `stages:
-  - build
-  - test
-  - package
-
-variables:
-  MAVEN_OPTS: "-Dmaven.repo.local=.m2/repository"
-
-build:
-  stage: build
-  tags: [docker, vibcode]
-  image: maven:3.9-eclipse-temurin-21-alpine
-  cache:
-    key: \${CI_COMMIT_REF_SLUG}
-    paths:
-      - .m2/repository/
-  script:
-    - mvn clean compile -B
-  artifacts:
-    paths:
-      - target/
-    expire_in: 1 hour
-
-test:
-  stage: test
-  tags: [docker, vibcode]
-  image: maven:3.9-eclipse-temurin-21-alpine
-  needs: [build]
-  cache:
-    key: \${CI_COMMIT_REF_SLUG}
-    paths:
-      - .m2/repository/
-  script:
-    - mvn test -B
-  allow_failure: true
-
-package:
-  stage: package
-  tags: [docker, vibcode]
-  image: maven:3.9-eclipse-temurin-21-alpine
-  needs: [build]
-  cache:
-    key: \${CI_COMMIT_REF_SLUG}
-    paths:
-      - .m2/repository/
-  script:
-    - mvn clean package -DskipTests -B
-  artifacts:
-    paths:
-      - target/*.jar
-      - target/*.war
-    expire_in: 1 week
-`;
-    }
-
-    // Generic fallback
-    return `stages:
-  - build
-
-build:
-  stage: build
-  tags: [docker, vibcode]
-  script:
-    - echo "Configure CI/CD pipeline for your project"
-    - echo "Framework detection did not match a known template"
-`;
-  }
-
   // ─── Step 6c: Generate .gitignore ──────────────────────────
 
   private async stepGenerateGitignore(
@@ -1115,9 +696,9 @@ build:
         interviewResult.techStack?.language ?? ''
       ).toLowerCase();
 
-      const gitignore = this.buildGitignore(framework, language);
+      const gitignoreContent = buildGitignore(framework, language);
       const gitignorePath = path.join(projectDir, '.gitignore');
-      await fs.writeFile(gitignorePath, gitignore, 'utf-8');
+      await fs.writeFile(gitignorePath, gitignoreContent, 'utf-8');
 
       result.steps.push(
         this.step(
@@ -1143,129 +724,6 @@ build:
     }
   }
 
-  /** Build a .gitignore appropriate for the tech stack */
-  private buildGitignore(rawFramework: string, rawLanguage: string): string {
-    const framework = rawFramework.toLowerCase().replace(/\s+/g, '-');
-    const language = rawLanguage
-      .toLowerCase()
-      .replace(/[\s\d.]+/g, '')
-      .trim();
-    const isJava =
-      language === 'java' ||
-      ['java', 'spring', 'spring-boot', 'vaadin', 'quarkus'].some((k) =>
-        framework.includes(k),
-      );
-    const isNode =
-      !isJava ||
-      ['typescript', 'javascript'].includes(language) ||
-      [
-        'angular',
-        'react',
-        'vue',
-        'next',
-        'nuxt',
-        'svelte',
-        'nest',
-        'express',
-      ].some((k) => framework.includes(k));
-
-    const sections: string[] = [];
-
-    if (isNode) {
-      sections.push(
-        '# Dependencies',
-        'node_modules/',
-        '**/node_modules/',
-        '.pnp/',
-        '.pnp.js',
-        '',
-      );
-      sections.push(
-        '# Build output',
-        'dist/',
-        'build/',
-        '.next/',
-        '.nuxt/',
-        '.output/',
-        '.angular/',
-        '',
-      );
-      sections.push('# Logs', 'logs/', '*.log', 'npm-debug.log*', '');
-    }
-
-    if (isJava) {
-      sections.push(
-        '# Java/Maven',
-        'target/',
-        '*.class',
-        '*.jar',
-        '*.war',
-        '*.ear',
-        '',
-      );
-      sections.push(
-        '# Maven',
-        'pom.xml.tag',
-        'pom.xml.releaseBackup',
-        'pom.xml.versionsBackup',
-        'pom.xml.next',
-        'release.properties',
-        '',
-      );
-      sections.push('# Gradle', '.gradle/', 'build/', '');
-      sections.push(
-        '# Vaadin',
-        'node_modules/',
-        'frontend/generated/',
-        'vite.generated.ts',
-        '',
-      );
-    }
-
-    // Environment and secrets
-    sections.push(
-      '# Environment',
-      '.env',
-      '.env.local',
-      '.env.*.local',
-      'application-local.properties',
-      'application-local.yml',
-      '',
-    );
-
-    // IDE
-    sections.push(
-      '# IDE',
-      '.idea/',
-      '.vscode/',
-      '*.swp',
-      '*.swo',
-      '.DS_Store',
-      'Thumbs.db',
-      '*.iml',
-      '',
-    );
-
-    // Testing
-    sections.push('# Testing', 'coverage/', '.nyc_output/', '');
-
-    // Prisma (common for NestJS projects)
-    if (
-      framework === 'angular' ||
-      framework === 'react' ||
-      framework === 'vue' ||
-      language === 'typescript' ||
-      language === 'javascript'
-    ) {
-      sections.push('# Prisma', '*.db', '*.db-journal', '');
-    }
-
-    // Misc
-    sections.push('# Misc', '.cache/', 'tmp/', '.tmp/', '');
-
-    return sections.join('\n') + '\n';
-  }
-
   // ─── Step 6d: Generate Project Documentation ───────────────
 
   private async stepGenerateProjectDocs(
@@ -1278,279 +736,60 @@ build:
   ): Promise<void> {
     const start = Date.now();
     try {
-      const ts = interviewResult.techStack ?? {};
-      const features = (interviewResult.features ?? []).map((f, i) => {
-        if (typeof f === 'string') return `${i + 1}. ${f}`;
-        return `${i + 1}. **${f.title}** (${f.priority})${f.description ? ` — ${f.description}` : ''}`;
-      });
-      const deploy = interviewResult.deployment;
-      const setup = interviewResult.setupInstructions;
-
-      const techLine = [ts.framework, ts.language, ts.backend, ts.database]
-        .filter(Boolean)
-        .join(', ');
-
-      // ── PROJECT_KNOWLEDGE.md ──
-      const knowledgeBase = [
-        `# Project Knowledge Base — ${projectName}`,
-        `> Auto-maintained by VibCode Hub. Updated: ${new Date().toISOString().split('T')[0]}`,
-        '',
-        '## Project Description',
-        interviewResult.description || projectName,
-        '',
-        '## Tech Stack',
-        ts.framework ? `- **Framework:** ${ts.framework}` : null,
-        ts.language ? `- **Language:** ${ts.language}` : null,
-        ts.backend ? `- **Backend:** ${ts.backend}` : null,
-        ts.database ? `- **Database:** ${ts.database}` : null,
-        ...(ts.additional ?? []).map((a) => `- ${a}`),
-        '',
-        '## Implemented Features',
-        '_No features implemented yet. This section is updated automatically after each completed issue._',
-        '',
-        '## Architecture & Patterns',
-        '_Will be populated after the Architect agent designs the project structure._',
-        '',
-        '## Key Files',
-        '_Will be populated as code is added._',
-        '',
-        '## Known Constraints',
-        '_None yet._',
-        '',
-      ]
-        .filter((l) => l !== null)
-        .join('\n');
-
+      // Write PROJECT_KNOWLEDGE.md
+      const knowledgeBase = buildKnowledgeBaseDoc(projectName, interviewResult);
       await fs.writeFile(
         path.join(projectDir, KNOWLEDGE_BASE_FILE),
         knowledgeBase,
         'utf-8',
       );
 
-      // ── README.md ──
-      const readme = [
-        `# ${projectName}`,
-        '',
-        interviewResult.description || `A ${techLine} project.`,
-        '',
-        '## Tech Stack',
-        '',
-        techLine ? `- ${techLine}` : '- See PROJECT_KNOWLEDGE.md for details',
-        '',
-        '## Features',
-        '',
-        features.length > 0 ? features.join('\n') : '- Coming soon',
-        '',
-        '## Getting Started',
-        '',
-        '### Prerequisites',
-        '',
-        ['java', 'spring', 'vaadin', 'quarkus'].some((k) =>
-          (ts.framework ?? '').toLowerCase().includes(k),
-        ) || (ts.language ?? '').toLowerCase().includes('java')
-          ? '- JDK >= 17\n- Maven >= 3.9'
-          : ts.language === 'TypeScript' || ts.framework
-            ? '- Node.js >= 18'
-            : '- See project documentation',
-        (ts.framework ?? '').toLowerCase().includes('angular')
-          ? '- Angular CLI (`npm install -g @angular/cli`)'
-          : null,
-        '',
-        '### Installation',
-        '',
-        '```bash',
-        `git clone <repository-url>`,
-        `cd ${projectName.toLowerCase().replace(/\s+/g, '-')}`,
-        setup?.initCommand ? setup.initCommand : 'npm install',
-        '```',
-        '',
-        deploy?.devServerCommand
-          ? [
-              '### Development',
-              '',
-              '```bash',
-              deploy.devServerCommand,
-              '```',
-              '',
-              deploy.devServerPort
-                ? `The dev server runs on http://localhost:${deploy.devServerPort}`
-                : null,
-              '',
-            ]
-              .filter(Boolean)
-              .join('\n')
-          : null,
-        deploy?.buildCommand
-          ? ['### Build', '', '```bash', deploy.buildCommand, '```', ''].join(
-              '\n',
-            )
-          : null,
-        '## License',
-        '',
-        'MIT',
-        '',
-      ]
-        .filter((l) => l !== null)
-        .join('\n');
-
-      // Only write README if it doesn't exist yet (respect user's existing README)
+      // Write README.md (only if it doesn't exist yet)
       const readmePath = path.join(projectDir, 'README.md');
       try {
         await fs.access(readmePath);
         this.logger.log('README.md already exists — skipping');
       } catch {
+        const readme = buildReadme(projectName, interviewResult);
         await fs.writeFile(readmePath, readme, 'utf-8');
       }
 
-      // ── CHANGELOG.md ──
-      const changelog = [
-        '# Changelog',
-        '',
-        'All notable changes to this project will be documented in this file.',
-        'This file is auto-maintained by VibCode Hub after each completed issue.',
-        '',
-        '## [Unreleased]',
-        '',
-        '### Added',
-        '- Initial project setup',
-        '',
-      ].join('\n');
-
+      // Write CHANGELOG.md
       await fs.writeFile(
         path.join(projectDir, 'CHANGELOG.md'),
-        changelog,
+        buildChangelog(),
         'utf-8',
       );
 
-      // ── CONTRIBUTING.md ──
-      const contributing = [
-        `# Contributing to ${projectName}`,
-        '',
-        '## Development Workflow',
-        '',
-        'This project uses [VibCode Hub](https://hub.example.com) for AI-assisted development.',
-        'Issues are automatically processed through a multi-agent pipeline:',
-        '',
-        '1. **Coder** — Implements the feature/fix',
-        '2. **Code Reviewer** — Reviews code quality and patterns',
-        '3. **Functional Tester** — Verifies acceptance criteria',
-        '4. **UI Tester** — Checks UI/UX (for web projects)',
-        '5. **Pen Tester** — Security analysis',
-        '6. **Documenter** — Updates documentation',
-        '',
-        '## Branch Strategy',
-        '',
-        '- `main` — Production-ready code',
-        '- `feature/<issue-id>-<title>` — Feature branches (auto-created)',
-        '',
-        '## Code Style',
-        '',
-        ts.language === 'TypeScript'
-          ? [
-              '- TypeScript strict mode',
-              '- ESLint + Prettier for formatting',
-              '- Meaningful variable and function names',
-            ].join('\n- ')
-          : '- Follow existing code conventions',
-        '',
-        '## Commit Messages',
-        '',
-        'We use [Conventional Commits](https://www.conventionalcommits.org/):',
-        '- `feat:` — New feature',
-        '- `fix:` — Bug fix',
-        '- `docs:` — Documentation changes',
-        '- `refactor:` — Code refactoring',
-        '- `test:` — Test additions/changes',
-        '',
-      ].join('\n');
-
+      // Write CONTRIBUTING.md
       await fs.writeFile(
         path.join(projectDir, 'CONTRIBUTING.md'),
-        contributing,
+        buildContributing(projectName, interviewResult),
         'utf-8',
       );
 
-      // ── Wiki Scaffolding ──
-      // Create hierarchical wiki structure in GitLab
+      // Wiki Scaffolding
       try {
-        // home — Project landing page with links
-        const homePage = [
-          `# ${projectName}`,
-          '',
-          interviewResult.description || `A ${techLine} project.`,
-          '',
-          '## Quick Links',
-          '',
-          '- [Environment](ENVIRONMENT) — Tech stack, dependencies, ports',
-          '- [Project Knowledge](PROJECT_KNOWLEDGE) — Accumulated project knowledge',
-          '- [Architecture](Architecture/Overview) — System architecture',
-          '- [Changelog](CHANGELOG) — Version history',
-          '',
-          '## Features',
-          '',
-          features.length > 0
-            ? features.join('\n')
-            : '_No features implemented yet._',
-          '',
-          '---',
-          `_Auto-generated by VibCode Hub — ${new Date().toISOString().split('T')[0]}_`,
-        ].join('\n');
         await this.gitlabService.upsertWikiPage(
           gitlabProjectId,
           'home',
-          homePage,
+          buildWikiHome(projectName, interviewResult),
         );
-
-        // _sidebar — Custom navigation
-        const sidebar = [
-          `**${projectName}**`,
-          '',
-          '- [Home](home)',
-          '- [Environment](ENVIRONMENT)',
-          '- [Project Knowledge](PROJECT_KNOWLEDGE)',
-          '- [Architecture](Architecture/Overview)',
-          '- [Changelog](CHANGELOG)',
-          '',
-          '**Features**',
-          '',
-          '_Updated automatically after each completed issue._',
-        ].join('\n');
         await this.gitlabService.upsertWikiPage(
           gitlabProjectId,
           '_sidebar',
-          sidebar,
+          buildWikiSidebar(projectName),
         );
-
-        // PROJECT_KNOWLEDGE wiki page
         await this.gitlabService.upsertWikiPage(
           gitlabProjectId,
           'PROJECT_KNOWLEDGE',
           knowledgeBase,
         );
-
-        // Architecture/Overview — initial page
-        const archOverview = [
-          `# Architecture — ${projectName}`,
-          '',
-          '## Tech Stack',
-          '',
-          techLine ? `- ${techLine}` : '- See ENVIRONMENT page for details',
-          '',
-          '## System Overview',
-          '',
-          '_Will be populated after the Architect agent designs the project structure._',
-          '',
-          '## Data Model',
-          '',
-          '_Will be updated as the schema evolves._',
-          '',
-        ].join('\n');
         await this.gitlabService.upsertWikiPage(
           gitlabProjectId,
           'Architecture/Overview',
-          archOverview,
+          buildWikiArchOverview(projectName, interviewResult),
         );
-
         this.logger.log(
           `Wiki scaffolding created for project ${gitlabProjectId}`,
         );
@@ -1578,6 +817,189 @@ build:
         ctx.agentTaskId,
         'WARN',
         `Project docs generation failed: ${err.message}`,
+      );
+    }
+  }
+
+  // ─── Step 6e: Generate ENVIRONMENT.md ────────────────────
+
+  private async stepGenerateEnvironmentDoc(
+    ctx: AgentContext,
+    result: DevopsSetupResult,
+    projectDir: string,
+    projectName: string,
+    interviewResult: InterviewResult,
+    gitlabProjectId: number,
+  ): Promise<void> {
+    const start = Date.now();
+    try {
+      const envContent = buildEnvironmentDoc(projectName, interviewResult);
+      await fs.writeFile(
+        path.join(projectDir, ENVIRONMENT_FILE),
+        envContent,
+        'utf-8',
+      );
+
+      // Sync ENVIRONMENT to wiki
+      try {
+        await this.gitlabService.upsertWikiPage(
+          gitlabProjectId,
+          'ENVIRONMENT',
+          envContent,
+        );
+        this.logger.log('ENVIRONMENT wiki page synced');
+      } catch (err) {
+        this.logger.warn(
+          `ENVIRONMENT wiki sync failed (non-fatal): ${err.message}`,
+        );
+      }
+
+      result.steps.push(
+        this.step(
+          'generateEnvironmentDoc',
+          'success',
+          'ENVIRONMENT.md generated + wiki synced',
+          start,
+        ),
+      );
+      await this.sendAgentMessage(
+        ctx,
+        `📋 Generated \`ENVIRONMENT.md\` — project environment documentation + wiki synced`,
+      );
+    } catch (err) {
+      result.steps.push(
+        this.step('generateEnvironmentDoc', 'failed', err.message, start),
+      );
+      await this.log(
+        ctx.agentTaskId,
+        'WARN',
+        `ENVIRONMENT.md generation failed: ${err.message}`,
+      );
+    }
+  }
+
+  // ─── Step 6f: Build Verification (Maven/Gradle) ───────────
+
+  /**
+   * For Java/Maven projects: resolve dependencies and compile to verify the build works.
+   * This pre-caches all Maven dependencies so agents can compile/test without network issues.
+   */
+  private async stepBuildVerification(
+    ctx: AgentContext,
+    result: DevopsSetupResult,
+    projectDir: string,
+    interviewResult: InterviewResult,
+  ): Promise<void> {
+    const start = Date.now();
+    const framework = (interviewResult.techStack?.framework ?? '')
+      .toLowerCase()
+      .replace(/\s+/g, '-');
+    const language = (interviewResult.techStack?.language ?? '').toLowerCase();
+
+    const isMaven =
+      ['spring', 'spring-boot', 'vaadin', 'quarkus'].some((f) =>
+        framework.includes(f),
+      ) || language.includes('java');
+
+    if (!isMaven) {
+      result.steps.push(
+        this.step('buildVerification', 'skipped', 'Not a Maven project', start),
+      );
+      return;
+    }
+
+    // Check if pom.xml exists
+    const fsSync = await import('fs');
+    const pomPath = path.join(projectDir, 'pom.xml');
+    if (!fsSync.existsSync(pomPath)) {
+      result.steps.push(
+        this.step('buildVerification', 'skipped', 'No pom.xml found', start),
+      );
+      return;
+    }
+
+    try {
+      await this.sendAgentMessage(
+        ctx,
+        '📦 Maven: Resolving dependencies and verifying build...',
+      );
+
+      // Step 1: Resolve all dependencies (pre-cache in ~/.m2/repository)
+      const resolveResult = await this.executeCommand(
+        'mvn dependency:resolve -B -q',
+        projectDir,
+        TIMEOUT_COMMAND,
+      );
+
+      if (resolveResult.exitCode !== 0) {
+        this.logger.warn(
+          `Maven dependency:resolve failed: ${resolveResult.stderr.slice(0, 300)}`,
+        );
+        await this.sendAgentMessage(
+          ctx,
+          `⚠️ Maven dependency resolution failed (non-fatal): ${resolveResult.stderr.slice(0, 200)}`,
+        );
+        result.steps.push(
+          this.step(
+            'buildVerification',
+            'failed',
+            'Dependency resolution failed',
+            start,
+          ),
+        );
+        return;
+      }
+
+      // Step 2: Compile to verify code compiles
+      const compileResult = await this.executeCommand(
+        'mvn compile -B -q',
+        projectDir,
+        TIMEOUT_COMMAND,
+      );
+
+      if (compileResult.exitCode !== 0) {
+        this.logger.warn(
+          `Maven compile failed: ${compileResult.stderr.slice(0, 300)}`,
+        );
+        await this.sendAgentMessage(
+          ctx,
+          `⚠️ Maven compile failed (non-fatal): ${compileResult.stderr.slice(0, 200)}`,
+        );
+        result.steps.push(
+          this.step('buildVerification', 'failed', 'Compilation failed', start),
+        );
+        return;
+      }
+
+      await this.sendAgentMessage(
+        ctx,
+        '✅ Maven build verified — dependencies cached, compilation OK',
+      );
+      result.steps.push(
+        this.step(
+          'buildVerification',
+          'success',
+          'Maven deps resolved + compile OK',
+          start,
+        ),
+      );
+      await this.log(
+        ctx.agentTaskId,
+        'INFO',
+        'Maven build verification passed',
+      );
+    } catch (err) {
+      result.steps.push(
+        this.step('buildVerification', 'failed', err.message, start),
+      );
+      await this.sendAgentMessage(
+        ctx,
+        `⚠️ Build verification failed (non-fatal): ${err.message}`,
+      );
+      await this.log(
+        ctx.agentTaskId,
+        'WARN',
+        `Build verification failed: ${err.message}`,
       );
     }
   }
@@ -1754,178 +1176,6 @@ build:
     }
   }
 
-  // ─── Helpers ───────────────────────────────────────────────
-
-  /**
-   * Execute a command via shell.
-   * Supports cd, &&, pipes, redirects — full shell syntax.
-   * Commands run in the project workspace directory.
-   */
-  private async executeCommand(
-    command: string,
-    cwd: string,
-    timeout: number,
-  ): Promise<CommandResult> {
-    if (!command.trim()) {
-      return { command, exitCode: 1, stdout: '', stderr: 'Empty command' };
-    }
-
-    // Replace {PORT} placeholder if present
-    const processedCommand = command.replace(/\{PORT\}/g, '3000');
-
-    try {
-      const { stdout, stderr } = await execAsync(processedCommand, {
-        cwd,
-        timeout,
-        maxBuffer: 10 * 1024 * 1024, // 10 MB
-        env: { ...process.env, CI: 'true', DEBIAN_FRONTEND: 'noninteractive' },
-        shell: '/bin/bash',
-      });
-      return { command, exitCode: 0, stdout, stderr };
-    } catch (err: any) {
-      return {
-        command,
-        exitCode: err.code ?? 1,
-        stdout: err.stdout ?? '',
-        stderr: err.stderr ?? err.message,
-      };
-    }
-  }
-
-  /** Create a SetupStep record */
-  private step(
-    name: string,
-    status: SetupStep['status'],
-    message: string,
-    startTime: number,
-  ): SetupStep {
-    return { name, status, message, durationMs: Date.now() - startTime };
-  }
-
-  /** Status emoji for summary table */
-  private statusEmoji(status: SetupStep['status']): string {
-    switch (status) {
-      case 'success':
-        return '✅';
-      case 'failed':
-        return '❌';
-      case 'skipped':
-        return '⏭️';
-    }
-  }
-
-  // ─── Step 6e: Generate ENVIRONMENT.md ────────────────────
-
-  private async stepGenerateEnvironmentDoc(
-    ctx: AgentContext,
-    result: DevopsSetupResult,
-    projectDir: string,
-    projectName: string,
-    interviewResult: InterviewResult,
-    gitlabProjectId: number,
-  ): Promise<void> {
-    const start = Date.now();
-    try {
-      const ts = interviewResult.techStack ?? {};
-      const deploy = interviewResult.deployment;
-      const setup = interviewResult.setupInstructions;
-
-      const sections: (string | null)[] = [
-        `# Environment — ${projectName}`,
-        `> Auto-generated by VibCode Hub DevOps Agent. Last updated: ${new Date().toISOString().split('T')[0]}`,
-        '',
-        '## Project Overview',
-        interviewResult.description || projectName,
-        '',
-        '## Tech Stack',
-        ts.framework ? `- **Framework:** ${ts.framework}` : null,
-        ts.language ? `- **Language:** ${ts.language}` : null,
-        ts.backend && ts.backend !== 'none'
-          ? `- **Backend:** ${ts.backend}`
-          : null,
-        ts.database && ts.database !== 'none'
-          ? `- **Database:** ${ts.database}`
-          : null,
-        ...(ts.additional ?? []).map((a) => `- **Package:** ${a}`),
-        '',
-        '## Setup Commands',
-        setup?.initCommand ? `- **Init:** \`${setup.initCommand}\`` : null,
-        ...(setup?.additionalCommands ?? []).map(
-          (cmd) => `- **Additional:** \`${cmd}\``,
-        ),
-        '',
-        '## Development Server',
-        deploy?.devServerCommand
-          ? `- **Command:** \`${deploy.devServerCommand}\``
-          : '- _Not configured_',
-        deploy?.devServerPort ? `- **Port:** ${deploy.devServerPort}` : null,
-        deploy?.buildCommand ? `- **Build:** \`${deploy.buildCommand}\`` : null,
-        deploy?.isWebProject !== undefined
-          ? `- **Web Project:** ${deploy.isWebProject ? 'Yes' : 'No'}`
-          : null,
-        '',
-        '## MCP Servers',
-        ...(interviewResult.mcpServers && interviewResult.mcpServers.length > 0
-          ? interviewResult.mcpServers.map(
-              (s) => `- **${s.name}** — ${s.purpose}`,
-            )
-          : ['- _None configured_']),
-        '',
-        '## Installed Packages',
-        '_Updated automatically when packages are installed via the Infrastructure Chat._',
-        '',
-        '## Infrastructure Notes',
-        '_Add notes about server configuration, environment variables, external services, etc._',
-        '',
-      ];
-
-      const envContent = sections
-        .filter((l): l is string => l !== null)
-        .join('\n');
-      await fs.writeFile(
-        path.join(projectDir, ENVIRONMENT_FILE),
-        envContent,
-        'utf-8',
-      );
-
-      // Sync ENVIRONMENT to wiki
-      try {
-        await this.gitlabService.upsertWikiPage(
-          gitlabProjectId,
-          'ENVIRONMENT',
-          envContent,
-        );
-        this.logger.log('ENVIRONMENT wiki page synced');
-      } catch (err) {
-        this.logger.warn(
-          `ENVIRONMENT wiki sync failed (non-fatal): ${err.message}`,
-        );
-      }
-
-      result.steps.push(
-        this.step(
-          'generateEnvironmentDoc',
-          'success',
-          'ENVIRONMENT.md generated + wiki synced',
-          start,
-        ),
-      );
-      await this.sendAgentMessage(
-        ctx,
-        `📋 Generated \`ENVIRONMENT.md\` — project environment documentation + wiki synced`,
-      );
-    } catch (err) {
-      result.steps.push(
-        this.step('generateEnvironmentDoc', 'failed', err.message, start),
-      );
-      await this.log(
-        ctx.agentTaskId,
-        'WARN',
-        `ENVIRONMENT.md generation failed: ${err.message}`,
-      );
-    }
-  }
-
   // ─── YOLO Mode: Infrastructure Commands ──────────────────
 
   /**
@@ -1976,40 +1226,11 @@ build:
         workspace,
       );
 
-      const systemPrompt = [
-        'You are the Infrastructure Agent for a software project managed by VibCode Hub.',
-        'Your job is to execute infrastructure and environment setup commands requested by the user.',
-        '',
-        `**Working Directory:** ${workspace}`,
-        'You are inside the project workspace. Use RELATIVE paths for file operations.',
-        '',
-        '## What you can do:',
-        '- Install system packages (apt install, brew install, etc.)',
-        '- Install project dependencies (npm install, pip install, cargo add, etc.)',
-        '- Configure services (databases, caches, message queues, etc.)',
-        '- Modify project configuration files',
-        '- Run setup scripts and initialization commands',
-        '- Create/modify Docker configs, CI/CD configs, environment files',
-        '- Any shell command the user requests for project infrastructure',
-        '',
-        '## Rules:',
-        '- Execute what the user asks — be practical and efficient',
-        '- After EVERY change, update the ENVIRONMENT.md file in the project root:',
-        '  - Add new packages to "Installed Packages"',
-        '  - Add config notes to "Infrastructure Notes"',
-        '  - Update any relevant section that changed',
-        '- Report what you did clearly and concisely',
-        '- If a command fails, explain why and suggest alternatives',
-        '- For destructive operations (removing packages, dropping databases): confirm first unless the user was explicit',
-        '',
-        '## Available tools:',
-        '- File tools: read, write, edit, search files',
-        '- Shell tool: execute any command (apt, npm, git, docker, etc.)',
-        '- Git tools: status, commit, push changes',
-        '',
-        envDoc ? `## Current ENVIRONMENT.md:\n\`\`\`\n${envDoc}\n\`\`\`\n` : '',
+      const systemPrompt = buildInfraSystemPrompt(
+        workspace,
+        envDoc,
         knowledgeSection,
-      ].join('\n');
+      );
 
       const result = await this.mcpAgentLoop.run({
         provider: this.getRoleConfig().provider,
@@ -2100,6 +1321,66 @@ build:
         'ERROR',
         `Infra command failed: ${err.message}`,
       );
+    }
+  }
+
+  // ─── Helpers ───────────────────────────────────────────────
+
+  /**
+   * Execute a command via shell.
+   * Supports cd, &&, pipes, redirects — full shell syntax.
+   * Commands run in the project workspace directory.
+   */
+  private async executeCommand(
+    command: string,
+    cwd: string,
+    timeout: number,
+  ): Promise<CommandResult> {
+    if (!command.trim()) {
+      return { command, exitCode: 1, stdout: '', stderr: 'Empty command' };
+    }
+
+    // Replace {PORT} placeholder if present
+    const processedCommand = command.replace(/\{PORT\}/g, '3000');
+
+    try {
+      const { stdout, stderr } = await execAsync(processedCommand, {
+        cwd,
+        timeout,
+        maxBuffer: 10 * 1024 * 1024, // 10 MB
+        env: { ...process.env, CI: 'true', DEBIAN_FRONTEND: 'noninteractive' },
+        shell: '/bin/bash',
+      });
+      return { command, exitCode: 0, stdout, stderr };
+    } catch (err: any) {
+      return {
+        command,
+        exitCode: err.code ?? 1,
+        stdout: err.stdout ?? '',
+        stderr: err.stderr ?? err.message,
+      };
+    }
+  }
+
+  /** Create a SetupStep record */
+  private step(
+    name: string,
+    status: SetupStep['status'],
+    message: string,
+    startTime: number,
+  ): SetupStep {
+    return { name, status, message, durationMs: Date.now() - startTime };
+  }
+
+  /** Status emoji for summary table */
+  private statusEmoji(status: SetupStep['status']): string {
+    switch (status) {
+      case 'success':
+        return '✅';
+      case 'failed':
+        return '❌';
+      case 'skipped':
+        return '⏭️';
     }
   }
 
