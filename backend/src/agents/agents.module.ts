@@ -5,6 +5,9 @@ import { GitlabModule } from '../gitlab/gitlab.module';
 import { IssuesModule } from '../issues/issues.module';
 import { MonitorModule } from '../monitor/monitor.module';
 import { AgentOrchestratorService } from './agent-orchestrator.service';
+import { PipelineFlowService } from './pipeline-flow.service';
+import { PipelineRetryService } from './pipeline-retry.service';
+import { PipelineCleanupService } from './pipeline-cleanup.service';
 import { AgentsController } from './agents.controller';
 import { InterviewerAgent } from './interviewer/interviewer.agent';
 import { DevopsAgent } from './devops/devops.agent';
@@ -30,6 +33,9 @@ import { LoopResolverService } from './loop-resolver/loop-resolver.service';
   controllers: [AgentsController],
   providers: [
     AgentOrchestratorService,
+    PipelineFlowService,
+    PipelineRetryService,
+    PipelineCleanupService,
     DualTestService,
     LoopResolverService,
     InterviewerAgent,
