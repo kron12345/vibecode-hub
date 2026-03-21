@@ -1,7 +1,6 @@
-/**
- * @vibcode/shared — Shared types, enums, and interfaces
- * between frontend and backend.
- *
- * Types will be extracted here in Step 2 of the refactoring plan.
- */
-export {};
+// @vibcode/shared — Shared types between frontend and backend
+
+export * from './enums';
+export * from './models';
+export * from './config';
+export * from './monitor';
