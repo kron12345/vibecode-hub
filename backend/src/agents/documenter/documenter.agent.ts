@@ -57,6 +57,14 @@ You MUST update these files after EVERY issue:
 - CHANGELOG.md: Follow Keep a Changelog format (Added/Changed/Fixed/Removed)
 - ${KNOWLEDGE_BASE_FILE}: Accumulate knowledge — never remove existing entries, only add
 
+## CRITICAL: Content Preservation
+- The "content" field in your output MUST contain the FULL page content, not just the new additions
+- Read the "Existing Documentation" section carefully — your output must INCLUDE all existing content plus your additions
+- For CHANGELOG.md: add a NEW entry at the top under [Unreleased], keeping ALL previous entries
+- For README.md: update the relevant sections, keeping all other sections intact
+- For ${KNOWLEDGE_BASE_FILE}: add new entries, keeping ALL existing entries
+- NEVER output only a summary sentence — always output the COMPLETE file content
+
 ## Output Format
 Provide the files to create or update as a JSON array.
 
@@ -167,8 +175,31 @@ export class DocumenterAgent extends BaseAgent {
         5000,
       );
 
-      // Read existing docs from workspace
+      // Read existing docs from workspace + wiki (prefer wiki as it may be more current)
       const existingDocs = await this.readExistingDocs(workspace);
+
+      // Also read current wiki content for key pages — this prevents overwrite-with-summary
+      const wikiPages2Read = ['PROJECT_KNOWLEDGE', 'CHANGELOG', 'README'];
+      for (const wikiSlug of wikiPages2Read) {
+        try {
+          const wikiContent = await this.gitlabService.getWikiPageContent(
+            gitlabProjectId,
+            wikiSlug,
+          );
+          if (wikiContent && wikiContent.length > 50) {
+            const matchIdx = existingDocs.findIndex(
+              (d) => d.path.toUpperCase().replace(/\.md$/i, '') === wikiSlug,
+            );
+            if (matchIdx >= 0 && wikiContent.length > existingDocs[matchIdx].content.length) {
+              existingDocs[matchIdx].content = wikiContent;
+            } else if (matchIdx < 0) {
+              existingDocs.push({ path: `${wikiSlug}.md`, content: wikiContent });
+            }
+          }
+        } catch {
+          // Wiki page doesn't exist yet — skip
+        }
+      }
 
       // Determine the branch to work on — always use feature branch
       const branchName = `feature/${issue.gitlabIid ?? issue.id}-${this.slugify(issue.title)}`;
@@ -341,11 +372,27 @@ For code-level docs (README, API, JSDoc), keep \`wikiPage: false\` or omit it.`;
 
       // ─── Wiki Sync — Hierarchical Pages ──────────────────────
       // Sync all markdown files to wiki + create feature subpage + update home/sidebar
+      // Guard: never overwrite a longer wiki page with a shorter LLM summary
       const wikiFiles = docResult.files.filter((f) => f.path.endsWith('.md'));
       const wikiPages: string[] = [];
       for (const wf of wikiFiles) {
         try {
           const title = wf.path.replace(/\.md$/i, '').replace(/\//g, '-');
+
+          // Read existing wiki content to prevent overwrite-with-shorter
+          const existingWikiContent = await this.gitlabService
+            .getWikiPageContent(gitlabProjectId, title)
+            .catch(() => '');
+
+          // Only update if new content is substantially longer or page doesn't exist yet
+          if (existingWikiContent && wf.content.length < existingWikiContent.length * 0.7) {
+            this.logger.warn(
+              `Wiki page "${title}" not updated: new content (${wf.content.length} chars) shorter than existing (${existingWikiContent.length} chars) — would lose data`,
+            );
+            wikiPages.push(title);
+            continue;
+          }
+
           await this.gitlabService.upsertWikiPage(
             gitlabProjectId,
             title,

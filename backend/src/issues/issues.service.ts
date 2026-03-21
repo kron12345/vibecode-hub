@@ -1,7 +1,11 @@
 import { Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { GitlabService } from '../gitlab/gitlab.service';
-import { CreateIssueDto, UpdateIssueDto, CreateIssueCommentDto } from './issues.dto';
+import {
+  CreateIssueDto,
+  UpdateIssueDto,
+  CreateIssueCommentDto,
+} from './issues.dto';
 import { IssueStatus, CommentAuthorType } from '@prisma/client';
 
 @Injectable()
@@ -121,29 +125,61 @@ export class IssuesService {
       try {
         const updatePayload: Record<string, any> = {};
         if (dto.title) updatePayload.title = dto.title;
-        if (dto.description !== undefined) updatePayload.description = dto.description;
+        if (dto.description !== undefined)
+          updatePayload.description = dto.description;
         if (dto.labels) updatePayload.labels = dto.labels;
-        if (dto.status === IssueStatus.CLOSED || dto.status === IssueStatus.DONE) {
+        if (
+          dto.status === IssueStatus.CLOSED ||
+          dto.status === IssueStatus.DONE
+        ) {
           updatePayload.state_event = 'close';
         } else if (dto.status === IssueStatus.OPEN) {
           updatePayload.state_event = 'reopen';
         }
 
         if (Object.keys(updatePayload).length > 0) {
-          await this.gitlab.updateIssue(glProjectId, issue.gitlabIid, updatePayload);
+          await this.gitlab.updateIssue(
+            glProjectId,
+            issue.gitlabIid,
+            updatePayload,
+          );
         }
       } catch (err) {
-        this.logger.warn(`Could not sync issue update to GitLab: ${err.message}`);
+        this.logger.warn(
+          `Could not sync issue update to GitLab: ${err.message}`,
+        );
       }
 
       // Sync status label (status::in-progress, status::testing, etc.)
       if (dto.status) {
         try {
-          await this.gitlab.syncStatusLabel(glProjectId, issue.gitlabIid, dto.status);
+          await this.gitlab.syncStatusLabel(
+            glProjectId,
+            issue.gitlabIid,
+            dto.status,
+          );
         } catch (err) {
-          this.logger.warn(`Could not sync status label to GitLab: ${err.message}`);
+          this.logger.warn(
+            `Could not sync status label to GitLab: ${err.message}`,
+          );
         }
       }
+    }
+
+    // Propagate terminal status to sub-issues
+    if (dto.status === IssueStatus.DONE || dto.status === IssueStatus.NEEDS_REVIEW) {
+      const targetStatus = dto.status === IssueStatus.DONE ? IssueStatus.DONE : IssueStatus.NEEDS_REVIEW;
+      await this.prisma.issue
+        .updateMany({
+          where: {
+            parentId: id,
+            status: { notIn: [IssueStatus.DONE, IssueStatus.CLOSED] },
+          },
+          data: { status: targetStatus },
+        })
+        .catch((err) =>
+          this.logger.warn(`Sub-issue propagation failed: ${err.message}`),
+        );
     }
 
     return issue;
@@ -162,7 +198,11 @@ export class IssuesService {
     });
   }
 
-  async addComment(issueId: string, dto: CreateIssueCommentDto, userId?: string) {
+  async addComment(
+    issueId: string,
+    dto: CreateIssueCommentDto,
+    userId?: string,
+  ) {
     const issue = await this.prisma.issue.findUnique({
       where: { id: issueId },
       include: { project: { select: { gitlabProjectId: true } } },

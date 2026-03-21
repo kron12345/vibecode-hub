@@ -2530,6 +2530,17 @@ export class AgentOrchestratorService implements OnModuleInit, OnModuleDestroy {
           include: { project: { select: { gitlabProjectId: true } } },
         });
 
+        // Propagate NEEDS_REVIEW to sub-issues that are still OPEN
+        await this.prisma.issue
+          .updateMany({
+            where: {
+              parentId: issueId,
+              status: { in: [IssueStatus.OPEN, IssueStatus.IN_PROGRESS] },
+            },
+            data: { status: IssueStatus.NEEDS_REVIEW },
+          })
+          .catch(() => {});
+
         // Sync status label + post explanatory comment to GitLab
         if (stoppedIssue.gitlabIid && stoppedIssue.project.gitlabProjectId) {
           await this.gitlabService
