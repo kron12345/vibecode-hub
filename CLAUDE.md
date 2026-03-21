@@ -165,18 +165,19 @@ npx nx run-many -t build
 # 2. Tests MÜSSEN grün sein
 cd backend && npx jest src/agents/ --passWithNoTests
 
-# 3. Auf ungenutzte Imports prüfen (stichprobenartig)
-# Wenn eine Datei refactored wurde: Imports der Datei durchgehen
-```
-
-#### Bei größeren Änderungen (>5 Dateien) — zusätzlich:
-
-```bash
-# Codex CLI Review der Diff
+# 3. Codex CLI Qualitätscheck (PFLICHT vor jedem Commit!)
 codex review --uncommitted
-
 # Alle gefundenen Bugs SOFORT fixen, nicht aufschieben
 ```
+
+#### Bei UI-Fragen — Gemini CLI dazuholen:
+
+Bei Fragen zu UI/UX, Layout, Responsive Design, Accessibility oder visueller Qualität:
+```bash
+# Gemini CLI für UI-Expertise konsultieren (multimodal, kann Screenshots analysieren)
+gemini "Review this Angular component for UI/UX best practices: [code/screenshot]"
+```
+Gemini CLI ist besonders stark bei: Angular Template Patterns, CSS/Tailwind Optimierung, Accessibility (WCAG), responsive Layouts, visuelle Konsistenz.
 
 #### Bekannte Patterns die VERMIEDEN werden müssen:
 
