@@ -45,5 +45,16 @@ backend/workspaces/
 # Shared lib build output
 libs/shared/dist/
 
+# Test/debug scripts with credentials (NEVER commit)
+tests/
+.bench/
+
+# Temp review artifacts
+backend/.tmp-review/
+backend/documentation-root-docs-auth-cors.patch
+
+# Screenshots (local testing)
+screenshots/
+
 # Temp
 /tmp/

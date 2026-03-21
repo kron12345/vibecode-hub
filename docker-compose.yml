@@ -1,0 +1,139 @@
+# VibCode Hub — Docker Compose
+# Quick start: docker compose up -d
+# Then open http://localhost:4200 and log in with admin/admin
+
+services:
+  # ─── PostgreSQL ────────────────────────────────────────────
+  postgres:
+    image: postgres:17-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: vibcodehub
+      POSTGRES_PASSWORD: ${DB_PASSWORD:-vibcodehub-dev}
+      POSTGRES_DB: vibcodehub
+    ports:
+      - "${DB_PORT:-5432}:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U vibcodehub"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+
+  # ─── Keycloak (Auth) ──────────────────────────────────────
+  keycloak:
+    image: quay.io/keycloak/keycloak:26.0
+    restart: unless-stopped
+    command: start-dev --import-realm
+    environment:
+      KC_DB: postgres
+      KC_DB_URL: jdbc:postgresql://postgres:5432/vibcodehub
+      KC_DB_USERNAME: vibcodehub
+      KC_DB_PASSWORD: ${DB_PASSWORD:-vibcodehub-dev}
+      KC_HOSTNAME: ${KEYCLOAK_HOSTNAME:-localhost}
+      KC_HOSTNAME_PORT: ${KEYCLOAK_PORT:-8081}
+      KC_HTTP_PORT: "8081"
+      KC_HOSTNAME_STRICT: "false"
+      KC_PROXY_HEADERS: xforwarded
+      KEYCLOAK_ADMIN: admin
+      KEYCLOAK_ADMIN_PASSWORD: ${KEYCLOAK_ADMIN_PASSWORD:-admin}
+    ports:
+      - "${KEYCLOAK_PORT:-8081}:8081"
+    volumes:
+      - ./docker/keycloak/realm-export.json:/opt/keycloak/data/import/realm-export.json:ro
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  # ─── GitLab CE ────────────────────────────────────────────
+  # GitLab is heavy (~4GB RAM). For development, you can use an
+  # external GitLab instance instead and remove this service.
+  gitlab:
+    image: gitlab/gitlab-ce:17.6.0-ce.0
+    restart: unless-stopped
+    hostname: gitlab.local
+    environment:
+      GITLAB_OMNIBUS_CONFIG: |
+        external_url 'http://gitlab.local:8929'
+        gitlab_rails['gitlab_shell_ssh_port'] = 2224
+        # Reduce memory usage for development
+        puma['worker_processes'] = 2
+        sidekiq['concurrency'] = 5
+        prometheus_monitoring['enable'] = false
+        grafana['enable'] = false
+    ports:
+      - "${GITLAB_PORT:-8929}:8929"
+      - "2224:22"
+    volumes:
+      - gitlab_config:/etc/gitlab
+      - gitlab_logs:/var/log/gitlab
+      - gitlab_data:/var/opt/gitlab
+    shm_size: "256m"
+
+  # ─── Backend (NestJS API) ─────────────────────────────────
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    environment:
+      DATABASE_URL: postgresql://vibcodehub:${DB_PASSWORD:-vibcodehub-dev}@postgres:5432/vibcodehub?schema=public
+      KEYCLOAK_URL: http://keycloak:8081
+      KEYCLOAK_REALM: vibcodehub
+      KEYCLOAK_CLIENT_ID: vibcodehub-backend
+      KEYCLOAK_CLIENT_SECRET: ${KEYCLOAK_CLIENT_SECRET:-change-me-in-production}
+      PORT: "3100"
+      NODE_ENV: production
+    ports:
+      - "${API_PORT:-3100}:3100"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      keycloak:
+        condition: service_started
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://localhost:3100/api/docs').then(r => r.ok ? process.exit(0) : process.exit(1))"]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+      start_period: 30s
+
+  # ─── Frontend (Angular SPA via Nginx) ─────────────────────
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+      args:
+        API_URL: ${API_URL:-http://localhost:3100/api}
+        KEYCLOAK_URL: ${KEYCLOAK_URL:-http://localhost:8081}
+    restart: unless-stopped
+    ports:
+      - "${FRONTEND_PORT:-4200}:80"
+    depends_on:
+      backend:
+        condition: service_healthy
+
+  # ─── Ollama (Optional — Local LLM) ────────────────────────
+  # Uncomment to run local LLM inference. Requires NVIDIA GPU.
+  # ollama:
+  #   image: ollama/ollama:latest
+  #   restart: unless-stopped
+  #   ports:
+  #     - "11434:11434"
+  #   volumes:
+  #     - ollama_data:/root/.ollama
+  #   deploy:
+  #     resources:
+  #       reservations:
+  #         devices:
+  #           - driver: nvidia
+  #             count: all
+  #             capabilities: [gpu]
+
+volumes:
+  pgdata:
+  gitlab_config:
+  gitlab_logs:
+  gitlab_data:
+  # ollama_data:

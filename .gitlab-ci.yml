@@ -1,0 +1,105 @@
+# VibCode Hub — CI/CD Pipeline
+# Runs on every push: lint, build, test for both frontend and backend.
+
+stages:
+  - install
+  - build
+  - test
+
+variables:
+  NODE_VERSION: "22"
+  npm_config_cache: "$CI_PROJECT_DIR/.npm-cache"
+
+# ─── Cache ──────────────────────────────────────────────────
+.npm-cache: &npm-cache
+  cache:
+    key:
+      files:
+        - backend/package-lock.json
+        - frontend/package-lock.json
+    paths:
+      - .npm-cache/
+      - backend/node_modules/
+      - frontend/node_modules/
+      - node_modules/
+
+# ─── Install ────────────────────────────────────────────────
+install:root:
+  stage: install
+  image: node:${NODE_VERSION}-alpine
+  <<: *npm-cache
+  script:
+    - npm ci
+  rules:
+    - changes:
+        - package.json
+        - package-lock.json
+
+install:backend:
+  stage: install
+  image: node:${NODE_VERSION}-alpine
+  <<: *npm-cache
+  script:
+    - cd backend && npm ci
+    - npx prisma generate
+
+install:frontend:
+  stage: install
+  image: node:${NODE_VERSION}-alpine
+  <<: *npm-cache
+  script:
+    - cd frontend && npm ci
+
+# ─── Build ──────────────────────────────────────────────────
+build:backend:
+  stage: build
+  image: node:${NODE_VERSION}-alpine
+  <<: *npm-cache
+  needs: ["install:backend"]
+  script:
+    - cd backend && npx nest build
+  artifacts:
+    paths:
+      - backend/dist/
+    expire_in: 1 hour
+
+build:frontend:
+  stage: build
+  image: node:${NODE_VERSION}-alpine
+  <<: *npm-cache
+  needs: ["install:frontend"]
+  script:
+    - cd frontend && npx ng build --configuration production
+  artifacts:
+    paths:
+      - frontend/dist/
+    expire_in: 1 hour
+  allow_failure: true  # Font inlining may fail without internet access
+
+build:shared:
+  stage: build
+  image: node:${NODE_VERSION}-alpine
+  <<: *npm-cache
+  needs: ["install:root"]
+  script:
+    - npx nx build shared
+
+# ─── Test ───────────────────────────────────────────────────
+test:backend:
+  stage: test
+  image: node:${NODE_VERSION}-alpine
+  <<: *npm-cache
+  needs: ["install:backend"]
+  script:
+    - cd backend && npx jest src/agents/ --passWithNoTests --ci --coverage
+  coverage: '/Statements\s*:\s*(\d+\.?\d*)%/'
+  artifacts:
+    reports:
+      junit: backend/junit.xml
+      coverage_report:
+        coverage_format: cobertura
+        path: backend/coverage/cobertura-coverage.xml
+    paths:
+      - backend/coverage/
+    expire_in: 1 week
+    when: always

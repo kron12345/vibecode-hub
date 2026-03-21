@@ -17,6 +17,7 @@ import { AgentsModule } from './agents/agents.module';
 import { PreviewModule } from './preview/preview.module';
 import { MonitorModule } from './monitor/monitor.module';
 import { VoiceModule } from './voice/voice.module';
+import { HealthModule } from './health/health.module';
 import { HttpLoggingMiddleware } from './common/http-logging.middleware';
 import { AuditLogService } from './common/audit-log.service';
 
@@ -27,13 +28,13 @@ import { AuditLogService } from './common/audit-log.service';
     ThrottlerModule.forRoot([
       {
         name: 'short',
-        ttl: 1000,   // 1 second
-        limit: 10,   // max 10 requests per second
+        ttl: 1000, // 1 second
+        limit: 10, // max 10 requests per second
       },
       {
         name: 'medium',
-        ttl: 60000,  // 1 minute
-        limit: 60,   // max 60 requests per minute
+        ttl: 60000, // 1 minute
+        limit: 60, // max 60 requests per minute
       },
     ]),
     PrismaModule,
@@ -49,6 +50,7 @@ import { AuditLogService } from './common/audit-log.service';
     PreviewModule,
     MonitorModule,
     VoiceModule,
+    HealthModule,
   ],
   providers: [
     {
