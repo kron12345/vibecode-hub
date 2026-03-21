@@ -50,10 +50,10 @@ import { buildInfraSystemPrompt } from './devops-infra';
 const execFileAsync = promisify(execFile);
 const execAsync = promisify(exec);
 
-/** Timeout constants (milliseconds) */
-const TIMEOUT_CLONE = 120_000;
-const TIMEOUT_COMMAND = 300_000;
-const TIMEOUT_PUSH = 120_000;
+// Timeout constants now configurable via PipelineConfig:
+// - devopsCloneTimeoutMs (default: 120000)
+// - devopsCommandTimeoutMs (default: 300000)
+// - devopsPushTimeoutMs (default: 120000)
 
 @Injectable()
 export class DevopsAgent extends BaseAgent {
@@ -359,7 +359,7 @@ export class DevopsAgent extends BaseAgent {
         await execFileAsync('mkdir', ['-p', projectDir], { timeout: 10_000 });
         await execFileAsync('git', ['clone', cloneUrl, '.'], {
           cwd: projectDir,
-          timeout: TIMEOUT_CLONE,
+          timeout: this.getDevopsCloneTimeoutMs(),
         });
         await this.log(
           ctx.agentTaskId,
@@ -374,7 +374,7 @@ export class DevopsAgent extends BaseAgent {
         // Clone into the project directory (which was just created and is empty)
         await execFileAsync('git', ['clone', cloneUrl, '.'], {
           cwd: projectDir,
-          timeout: TIMEOUT_CLONE,
+          timeout: this.getDevopsCloneTimeoutMs(),
         });
         await this.log(
           ctx.agentTaskId,
@@ -439,7 +439,7 @@ export class DevopsAgent extends BaseAgent {
       const cmdResult = await this.executeCommand(
         initCommand,
         projectDir,
-        TIMEOUT_COMMAND,
+        this.getDevopsCommandTimeoutMs(),
       );
       result.initCommandResult = cmdResult;
 
@@ -503,7 +503,7 @@ export class DevopsAgent extends BaseAgent {
         const cmdResult = await this.executeCommand(
           cmd,
           projectDir,
-          TIMEOUT_COMMAND,
+          this.getDevopsCommandTimeoutMs(),
         );
         result.additionalCommandResults.push(cmdResult);
 
@@ -928,7 +928,7 @@ export class DevopsAgent extends BaseAgent {
       const resolveResult = await this.executeCommand(
         'mvn dependency:resolve -B -q',
         projectDir,
-        TIMEOUT_COMMAND,
+        this.getDevopsCommandTimeoutMs(),
       );
 
       if (resolveResult.exitCode !== 0) {
@@ -954,7 +954,7 @@ export class DevopsAgent extends BaseAgent {
       const compileResult = await this.executeCommand(
         'mvn compile -B -q',
         projectDir,
-        TIMEOUT_COMMAND,
+        this.getDevopsCommandTimeoutMs(),
       );
 
       if (compileResult.exitCode !== 0) {
@@ -1058,7 +1058,7 @@ export class DevopsAgent extends BaseAgent {
       // git push
       await execFileAsync('git', ['push', 'origin', defaultBranch], {
         cwd: projectDir,
-        timeout: TIMEOUT_PUSH,
+        timeout: this.getDevopsPushTimeoutMs(),
       });
 
       result.gitPushSuccess = true;

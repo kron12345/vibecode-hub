@@ -39,7 +39,7 @@ import { AgentRole, AgentStatus, AgentTaskStatus } from '@prisma/client';
 const execFileAsync = promisify(execFile);
 
 const COMPLETION_MARKER = ':::SECURITY_TEST_COMPLETE:::';
-const AUDIT_TIMEOUT_MS = 60_000;
+// AUDIT_TIMEOUT_MS now configurable via PipelineConfig.auditTimeoutMs (default: 60000)
 const HTTP_TIMEOUT_MS = 10_000;
 
 const SECURITY_HEADERS = [
@@ -52,8 +52,7 @@ const SECURITY_HEADERS = [
   'permissions-policy',
 ];
 
-/** Default max warning threshold — configurable via SystemSetting pentester.maxWarnings */
-const DEFAULT_MAX_WARNINGS = 3;
+// DEFAULT_MAX_WARNINGS now configurable via PipelineConfig.maxWarningsForApproval (default: 3)
 
 const DEFAULT_SYSTEM_PROMPT = loadPrompt('pen-tester');
 
@@ -85,15 +84,16 @@ export class PenTesterAgent extends BaseAgent {
     );
   }
 
-  /** Get the max warnings threshold from settings (default: 3) */
+  /** Get the max warnings threshold from pipeline config → per-agent setting → fallback */
   private getMaxWarnings(): number {
-    const val = this.settings.get(
-      'pentester.maxWarnings',
-      '',
-      String(DEFAULT_MAX_WARNINGS),
-    );
-    const num = parseInt(val, 10);
-    return isNaN(num) ? DEFAULT_MAX_WARNINGS : num;
+    // 1. Per-agent setting (legacy)
+    const val = this.settings.get('pentester.maxWarnings', '', '');
+    if (val) {
+      const num = parseInt(val, 10);
+      if (!isNaN(num)) return num;
+    }
+    // 2. PipelineConfig (centralized)
+    return this.getMaxWarningsForApproval();
   }
 
   /** Check if header checks should be skipped (configurable per-project via settings) */
@@ -171,7 +171,7 @@ export class PenTesterAgent extends BaseAgent {
       );
 
       const MAX_DIFFS = 15;
-      const MAX_DIFF_CHARS = 1500;
+      const MAX_DIFF_CHARS = this.getMaxDiffChars();
       const reviewDiffs = diffs.slice(0, MAX_DIFFS);
 
       const diffText = reviewDiffs
@@ -200,6 +200,7 @@ export class PenTesterAgent extends BaseAgent {
       const commentHistory = await getAgentCommentHistory({
         prisma: this.prisma,
         issueId,
+        maxChars: this.getMaxHistoryChars(),
       });
       const historySection = commentHistory
         ? `\n## Previous Agent Comments on this Issue\n${commentHistory}\n`
@@ -714,7 +715,7 @@ Do NOT omit the JSON block.`;
         ['audit', '--omit=dev', '--json'],
         {
           cwd: workspace,
-          timeout: AUDIT_TIMEOUT_MS,
+          timeout: this.getAuditTimeoutMs(),
           maxBuffer: 10 * 1024 * 1024,
         },
       ).catch((err) => {

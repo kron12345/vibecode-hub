@@ -141,6 +141,48 @@ export abstract class BaseAgent {
     return cfg.maxReviewDiffs ?? 25;
   }
 
+  /** Get max diff chars per file from pipeline config (default: 20000) */
+  protected getMaxDiffChars(): number {
+    const cfg = this.settings.getPipelineConfig();
+    return cfg.maxDiffChars ?? 20_000;
+  }
+
+  /** Get max comment history chars from pipeline config (default: 60000) */
+  protected getMaxHistoryChars(): number {
+    const cfg = this.settings.getPipelineConfig();
+    return cfg.maxHistoryChars ?? 60_000;
+  }
+
+  /** Get DevOps clone timeout from pipeline config (default: 120000 ms) */
+  protected getDevopsCloneTimeoutMs(): number {
+    const cfg = this.settings.getPipelineConfig();
+    return cfg.devopsCloneTimeoutMs ?? 120_000;
+  }
+
+  /** Get DevOps command timeout from pipeline config (default: 300000 ms) */
+  protected getDevopsCommandTimeoutMs(): number {
+    const cfg = this.settings.getPipelineConfig();
+    return cfg.devopsCommandTimeoutMs ?? 300_000;
+  }
+
+  /** Get DevOps push timeout from pipeline config (default: 120000 ms) */
+  protected getDevopsPushTimeoutMs(): number {
+    const cfg = this.settings.getPipelineConfig();
+    return cfg.devopsPushTimeoutMs ?? 120_000;
+  }
+
+  /** Get npm audit timeout from pipeline config (default: 60000 ms) */
+  protected getAuditTimeoutMs(): number {
+    const cfg = this.settings.getPipelineConfig();
+    return cfg.auditTimeoutMs ?? 60_000;
+  }
+
+  /** Get max warnings for approval from pipeline config (default: 3) */
+  protected getMaxWarningsForApproval(): number {
+    const cfg = this.settings.getPipelineConfig();
+    return cfg.maxWarningsForApproval ?? 3;
+  }
+
   /** Call the LLM with the configured provider/model for this role */
   protected async callLlm(
     messages: LlmMessage[],

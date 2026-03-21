@@ -64,6 +64,20 @@ export interface PipelineConfig {
   gitTimeoutSeconds?: number;
   cliTimeoutMinutes?: number;
   maxReviewDiffs?: number;
+  /** Max chars for comment history injected into LLM prompts (default: 60000) */
+  maxHistoryChars?: number;
+  /** Max chars per diff file in code review / pen test (default: 20000) */
+  maxDiffChars?: number;
+  /** DevOps: git clone timeout in ms (default: 120000) */
+  devopsCloneTimeoutMs?: number;
+  /** DevOps: shell command timeout in ms (default: 300000) */
+  devopsCommandTimeoutMs?: number;
+  /** DevOps: git push timeout in ms (default: 120000) */
+  devopsPushTimeoutMs?: number;
+  /** Pen Tester: npm audit timeout in ms (default: 60000) */
+  auditTimeoutMs?: number;
+  /** Max warnings before review/test fails (default: 3) */
+  maxWarningsForApproval?: number;
 }
 
 // ─── MCP Server ───────────────────────────────────────────────

@@ -72,6 +72,7 @@ export class LoopResolverService {
       const commentHistory = await getAgentCommentHistory({
         prisma: this.prisma,
         issueId,
+        maxChars: this.settings.getPipelineConfig().maxHistoryChars ?? 60_000,
       });
 
       // 4. Count fix attempts by source

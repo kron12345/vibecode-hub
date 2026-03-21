@@ -197,6 +197,7 @@ export class DocumenterAgent extends BaseAgent {
       const commentHistory = await getAgentCommentHistory({
         prisma: this.prisma,
         issueId,
+        maxChars: this.getMaxHistoryChars(),
       });
       const historySection = commentHistory
         ? `\n## Previous Agent Comments on this Issue\n${commentHistory}\n`

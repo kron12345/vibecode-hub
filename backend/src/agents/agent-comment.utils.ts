@@ -5,8 +5,14 @@ import { CommentAuthorType } from '@prisma/client';
 
 const logger = new Logger('AgentComment');
 
-/** Max chars for comment history injected into LLM prompts */
-const MAX_HISTORY_CHARS = 60000;
+/**
+ * Max chars for comment history injected into LLM prompts.
+ * This is a static default — the configurable value lives in
+ * PipelineConfig.maxHistoryChars (default: 60000).
+ * Since this utility has no DI access, callers with access to
+ * SystemSettingsService should use PipelineConfig instead.
+ */
+const MAX_HISTORY_CHARS = 60_000;
 
 export interface PostAgentCommentDeps {
   prisma: PrismaService;
@@ -72,6 +78,8 @@ export async function postAgentComment(
 export interface GetAgentCommentHistoryDeps {
   prisma: PrismaService;
   issueId: string;
+  /** Override max chars (default: MAX_HISTORY_CHARS = 60000). Use PipelineConfig.maxHistoryChars. */
+  maxChars?: number;
 }
 
 /**
@@ -79,12 +87,13 @@ export interface GetAgentCommentHistoryDeps {
  * string for LLM prompt injection.
  *
  * Returns empty string if no comments exist.
- * Truncates to ~4000 chars to avoid overloading LLM context.
+ * Truncates to maxChars (default 60000) to avoid overloading LLM context.
  */
 export async function getAgentCommentHistory(
   deps: GetAgentCommentHistoryDeps,
 ): Promise<string> {
-  const { prisma, issueId } = deps;
+  const { prisma, issueId, maxChars } = deps;
+  const limit = maxChars ?? MAX_HISTORY_CHARS;
 
   const comments = await prisma.issueComment.findMany({
     where: {
@@ -105,7 +114,7 @@ export async function getAgentCommentHistory(
   for (const c of comments) {
     const entry = `[${c.authorName}]:\n${c.content}\n\n`;
 
-    if (result.length + entry.length > MAX_HISTORY_CHARS) {
+    if (result.length + entry.length > limit) {
       result += `... (${comments.length - comments.indexOf(c)} more comment(s) truncated)\n`;
       break;
     }

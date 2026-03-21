@@ -120,7 +120,7 @@ export class CodeReviewerAgent extends BaseAgent {
 
       // Prioritize source files > configs > other files for review
       const MAX_REVIEW_DIFFS = this.getMaxReviewDiffs();
-      const MAX_DIFF_CHARS = 20000;
+      const MAX_DIFF_CHARS = this.getMaxDiffChars();
       const sortedDiffs = [...diffs].sort((a, b) => {
         const score = (path: string) => {
           if (/\.(ts|js|tsx|jsx|py|rs|go|java|css|scss|html)$/.test(path))
@@ -178,6 +178,7 @@ export class CodeReviewerAgent extends BaseAgent {
       const commentHistory = await getAgentCommentHistory({
         prisma: this.prisma,
         issueId,
+        maxChars: this.getMaxHistoryChars(),
       });
       const historySection = commentHistory
         ? `\n## Previous Agent Comments on this Issue\n${commentHistory}\n`
