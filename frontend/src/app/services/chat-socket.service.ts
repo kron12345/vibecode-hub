@@ -1,6 +1,7 @@
-import { Injectable, OnDestroy } from '@angular/core';
+import { Injectable, OnDestroy, inject } from '@angular/core';
 import { Subject } from 'rxjs';
 import { io, Socket } from 'socket.io-client';
+import Keycloak from 'keycloak-js';
 import { environment } from '../../environments/environment';
 import { ChatMessage } from './api.service';
 
@@ -79,6 +80,7 @@ export interface VoiceErrorEvent {
 
 @Injectable({ providedIn: 'root' })
 export class ChatSocketService implements OnDestroy {
+  private readonly keycloak = inject(Keycloak);
   private socket: Socket | null = null;
   private currentSessionId: string | null = null;
 
@@ -110,6 +112,9 @@ export class ChatSocketService implements OnDestroy {
     this.socket = io(`${wsUrl}/chat`, {
       transports: ['websocket'],
       withCredentials: true,
+      auth: {
+        token: this.keycloak.token ?? '',
+      },
     });
 
     // Re-join session room after reconnection (server lost room state on restart)

@@ -25,21 +25,40 @@ export class AllExceptionsFilter implements ExceptionFilter {
     if (!response?.status) return;
 
     let status: number;
-    let message: string;
+    let message: string;       // message for the client response
+    let logMessage: string;    // detailed message for server logs only
     let error: string;
 
     if (exception instanceof HttpException) {
       status = exception.getStatus();
       const exResponse = exception.getResponse();
-      message = typeof exResponse === 'string' ? exResponse : (exResponse as any).message || exception.message;
+      const extractedMsg =
+        typeof exResponse === 'string'
+          ? exResponse
+          : (exResponse as any).message || exception.message;
+      // For 5xx HttpExceptions, also hide internal details from clients
+      if (status >= 500) {
+        message = 'Internal server error';
+        logMessage = typeof extractedMsg === 'string'
+          ? extractedMsg
+          : JSON.stringify(extractedMsg);
+      } else {
+        message = extractedMsg;
+        logMessage = typeof extractedMsg === 'string'
+          ? extractedMsg
+          : JSON.stringify(extractedMsg);
+      }
       error = exception.name;
     } else if (exception instanceof Error) {
       status = HttpStatus.INTERNAL_SERVER_ERROR;
-      message = exception.message;
+      // Never expose internal error details to clients
+      message = 'Internal server error';
+      logMessage = exception.message;
       error = 'InternalServerError';
     } else {
       status = HttpStatus.INTERNAL_SERVER_ERROR;
-      message = 'Unknown error';
+      message = 'Internal server error';
+      logMessage = 'Unknown error';
       error = 'InternalServerError';
     }
 
@@ -53,14 +72,14 @@ export class AllExceptionsFilter implements ExceptionFilter {
 
     if (status >= 500) {
       this.logger.error(
-        `${request.method} ${request.originalUrl} → ${status}: ${message}`,
+        `${request.method} ${request.originalUrl} → ${status}: ${logMessage}`,
         exception instanceof Error ? exception.stack : undefined,
         JSON.stringify(logContext),
       );
     } else if (status >= 400 && status !== 401 && status !== 404) {
       // Skip 401/404 — too noisy
       this.logger.warn(
-        `${request.method} ${request.originalUrl} → ${status}: ${message}`,
+        `${request.method} ${request.originalUrl} → ${status}: ${logMessage}`,
       );
     }
 

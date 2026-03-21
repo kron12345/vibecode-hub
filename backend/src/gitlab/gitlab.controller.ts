@@ -8,10 +8,12 @@ import {
   Logger,
 } from '@nestjs/common';
 import { ApiTags, ApiExcludeEndpoint } from '@nestjs/swagger';
+import { SkipThrottle } from '@nestjs/throttler';
 import { EventEmitter2 } from '@nestjs/event-emitter';
 import { PrismaService } from '../prisma/prisma.service';
 import { SystemSettingsService } from '../settings/system-settings.service';
 import { Public } from '../common/decorators/public.decorator';
+import { GitlabWebhookDto } from './gitlab-webhook.dto';
 import { IssueStatus, CommentAuthorType } from '@prisma/client';
 
 /** Maps GitLab issue state to our IssueStatus */
@@ -38,12 +40,13 @@ export class GitlabController {
   ) {}
 
   @Public()
+  @SkipThrottle()
   @Post('webhook')
   @HttpCode(200)
   @ApiExcludeEndpoint()
   async handleWebhook(
     @Headers('x-gitlab-token') token: string,
-    @Body() payload: any,
+    @Body() payload: GitlabWebhookDto,
   ) {
     // Validate webhook token
     const webhookSecret = this.systemSettings.gitlabWebhookSecret;
@@ -154,7 +157,9 @@ export class GitlabController {
       where: { projectId: localProject.id, gitlabIid },
     });
     if (!localIssue) {
-      this.logger.warn(`No local issue for GitLab issue #${gitlabIid} in project ${localProject.slug}`);
+      this.logger.warn(
+        `No local issue for GitLab issue #${gitlabIid} in project ${localProject.slug}`,
+      );
       return;
     }
 
@@ -197,7 +202,9 @@ export class GitlabController {
 
     // Only care about terminal states
     if (status !== 'success' && status !== 'failed') {
-      this.logger.debug(`Pipeline ${pipelineId}: status=${status} — ignoring non-terminal state`);
+      this.logger.debug(
+        `Pipeline ${pipelineId}: status=${status} — ignoring non-terminal state`,
+      );
       return;
     }
 

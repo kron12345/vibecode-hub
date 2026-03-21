@@ -2,6 +2,7 @@ import { MiddlewareConsumer, Module, NestModule } from '@nestjs/common';
 import { ConfigModule } from '@nestjs/config';
 import { APP_GUARD } from '@nestjs/core';
 import { EventEmitterModule } from '@nestjs/event-emitter';
+import { ThrottlerModule, ThrottlerGuard } from '@nestjs/throttler';
 import { PrismaModule } from './prisma/prisma.module';
 import { AuthModule } from './auth/auth.module';
 import { AuthGuard } from './auth/auth.guard';
@@ -23,6 +24,18 @@ import { AuditLogService } from './common/audit-log.service';
   imports: [
     ConfigModule.forRoot({ isGlobal: true }),
     EventEmitterModule.forRoot(),
+    ThrottlerModule.forRoot([
+      {
+        name: 'short',
+        ttl: 1000,   // 1 second
+        limit: 10,   // max 10 requests per second
+      },
+      {
+        name: 'medium',
+        ttl: 60000,  // 1 minute
+        limit: 60,   // max 60 requests per minute
+      },
+    ]),
     PrismaModule,
     AuthModule,
     SettingsModule,
@@ -41,6 +54,10 @@ import { AuditLogService } from './common/audit-log.service';
     {
       provide: APP_GUARD,
       useClass: AuthGuard,
+    },
+    {
+      provide: APP_GUARD,
+      useClass: ThrottlerGuard,
     },
     AuditLogService,
   ],

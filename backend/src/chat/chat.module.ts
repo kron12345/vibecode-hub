@@ -1,4 +1,5 @@
 import { Module } from '@nestjs/common';
+import { AuthModule } from '../auth/auth.module';
 import { GitlabModule } from '../gitlab/gitlab.module';
 import { VoiceModule } from '../voice/voice.module';
 import { ChatService } from './chat.service';
@@ -7,7 +8,7 @@ import { ChatGateway } from './chat.gateway';
 import { SessionBranchService } from './session-branch.service';
 
 @Module({
-  imports: [GitlabModule, VoiceModule],
+  imports: [AuthModule, GitlabModule, VoiceModule],
   controllers: [ChatController],
   providers: [ChatService, ChatGateway, SessionBranchService],
   exports: [ChatService, ChatGateway, SessionBranchService],

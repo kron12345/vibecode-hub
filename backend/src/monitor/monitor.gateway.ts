@@ -11,6 +11,7 @@ import {
 import { Logger } from '@nestjs/common';
 import { Server, Socket } from 'socket.io';
 import { HardwareService, HardwareSnapshot } from './hardware.service';
+import { WsJwtGuard } from '../auth/ws-jwt.guard';
 
 @WebSocketGateway({
   cors: {
@@ -28,7 +29,10 @@ export class MonitorGateway
   private readonly logger = new Logger(MonitorGateway.name);
   private unsubscribe: (() => void) | null = null;
 
-  constructor(private readonly hardwareService: HardwareService) {}
+  constructor(
+    private readonly hardwareService: HardwareService,
+    private readonly wsJwtGuard: WsJwtGuard,
+  ) {}
 
   afterInit() {
     // Subscribe to hardware snapshots and push to all connected clients
@@ -38,8 +42,16 @@ export class MonitorGateway
     this.logger.log('Monitor WebSocket gateway initialized');
   }
 
-  handleConnection(client: Socket) {
-    this.logger.debug(`Monitor client connected: ${client.id}`);
+  async handleConnection(client: Socket) {
+    const user = await this.wsJwtGuard.validateConnection(client);
+    if (!user) {
+      client.emit('error', { message: 'Authentication required' });
+      client.disconnect(true);
+      return;
+    }
+    this.logger.debug(
+      `Monitor client connected: ${client.id} (user: ${user.username})`,
+    );
 
     // Send latest snapshot + history immediately on connect
     const latest = this.hardwareService.getLatest();
@@ -62,9 +74,7 @@ export class MonitorGateway
     @ConnectedSocket() client: Socket,
     @MessageBody() data: { projectId?: string },
   ) {
-    const room = data.projectId
-      ? `logs:project:${data.projectId}`
-      : 'logs:all';
+    const room = data.projectId ? `logs:project:${data.projectId}` : 'logs:all';
     client.join(room);
     this.logger.debug(`Client ${client.id} joined ${room}`);
   }
@@ -75,9 +85,7 @@ export class MonitorGateway
     @ConnectedSocket() client: Socket,
     @MessageBody() data: { projectId?: string },
   ) {
-    const room = data.projectId
-      ? `logs:project:${data.projectId}`
-      : 'logs:all';
+    const room = data.projectId ? `logs:project:${data.projectId}` : 'logs:all';
     client.leave(room);
   }
 

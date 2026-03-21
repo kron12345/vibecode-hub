@@ -1,10 +1,12 @@
 import { Injectable, OnDestroy, inject, signal } from '@angular/core';
 import { io, Socket } from 'socket.io-client';
+import Keycloak from 'keycloak-js';
 import { environment } from '../../environments/environment';
 import { HardwareSnapshot, ActivityItem, ApiService } from './api.service';
 
 @Injectable({ providedIn: 'root' })
 export class MonitorSocketService implements OnDestroy {
+  private readonly keycloak = inject(Keycloak);
   private socket: Socket | null = null;
   private api = inject(ApiService);
   private restFallbackInterval: ReturnType<typeof setInterval> | null = null;
@@ -40,6 +42,9 @@ export class MonitorSocketService implements OnDestroy {
       reconnection: true,
       reconnectionDelay: 3000,
       reconnectionAttempts: Infinity,
+      auth: {
+        token: this.keycloak.token ?? '',
+      },
     });
 
     this.socket.on('connect', () => {

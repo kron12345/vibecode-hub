@@ -12,6 +12,7 @@ import { EventEmitter2 } from '@nestjs/event-emitter';
 import { Server, Socket } from 'socket.io';
 import { ChatService } from './chat.service';
 import { VoiceService } from '../voice/voice.service';
+import { WsJwtGuard } from '../auth/ws-jwt.guard';
 import { MessageRole } from '@prisma/client';
 
 // Note: WebSocket CORS is set via decorator at startup.
@@ -37,10 +38,17 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
     private readonly chatService: ChatService,
     private readonly eventEmitter: EventEmitter2,
     private readonly voiceService: VoiceService,
+    private readonly wsJwtGuard: WsJwtGuard,
   ) {}
 
-  handleConnection(client: Socket) {
-    this.logger.log(`Client connected: ${client.id}`);
+  async handleConnection(client: Socket) {
+    const user = await this.wsJwtGuard.validateConnection(client);
+    if (!user) {
+      client.emit('error', { message: 'Authentication required' });
+      client.disconnect(true);
+      return;
+    }
+    this.logger.log(`Client connected: ${client.id} (user: ${user.username})`);
   }
 
   handleDisconnect(client: Socket) {
@@ -60,7 +68,9 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
     @MessageBody() data: { chatSessionId: string },
   ) {
     client.join(`session:${data.chatSessionId}`);
-    this.logger.debug(`Client ${client.id} joined session ${data.chatSessionId}`);
+    this.logger.debug(
+      `Client ${client.id} joined session ${data.chatSessionId}`,
+    );
   }
 
   @SubscribeMessage('leaveSession')
@@ -85,9 +95,7 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
     });
 
     // Broadcast to all clients in the session room
-    this.server
-      .to(`session:${data.chatSessionId}`)
-      .emit('newMessage', message);
+    this.server.to(`session:${data.chatSessionId}`).emit('newMessage', message);
 
     // Emit event for agent orchestration (non-blocking)
     this.eventEmitter.emit('chat.userMessage', {
@@ -112,30 +120,40 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
         this.voiceClients.set(chatSessionId, new Set());
       }
       this.voiceClients.get(chatSessionId)!.add(client.id);
-      this.logger.log(`Voice mode ON for session ${chatSessionId} (client ${client.id})`);
+      this.logger.log(
+        `Voice mode ON for session ${chatSessionId} (client ${client.id})`,
+      );
     } else {
       this.voiceClients.get(chatSessionId)?.delete(client.id);
       if (this.voiceClients.get(chatSessionId)?.size === 0) {
         this.voiceClients.delete(chatSessionId);
       }
-      this.logger.log(`Voice mode OFF for session ${chatSessionId} (client ${client.id})`);
+      this.logger.log(
+        `Voice mode OFF for session ${chatSessionId} (client ${client.id})`,
+      );
     }
   }
 
   @SubscribeMessage('voiceMessage')
   async handleVoiceMessage(
     @ConnectedSocket() client: Socket,
-    @MessageBody() data: { chatSessionId: string; audio: string; mimeType: string },
+    @MessageBody()
+    data: { chatSessionId: string; audio: string; mimeType: string },
   ) {
     const { chatSessionId, audio, mimeType } = data;
 
     try {
       // 1. Decode base64 audio
       const audioBuffer = Buffer.from(audio, 'base64');
-      this.logger.debug(`Voice: received ${audioBuffer.length} bytes from client ${client.id}`);
+      this.logger.debug(
+        `Voice: received ${audioBuffer.length} bytes from client ${client.id}`,
+      );
 
       // 2. Transcribe via STT
-      const transcription = await this.voiceService.transcribe(audioBuffer, mimeType);
+      const transcription = await this.voiceService.transcribe(
+        audioBuffer,
+        mimeType,
+      );
 
       if (!transcription.text) {
         this.server.to(`session:${chatSessionId}`).emit('voiceError', {
@@ -148,7 +166,9 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
       // Check room membership
       const roomName = `session:${chatSessionId}`;
       const roomSockets = await this.server.in(roomName).fetchSockets();
-      this.logger.debug(`Voice: room ${chatSessionId.slice(-8)} has ${roomSockets.length} clients`);
+      this.logger.debug(
+        `Voice: room ${chatSessionId.slice(-8)} has ${roomSockets.length} clients`,
+      );
 
       // 3. Send transcript to client
       this.server.to(`session:${chatSessionId}`).emit('voiceTranscript', {
@@ -177,7 +197,10 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
         content: transcription.text,
       });
     } catch (error) {
-      this.logger.error(`Voice message failed: ${error?.message ?? error}`, error?.stack);
+      this.logger.error(
+        `Voice message failed: ${error?.message ?? error}`,
+        error?.stack,
+      );
       this.server.to(`session:${chatSessionId}`).emit('voiceError', {
         chatSessionId,
         error: error?.message ?? 'Unknown voice error',
@@ -190,13 +213,20 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
     this.server.to(`session:${chatSessionId}`).emit(event, data);
 
     // Auto-TTS: When an agent message arrives and voice clients are active
-    if (event === 'newMessage' && data?.role && data.role !== 'USER' && data.content) {
+    if (
+      event === 'newMessage' &&
+      data?.role &&
+      data.role !== 'USER' &&
+      data.content
+    ) {
       const hasVoice = this.hasVoiceClients(chatSessionId);
       this.logger.debug(
         `Auto-TTS check: session=${chatSessionId.slice(-8)} role=${data.role} hasVoice=${hasVoice} contentLen=${data.content?.length}`,
       );
       if (hasVoice) {
-        this.logger.log(`Auto-TTS triggering for session ${chatSessionId.slice(-8)}`);
+        this.logger.log(
+          `Auto-TTS triggering for session ${chatSessionId.slice(-8)}`,
+        );
         this.streamTtsToSession(chatSessionId, data.content).catch((err) => {
           this.logger.error(`Auto-TTS failed: ${err.message}`);
         });

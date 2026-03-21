@@ -4,6 +4,7 @@ import { JwtModule } from '@nestjs/jwt';
 import { ConfigModule, ConfigService } from '@nestjs/config';
 import { KeycloakStrategy } from './keycloak.strategy';
 import { AuthGuard } from './auth.guard';
+import { WsJwtGuard } from './ws-jwt.guard';
 
 @Module({
   imports: [
@@ -16,7 +17,7 @@ import { AuthGuard } from './auth.guard';
       }),
     }),
   ],
-  providers: [KeycloakStrategy, AuthGuard],
-  exports: [AuthGuard, PassportModule],
+  providers: [KeycloakStrategy, AuthGuard, WsJwtGuard],
+  exports: [AuthGuard, WsJwtGuard, PassportModule],
 })
 export class AuthModule {}
