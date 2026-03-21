@@ -85,11 +85,24 @@ export async function postFindingsAsThreads(
   } = deps;
 
   // Filter out empty/broken findings that would create useless threads
-  const JUNK_MESSAGES = ['No details', 'No details.', 'Findings (nach Schweregrad)', 'Findings', 'CHANGES_REQUIRED', 'CHANGES REQUESTED'];
-  const validFindings = findings.filter(f => {
+  const JUNK_MESSAGES = [
+    'No details',
+    'No details.',
+    'Findings (nach Schweregrad)',
+    'Findings',
+    'CHANGES_REQUIRED',
+    'CHANGES REQUESTED',
+  ];
+  const validFindings = findings.filter((f) => {
     const msg = f.message?.trim() ?? '';
-    if (!msg || msg.length < 10 || JUNK_MESSAGES.some(j => msg.toLowerCase() === j.toLowerCase())) {
-      logger.warn(`Skipping empty/broken finding: [${f.severity}] "${msg}" — not posting as thread`);
+    if (
+      !msg ||
+      msg.length < 10 ||
+      JUNK_MESSAGES.some((j) => msg.toLowerCase() === j.toLowerCase())
+    ) {
+      logger.warn(
+        `Skipping empty/broken finding: [${f.severity}] "${msg}" — not posting as thread`,
+      );
       return false;
     }
     return true;
@@ -362,21 +375,29 @@ export async function syncFindingThreads(deps: {
   // OR if the finding is no longer present AND confirmedResolved is not provided (backward compat)
   let resolvedRecords: typeof previousThreads;
 
-  if (confirmedResolved && confirmedResolved.length > 0) {
+  if (confirmedResolved != null) {
+    // Strict mode: resolve ONLY explicitly confirmed threads (even if list is empty = nothing resolved)
     // Strict mode: Only resolve threads that the agent explicitly confirmed as fixed
     const confirmedMessages = new Set(
-      confirmedResolved.map((r) => r.message.toLowerCase().trim().substring(0, 60)),
+      confirmedResolved.map((r) =>
+        r.message.toLowerCase().trim().substring(0, 60),
+      ),
     );
     resolvedRecords = previousThreads.filter((t) => {
       // Match by message substring (agent may rephrase slightly)
       const threadMsg = t.message.toLowerCase().trim().substring(0, 60);
-      return confirmedMessages.has(threadMsg) ||
-        [...confirmedMessages].some((cm) => threadMsg.includes(cm) || cm.includes(threadMsg));
+      return (
+        confirmedMessages.has(threadMsg) ||
+        [...confirmedMessages].some(
+          (cm) => threadMsg.includes(cm) || cm.includes(threadMsg),
+        )
+      );
     });
 
     // Log threads that disappeared but weren't explicitly confirmed
     const disappeared = previousThreads.filter(
-      (t) => !currentFingerprints.has(t.fingerprint) && !resolvedRecords.includes(t),
+      (t) =>
+        !currentFingerprints.has(t.fingerprint) && !resolvedRecords.includes(t),
     );
     if (disappeared.length > 0) {
       logger.warn(
@@ -397,7 +418,9 @@ export async function syncFindingThreads(deps: {
       try {
         // Reply in the thread to document the verification
         await gitlabService.replyToMrDiscussion(
-          gitlabProjectId, mrIid, thread.discussionId,
+          gitlabProjectId,
+          mrIid,
+          thread.discussionId,
           `✅ **Verified fixed** (round ${roundNumber}) — this finding has been resolved.`,
         );
       } catch {
@@ -438,9 +461,7 @@ export async function syncFindingThreads(deps: {
 
   // 6. Combine still-unresolved previous + newly created
   const resolvedIds = new Set(resolvedRecords.map((t) => t.id));
-  const stillUnresolved = previousThreads.filter(
-    (t) => !resolvedIds.has(t.id),
-  );
+  const stillUnresolved = previousThreads.filter((t) => !resolvedIds.has(t.id));
   const activeThreads = [...stillUnresolved, ...newThreads];
 
   return { activeThreads, resolvedThreads: resolvedRecords, newThreads };

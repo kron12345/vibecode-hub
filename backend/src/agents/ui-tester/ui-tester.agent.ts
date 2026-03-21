@@ -1119,9 +1119,16 @@ Use this exact format for each:
       }
     }
 
+    // When falling back to a different provider, use an appropriate model
+    let model = config.model;
+    if (provider === 'OLLAMA' && !model.startsWith('llava') && !model.startsWith('qwen')) {
+      model = 'llava:13b'; // Default multimodal Ollama model
+      this.logger.log(`Visual analysis: using ${model} for Ollama multimodal (original: ${config.model})`);
+    }
+
     const result = await this.llmService.complete({
       provider,
-      model: config.model,
+      model,
       messages: [{ role: 'user', content: contentParts }],
       temperature: 0.2,
       maxTokens: config.parameters.maxTokens,

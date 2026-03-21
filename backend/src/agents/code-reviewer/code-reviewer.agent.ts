@@ -779,15 +779,13 @@ ${
         }
 
         // Strategy 3: If ALL findings are STILL "No details" after repair,
-        // this review is useless — don't send empty findings to the Coder
+        // the review output is unusable — treat as parse failure, NOT auto-approve
         const finallyEmpty = findings.filter((f) => f.message === 'No details');
         if (finallyEmpty.length === findings.length && findings.length > 0) {
           this.logger.warn(
             `All ${findings.length} findings have "No details" after repair attempts — treating as parse failure`,
           );
-          // Remove the empty findings so rule-based approval kicks in (0 findings = approve)
-          // This prevents the Coder from getting useless "No details" feedback
-          findings.length = 0;
+          return this.buildResultFromText(cleaned, issueId, mrIid);
         }
       }
 
