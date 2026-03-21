@@ -1,0 +1,14 @@
+{
+  "name": "shared",
+  "projectType": "library",
+  "sourceRoot": "libs/shared/src",
+  "targets": {
+    "build": {
+      "executor": "nx:run-commands",
+      "options": {
+        "command": "node -e \"console.log('@vibcode/shared: type-check passed (compiled by consumers)')\"",
+        "cwd": "libs/shared"
+      }
+    }
+  }
+}

@@ -39,5 +39,11 @@ coverage/
 backend/workspaces/
 .session-worktrees/
 
+# NX
+.nx/
+
+# Shared lib build output
+libs/shared/dist/
+
 # Temp
 /tmp/

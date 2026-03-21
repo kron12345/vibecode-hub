@@ -1,0 +1,17 @@
+{
+  "name": "vibcode-hub",
+  "version": "1.0.0",
+  "private": true,
+  "scripts": {
+    "build": "npx nx run-many -t build",
+    "build:backend": "npx nx build backend",
+    "build:frontend": "npx nx build frontend",
+    "serve:backend": "npx nx serve backend",
+    "serve:frontend": "npx nx serve frontend",
+    "test": "npx nx run-many -t test",
+    "lint": "npx nx run-many -t lint"
+  },
+  "devDependencies": {
+    "nx": "^21.4.0"
+  }
+}

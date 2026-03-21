@@ -1,0 +1,10 @@
+{
+  "compileOnSave": false,
+  "compilerOptions": {
+    "skipLibCheck": true,
+    "paths": {
+      "@vibcode/shared": ["./libs/shared/src/index.ts"],
+      "@vibcode/shared/*": ["./libs/shared/src/*"]
+    }
+  }
+}

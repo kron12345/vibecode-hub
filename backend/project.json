@@ -1,0 +1,35 @@
+{
+  "name": "backend",
+  "projectType": "application",
+  "sourceRoot": "backend/src",
+  "targets": {
+    "build": {
+      "executor": "nx:run-commands",
+      "options": {
+        "command": "npx nest build",
+        "cwd": "backend"
+      }
+    },
+    "serve": {
+      "executor": "nx:run-commands",
+      "options": {
+        "command": "npm run start:dev",
+        "cwd": "backend"
+      }
+    },
+    "test": {
+      "executor": "nx:run-commands",
+      "options": {
+        "command": "npx jest",
+        "cwd": "backend"
+      }
+    },
+    "lint": {
+      "executor": "nx:run-commands",
+      "options": {
+        "command": "npx eslint \"{src,test}/**/*.ts\"",
+        "cwd": "backend"
+      }
+    }
+  }
+}

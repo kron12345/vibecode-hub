@@ -1,0 +1,37 @@
+{
+  "name": "frontend",
+  "projectType": "application",
+  "sourceRoot": "frontend/src",
+  "targets": {
+    "build": {
+      "executor": "nx:run-commands",
+      "options": {
+        "command": "npx ng build",
+        "cwd": "frontend"
+      },
+      "configurations": {
+        "production": {
+          "command": "npx ng build --configuration production"
+        },
+        "development": {
+          "command": "npx ng build --configuration development"
+        }
+      },
+      "defaultConfiguration": "production"
+    },
+    "serve": {
+      "executor": "nx:run-commands",
+      "options": {
+        "command": "npx ng serve",
+        "cwd": "frontend"
+      }
+    },
+    "test": {
+      "executor": "nx:run-commands",
+      "options": {
+        "command": "npx ng test",
+        "cwd": "frontend"
+      }
+    }
+  }
+}
