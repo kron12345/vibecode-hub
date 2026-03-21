@@ -187,9 +187,9 @@ describe('extractLastAgentFindings', () => {
   it('returns empty array for unrecognized agent name', () => {
     const history = '## Some content';
     // Cast to bypass type check for edge case test
-    expect(
-      extractLastAgentFindings(history, 'Unknown Agent' as any),
-    ).toEqual([]);
+    expect(extractLastAgentFindings(history, 'Unknown Agent' as any)).toEqual(
+      [],
+    );
   });
 });
 

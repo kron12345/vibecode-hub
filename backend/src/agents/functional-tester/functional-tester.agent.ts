@@ -22,7 +22,6 @@ import {
 import {
   buildArchitectScopeGuardSection,
   extractArchitectOutOfScopeItems,
-  filterOutOfScopeFindings,
 } from '../agent-scope.utils';
 import {
   syncFindingThreads,
@@ -30,16 +29,14 @@ import {
   FindingForThread,
 } from '../finding-thread.utils';
 import {
-  stripThinkTags,
-  cleanJsonString,
-  extractJson,
-  normalizePass,
-  normalizeSeverity,
-} from '../agent-result-parser';
-import {
   FunctionalTestResult,
   FunctionalTestFinding,
 } from './functional-test-result.interface';
+import {
+  parseTestResult,
+  applyArchitectScopeFilter,
+  matchFindingToSubIssue,
+} from './functional-tester-result';
 import {
   AgentRole,
   AgentStatus,
@@ -138,7 +135,7 @@ export class FunctionalTesterAgent extends BaseAgent {
         )
         .join('\n');
 
-      // Format diffs (same pattern as Code Reviewer)
+      // Format diffs
       const MAX_DIFFS = 25;
       const MAX_DIFF_CHARS = 2000;
       const reviewDiffs = diffs.slice(0, MAX_DIFFS);
@@ -173,7 +170,7 @@ export class FunctionalTesterAgent extends BaseAgent {
       const scopeGuardSection =
         buildArchitectScopeGuardSection(outOfScopeItems);
 
-      // Inject project knowledge base for context (Wiki-First)
+      // Inject project knowledge base (Wiki-First)
       const project = await this.prisma.project.findUnique({
         where: { id: ctx.projectId },
         select: { slug: true, gitlabProjectId: true },
@@ -204,7 +201,6 @@ export class FunctionalTesterAgent extends BaseAgent {
               .join('\n\n')}\n`
           : '';
 
-      // Extract Loop Resolver clarifications (if any) — must be respected by tester
       const loopResolverSection =
         extractLoopResolverClarifications(commentHistory);
 
@@ -234,7 +230,7 @@ ${COMPLETION_MARKER}
 \`\`\`
 Do NOT omit the JSON block.`;
 
-      // Try MCP agent loop (with shell access) if workspace exists, else fallback to plain LLM
+      // Try MCP agent loop (with shell access) if workspace exists
       let resultContent: string;
 
       const mcpServers = workspace
@@ -280,7 +276,7 @@ Do NOT omit the JSON block.`;
           `MCP loop: ${mcpResult.iterations} iterations, ${mcpResult.toolCallsExecuted} tool calls`,
         );
       } else {
-        // Fallback: plain LLM call (no shell access)
+        // Fallback: plain LLM call
         const messages: LlmMessage[] = [
           { role: 'system', content: systemPrompt },
           { role: 'user', content: userPrompt },
@@ -301,7 +297,7 @@ Do NOT omit the JSON block.`;
       }
 
       // Parse test result
-      let testResult = this.parseTestResult(resultContent, issueId);
+      let testResult = parseTestResult(resultContent, issueId);
 
       // Retry JSON extraction if parsing returned 0 findings but response was substantial
       if (
@@ -315,7 +311,7 @@ Do NOT omit the JSON block.`;
           '{"passed": true/false, "summary": "...", "findings": [{"criterion": "...", "passed": true/false, "details": "...", "severity": "info|warning|critical"}]}',
         );
         if (retryJson) {
-          const retried = this.parseTestResult(retryJson, issueId);
+          const retried = parseTestResult(retryJson, issueId);
           if (retried && retried.findings.length > 0) {
             this.logger.log(
               `JSON retry recovered ${retried.findings.length} findings`,
@@ -333,7 +329,7 @@ Do NOT omit the JSON block.`;
           '{"passed": true/false, "summary": "...", "findings": [{"criterion": "...", "passed": true/false, "details": "...", "severity": "info|warning|critical"}]}',
         );
         if (retryJson) {
-          testResult = this.parseTestResult(retryJson, issueId);
+          testResult = parseTestResult(retryJson, issueId);
           if (testResult) {
             this.logger.log(
               `JSON retry recovered full result (${testResult.findings.length} findings)`,
@@ -356,8 +352,8 @@ Do NOT omit the JSON block.`;
         return;
       }
 
-      // Enforce Architect out-of-scope constraints server-side to avoid false FAIL loops.
-      testResult = this.applyArchitectScopeFilter(testResult, outOfScopeItems);
+      // Enforce Architect out-of-scope constraints
+      testResult = applyArchitectScopeFilter(testResult, outOfScopeItems);
 
       // ─── Finding Threads: Post findings as MR discussion threads ───
       const failedFindings = testResult.findings.filter((f) => !f.passed);
@@ -402,7 +398,7 @@ Do NOT omit the JSON block.`;
         await this.updateSubIssueStatuses(issue.subIssues, testResult.findings);
       }
 
-      // Post unified comment (same rich markdown for local + GitLab)
+      // Post unified comment
       const testMarkdown = buildIssueSummaryWithThreadLinks({
         agentName: 'Functional Test',
         approved: testResult.passed,
@@ -552,14 +548,14 @@ Do NOT omit the JSON block.`;
 
   /**
    * Match functional test findings to sub-issues by title similarity
-   * and update each sub-issue's status: passed → DONE, failed → NEEDS_REVIEW.
+   * and update each sub-issue's status.
    */
   private async updateSubIssueStatuses(
     subIssues: { id: string; title: string }[],
     findings: FunctionalTestFinding[],
   ): Promise<void> {
     for (const sub of subIssues) {
-      const match = this.matchFindingToSubIssue(sub.title, findings);
+      const match = matchFindingToSubIssue(sub.title, findings);
       if (!match) continue;
 
       const newStatus = match.passed
@@ -582,260 +578,7 @@ Do NOT omit the JSON block.`;
     }
   }
 
-  /**
-   * Find the best matching finding for a sub-issue title using fuzzy matching.
-   * Returns the finding or null if no reasonable match exists.
-   */
-  private matchFindingToSubIssue(
-    subTitle: string,
-    findings: FunctionalTestFinding[],
-  ): FunctionalTestFinding | null {
-    const subLower = subTitle.toLowerCase().trim();
-    const subWords = subLower.split(/\s+/).filter((w) => w.length > 2);
-
-    let bestMatch: FunctionalTestFinding | null = null;
-    let bestScore = 0;
-
-    for (const finding of findings) {
-      const criterionLower = finding.criterion.toLowerCase().trim();
-
-      // Exact match
-      if (criterionLower === subLower) return finding;
-
-      // One contains the other
-      if (
-        criterionLower.includes(subLower) ||
-        subLower.includes(criterionLower)
-      ) {
-        return finding;
-      }
-
-      // Word overlap scoring
-      const criterionWords = criterionLower
-        .split(/\s+/)
-        .filter((w) => w.length > 2);
-      const overlap = subWords.filter((w) =>
-        criterionWords.some((cw) => cw.includes(w) || w.includes(cw)),
-      );
-      const score = overlap.length / Math.max(subWords.length, 1);
-
-      if (score > bestScore && score >= 0.5) {
-        bestScore = score;
-        bestMatch = finding;
-      }
-    }
-
-    return bestMatch;
-  }
-
-  // ─── Parsing ──────────────────────────────────────────────
-
-  private parseTestResult(
-    content: string,
-    issueId: string,
-  ): FunctionalTestResult | null {
-    this.logger.debug(
-      `Parsing functional test result (${content.length} chars)`,
-    );
-
-    if (!content.trim()) return null;
-
-    // Strip <think> tags
-    const cleaned = stripThinkTags(content);
-
-    // Extract JSON
-    const jsonStr = extractJson(cleaned, COMPLETION_MARKER);
-
-    if (!jsonStr) {
-      this.logger.warn('No JSON found — building from text');
-      return this.buildResultFromText(cleaned, issueId);
-    }
-
-    try {
-      const fixed = cleanJsonString(jsonStr);
-
-      const parsed = JSON.parse(fixed);
-      const findings = this.parseFindings(
-        parsed.findings || parsed.criteria || parsed.tests || [],
-      );
-
-      // Inconclusive findings don't block — only definitive failures count
-      const definitiveFindings = findings.filter(
-        (f) => f.conclusiveness !== 'inconclusive',
-      );
-      const hasCritical = definitiveFindings.some(
-        (f) => f.severity === 'critical',
-      );
-      const hasDefinitiveFailure = definitiveFindings.some((f) => !f.passed);
-
-      // Use LLM verdict as base, but override if only inconclusive failures remain
-      let passed = normalizePass(parsed);
-      if (!passed && !hasCritical && !hasDefinitiveFailure) {
-        // All failures are inconclusive — override to pass with warnings
-        passed = true;
-        this.logger.log('All failures are inconclusive — overriding to PASS');
-      }
-
-      let summary = parsed.summary || '';
-      if (!summary || summary.length < 5) {
-        summary = passed
-          ? `All acceptance criteria verified (${findings.length} finding(s))`
-          : `Functional test failed (${findings.filter((f) => !f.passed).length} criterion/a not met)`;
-      }
-
-      // Extract roundNumber and previouslyFailedResolved
-      const roundNumber =
-        typeof parsed.roundNumber === 'number' ? parsed.roundNumber : undefined;
-      const previouslyFailedResolved = Array.isArray(
-        parsed.previouslyFailedResolved,
-      )
-        ? parsed.previouslyFailedResolved.map((r: any) => ({
-            criterion: String(r.criterion ?? ''),
-            previousObservation: String(r.previousObservation ?? ''),
-            currentObservation: String(r.currentObservation ?? ''),
-            resolved: typeof r.resolved === 'boolean' ? r.resolved : true,
-          }))
-        : undefined;
-
-      const result: FunctionalTestResult = {
-        issueId,
-        passed,
-        findings,
-        summary,
-        testsRun: parsed.testsRun ?? findings.length,
-        testsPassed:
-          parsed.testsPassed ?? findings.filter((f) => f.passed).length,
-        roundNumber,
-        previouslyFailedResolved,
-      };
-
-      this.logger.log(
-        `Parsed functional test: passed=${result.passed}, findings=${result.findings.length}`,
-      );
-      return result;
-    } catch (err) {
-      this.logger.error(`JSON parse failed: ${err.message}`);
-      return this.buildResultFromText(cleaned, issueId);
-    }
-  }
-
-  private parseFindings(raw: any): FunctionalTestFinding[] {
-    if (!Array.isArray(raw)) return [];
-    return raw
-      .filter((f: any) => f && typeof f === 'object')
-      .map((f: any) => ({
-        criterion: String(f.criterion ?? f.name ?? f.test ?? 'Unknown'),
-        passed: typeof f.passed === 'boolean' ? f.passed : f.status === 'pass',
-        details: String(
-          f.details ?? f.description ?? f.message ?? 'No details',
-        ),
-        severity: normalizeSeverity(f.severity),
-        conclusiveness:
-          f.conclusiveness === 'inconclusive' ? 'inconclusive' : 'definitive',
-        expectedEvidence: f.expectedEvidence
-          ? String(f.expectedEvidence)
-          : undefined,
-        actualEvidence: f.actualEvidence ? String(f.actualEvidence) : undefined,
-        firstFailedRound:
-          typeof f.firstFailedRound === 'number'
-            ? f.firstFailedRound
-            : undefined,
-        status: ['new', 'resolved', 'unresolved', 'blocked'].includes(f.status)
-          ? f.status
-          : undefined,
-      }));
-  }
-
-  private buildResultFromText(
-    text: string,
-    issueId: string,
-  ): FunctionalTestResult {
-    const lower = text.toLowerCase();
-
-    // Look for strong conclusion patterns (last few lines matter most)
-    const lastLines = lower.split('\n').slice(-10).join(' ');
-
-    // Strong fail: explicit "test failed", "not passed", "result: fail"
-    const strongFail =
-      /\b(test(s)?\s+(have\s+)?failed|result:\s*fail|verdict:\s*fail|overall:\s*fail|not\s+passed)\b/.test(
-        lastLines,
-      );
-    // Strong pass: explicit "test passed", "all.*pass", "result: pass"
-    const strongPass =
-      /\b(test(s)?\s+(have\s+)?passed|all\s+.*pass|result:\s*pass|verdict:\s*pass|overall:\s*pass)\b/.test(
-        lastLines,
-      );
-
-    // If ambiguous or no clear signal, default to PASS (prevents infinite loops)
-    const passed = strongFail ? false : true;
-
-    // Extract any bullet points as pseudo-findings
-    const findings: FunctionalTestFinding[] = [];
-    const bulletMatches = text.match(/^[-*]\s+.+/gm) || [];
-    for (const bullet of bulletMatches.slice(0, 10)) {
-      const bulletLower = bullet.toLowerCase();
-      const isFail = /fail|not met|missing|broken|error/i.test(bulletLower);
-      findings.push({
-        criterion: bullet.replace(/^[-*]\s+/, '').substring(0, 200),
-        passed: !isFail,
-        details: 'Extracted from text response',
-        severity: isFail ? 'warning' : 'info',
-      });
-    }
-
-    const summary = strongFail
-      ? 'Functional test failed (parsed from text)'
-      : strongPass
-        ? 'Functional test passed (parsed from text)'
-        : 'Functional test passed (no clear failure detected — defaulting to pass)';
-
-    this.logger.log(
-      `buildResultFromText: strongPass=${strongPass}, strongFail=${strongFail}, passed=${passed}, findings=${findings.length}`,
-    );
-
-    return { issueId, passed, findings, summary };
-  }
-
   // ─── Diff Fetching ──────────────────────────────────────
-
-  private applyArchitectScopeFilter(
-    testResult: FunctionalTestResult,
-    outOfScopeItems: string[],
-  ): FunctionalTestResult {
-    if (outOfScopeItems.length === 0 || testResult.findings.length === 0) {
-      return testResult;
-    }
-
-    const { filtered, removedCount } = filterOutOfScopeFindings(
-      testResult.findings,
-      outOfScopeItems,
-      (f) => `${f.criterion} ${f.details}`,
-    );
-
-    if (removedCount === 0) return testResult;
-
-    const hasCritical = filtered.some((f) => f.severity === 'critical');
-    const hasFailedCriterion = filtered.some((f) => !f.passed);
-    const passed = !hasCritical && !hasFailedCriterion;
-
-    this.logger.log(
-      `Architect scope filter removed ${removedCount} functional finding(s) as out-of-scope`,
-    );
-
-    const summarySuffix = `Architect scope filter ignored ${removedCount} out-of-scope finding(s).`;
-    const summary = testResult.summary
-      ? `${testResult.summary} ${summarySuffix}`
-      : summarySuffix;
-
-    return {
-      ...testResult,
-      passed,
-      findings: filtered,
-      summary,
-      testsRun: filtered.length,
-      testsPassed: filtered.filter((f) => f.passed).length,
-    };
-  }
 
   private async fetchDiffsWithRetry(
     gitlabProjectId: number,
@@ -880,7 +623,6 @@ Do NOT omit the JSON block.`;
         `Functional test failed: ${reason}`,
       );
 
-      // Emit failure event so orchestrator can pause the pipeline
       this.eventEmitter.emit('agent.taskFailed', {
         projectId: ctx.projectId,
         chatSessionId: ctx.chatSessionId,

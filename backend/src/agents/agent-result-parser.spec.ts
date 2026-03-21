@@ -123,7 +123,8 @@ describe('extractJson', () => {
 
   describe('Strategy 2: code fence', () => {
     it('extracts JSON from code fence', () => {
-      const content = 'Analysis complete:\n```json\n{"passed": true, "findings": []}\n```';
+      const content =
+        'Analysis complete:\n```json\n{"passed": true, "findings": []}\n```';
       const result = extractJson(content);
       expect(result).toBe('{"passed": true, "findings": []}');
     });
@@ -292,9 +293,9 @@ describe('normalizeApproval', () => {
   });
 
   it('prefers approved over decision', () => {
-    expect(
-      normalizeApproval({ approved: false, decision: 'approve' }),
-    ).toBe(false);
+    expect(normalizeApproval({ approved: false, decision: 'approve' })).toBe(
+      false,
+    );
   });
 });
 

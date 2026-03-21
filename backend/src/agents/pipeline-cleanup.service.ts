@@ -8,11 +8,7 @@ import { PrismaService } from '../prisma/prisma.service';
 import { SystemSettingsService } from '../settings/system-settings.service';
 import { ChatService } from '../chat/chat.service';
 import { ChatGateway } from '../chat/chat.gateway';
-import {
-  AgentTaskStatus,
-  AgentStatus,
-  IssueStatus,
-} from '@prisma/client';
+import { AgentTaskStatus, AgentStatus, IssueStatus } from '@prisma/client';
 
 /** Default: tasks with no activity for > 30 minutes are considered stuck */
 const DEFAULT_INACTIVITY_TIMEOUT_MINUTES = 30;
@@ -56,7 +52,9 @@ export class PipelineCleanupService implements OnModuleInit, OnModuleDestroy {
         data: { status: AgentTaskStatus.COMPLETED, completedAt: new Date() },
       });
       if (result.count > 0) {
-        this.logger.warn(`Marked ${result.count} running task(s) as COMPLETED during shutdown`);
+        this.logger.warn(
+          `Marked ${result.count} running task(s) as COMPLETED during shutdown`,
+        );
       }
     } catch (err) {
       this.logger.error(`Shutdown task cleanup failed: ${err.message}`);
@@ -131,7 +129,13 @@ export class PipelineCleanupService implements OnModuleInit, OnModuleDestroy {
       await this.prisma.issue.updateMany({
         where: {
           id: { in: zombieIssueIds },
-          status: { in: [IssueStatus.IN_PROGRESS, IssueStatus.IN_REVIEW, IssueStatus.TESTING] },
+          status: {
+            in: [
+              IssueStatus.IN_PROGRESS,
+              IssueStatus.IN_REVIEW,
+              IssueStatus.TESTING,
+            ],
+          },
         },
         data: { status: IssueStatus.OPEN },
       });

@@ -48,7 +48,10 @@ export function sanitizeJsonOutput(obj: unknown): unknown {
     return JSON.parse(cleaned);
   } catch {
     // If stringify or parse fails, return a safe fallback
-    return { error: 'Output could not be serialized to JSON', type: typeof obj };
+    return {
+      error: 'Output could not be serialized to JSON',
+      type: typeof obj,
+    };
   }
 }
 

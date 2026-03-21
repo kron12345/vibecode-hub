@@ -39,9 +39,7 @@ export function buildCiYml(rawFramework: string, rawLanguage: string): string {
 
   // Angular / React / Vue / Node projects
   if (
-    ['angular', 'react', 'vue', 'next', 'nuxt', 'svelte'].includes(
-      framework,
-    ) ||
+    ['angular', 'react', 'vue', 'next', 'nuxt', 'svelte'].includes(framework) ||
     ['typescript', 'javascript'].includes(language)
   ) {
     return `stages:

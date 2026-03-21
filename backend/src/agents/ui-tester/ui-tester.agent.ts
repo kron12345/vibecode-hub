@@ -6,7 +6,7 @@ import { ChatService } from '../../chat/chat.service';
 import { ChatGateway } from '../../chat/chat.gateway';
 import { LlmService } from '../../llm/llm.service';
 import { GitlabService } from '../../gitlab/gitlab.service';
-import { LlmMessage, LlmContentPart } from '../../llm/llm.interfaces';
+import { LlmMessage } from '../../llm/llm.interfaces';
 import { BaseAgent, AgentContext, sanitizeJsonOutput } from '../agent-base';
 import { loadPrompt } from '../prompt-loader';
 import { MonitorGateway } from '../../monitor/monitor.gateway';
@@ -14,39 +14,30 @@ import { McpAgentLoopService } from '../../mcp/mcp-agent-loop.service';
 import { McpRegistryService } from '../../mcp/mcp-registry.service';
 import { DualTestService } from '../dual-test.service';
 import {
-  postAgentComment,
   getAgentCommentHistory,
-  extractLastAgentFindings,
-  extractLoopResolverClarifications,
 } from '../agent-comment.utils';
 import {
-  syncFindingThreads,
-  buildIssueSummaryWithThreadLinks,
-  FindingForThread,
-} from '../finding-thread.utils';
-import {
-  buildArchitectScopeGuardSection,
   extractArchitectOutOfScopeItems,
-  filterOutOfScopeFindings,
 } from '../agent-scope.utils';
+import { UiTestResult } from './ui-test-result.interface';
+import { PlaywrightRunner } from './playwright-runner';
 import {
-  stripThinkTags,
-  cleanJsonString,
-  extractJson,
-  normalizePass,
-  normalizeSeverity,
-} from '../agent-result-parser';
+  analyzeScreenshots,
+  updateManifestDescriptions,
+  formatBrowserData,
+  extractRoutesFromDiffs,
+  collectAndSaveScreenshots,
+  fetchDiffsWithRetry,
+  buildUserPrompt,
+} from './ui-tester-analysis';
 import {
-  UiTestResult,
-  UiTestFinding,
-  ScreenshotManifest,
-} from './ui-test-result.interface';
-import { PlaywrightRunner, PageCapture, A11yResult } from './playwright-runner';
-import * as fs from 'fs/promises';
-import * as path from 'path';
+  parseTestResult,
+  applyArchitectScopeFilter,
+  buildFailureFeedback,
+  dualTestFindingKey,
+  postFindingThreadsAndComment,
+} from './ui-tester-result';
 import { AgentRole, AgentStatus, AgentTaskStatus } from '@prisma/client';
-
-const COMPLETION_MARKER = ':::UI_TEST_COMPLETE:::';
 
 const DEFAULT_SYSTEM_PROMPT = loadPrompt('ui-tester');
 
@@ -128,11 +119,8 @@ export class UiTesterAgent extends BaseAgent {
       );
 
       // Get MR diffs
-      const diffs = await this.fetchDiffsWithRetry(
-        gitlabProjectId,
-        mrIid,
-        3,
-        5000,
+      const diffs = await fetchDiffsWithRetry(
+        this.gitlabService, gitlabProjectId, mrIid, 3, 5000,
       );
 
       // Determine preview URL
@@ -142,98 +130,23 @@ export class UiTesterAgent extends BaseAgent {
           ? `https://${project.slug}.${previewDomain}`
           : null;
 
+      // ─── Browser capture phase ─────────────────────────────
       let browserData = '';
       let screenshotImages: Array<{ base64: string; label: string }> = [];
       let screenshotManifestPath: string | undefined;
 
       if (previewUrl) {
-        // Playwright-based testing
-        const runner = await this.ensurePlaywright();
-
-        if (runner) {
-          await this.sendAgentMessage(
-            ctx,
-            `Running browser tests against ${previewUrl}...`,
-          );
-
-          // Extract routes from diffs (look for route definitions in changed files)
-          const routes = this.extractRoutesFromDiffs(diffs);
-          if (routes.length === 0) routes.push('/'); // Always test root
-
-          // Capture pages
-          const captures = await runner.capturePages(previewUrl, routes);
-
-          // Accessibility check on main route
-          const a11y = await runner.checkAccessibility(previewUrl, routes[0]);
-
-          // Responsive check on main route
-          const responsive = await runner.checkResponsive(
-            previewUrl,
-            routes[0],
-          );
-
-          browserData = this.formatBrowserData(captures, a11y, responsive);
-
-          // Save screenshots as PNGs + collect base64 for multimodal LLM
-          const resolvedWorkspace = project?.slug
-            ? await this.resolveWorkspace(project.slug, ctx.chatSessionId)
-            : '';
-          if (resolvedWorkspace) {
-            try {
-              const saved = await runner.saveScreenshots(
-                resolvedWorkspace,
-                issueId,
-                captures,
-                responsive,
-              );
-
-              // Collect images for multimodal LLM analysis (limit to 6 images to avoid token explosion)
-              for (const capture of captures) {
-                if (capture.screenshotBase64) {
-                  screenshotImages.push({
-                    base64: capture.screenshotBase64,
-                    label: `${capture.route} — desktop (1440x900)`,
-                  });
-                }
-              }
-              if (responsive?.captures) {
-                for (const rc of responsive.captures) {
-                  if (rc.screenshotBase64) {
-                    screenshotImages.push({
-                      base64: rc.screenshotBase64,
-                      label: `${responsive.route} — ${rc.viewport} (${rc.width}x${rc.height})`,
-                    });
-                  }
-                }
-              }
-              screenshotImages = screenshotImages.slice(0, 6);
-
-              // Save initial manifest (descriptions filled in after LLM analysis)
-              screenshotManifestPath = path.join(saved.dir, 'manifest.json');
-              const manifest: ScreenshotManifest = {
-                issueId,
-                issueTitle: issue.title,
-                capturedAt: new Date().toISOString(),
-                screenshotDir: saved.dir,
-                screenshots: saved.files.map((f) => ({
-                  file: f.file,
-                  route: f.route,
-                  viewport: f.viewport,
-                  description: '', // Will be filled by LLM
-                })),
-              };
-              await fs.writeFile(
-                screenshotManifestPath,
-                JSON.stringify(manifest, null, 2),
-              );
-              this.logger.log(
-                `Screenshots saved: ${saved.files.length} files, manifest at ${screenshotManifestPath}`,
-              );
-            } catch (err) {
-              this.logger.warn(`Failed to save screenshots: ${err.message}`);
-            }
-          }
-        }
+        const result = await this.capturePreview(
+          ctx,
+          previewUrl,
+          diffs,
+          project,
+          issue,
+          issueId,
+        );
+        browserData = result.browserData;
+        screenshotImages = result.screenshotImages;
+        screenshotManifestPath = result.screenshotManifestPath;
       }
 
       if (!browserData && screenshotImages.length === 0) {
@@ -243,47 +156,18 @@ export class UiTesterAgent extends BaseAgent {
         );
       }
 
-      // Build LLM prompt
+      // ─── Build LLM prompt ─────────────────────────────────
       const config = this.getRoleConfig();
       const systemPrompt = config.systemPrompt || DEFAULT_SYSTEM_PROMPT;
 
-      const MAX_DIFFS = 20;
-      const MAX_DIFF_CHARS = 2000;
-      const reviewDiffs = diffs
-        .filter((d) =>
-          /\.(html|css|scss|tsx|jsx|ts|js|vue|svelte|java)$/.test(d.new_path),
-        )
-        .slice(0, MAX_DIFFS);
-
-      const diffText = reviewDiffs
-        .map((d) => {
-          const prefix = d.new_file
-            ? '[NEW]'
-            : d.deleted_file
-              ? '[DELETED]'
-              : '[MODIFIED]';
-          const truncated =
-            d.diff.length > MAX_DIFF_CHARS
-              ? d.diff.substring(0, MAX_DIFF_CHARS) + '\n... (truncated)'
-              : d.diff;
-          return `### ${prefix} ${d.new_path}\n\`\`\`diff\n${truncated}\n\`\`\``;
-        })
-        .join('\n\n');
-
-      // Inject previous agent comments as context
       const commentHistory = await getAgentCommentHistory({
         prisma: this.prisma,
         issueId,
         maxChars: this.getMaxHistoryChars(),
       });
-      const historySection = commentHistory
-        ? `\n## Previous Agent Comments on this Issue\n${commentHistory}\n`
-        : '';
       const outOfScopeItems = extractArchitectOutOfScopeItems(commentHistory);
-      const scopeGuardSection =
-        buildArchitectScopeGuardSection(outOfScopeItems);
 
-      // ─── Visual Analysis: send screenshots to multimodal LLM ──────
+      // Visual screenshot analysis
       let visualAnalysis = '';
       if (screenshotImages.length > 0) {
         try {
@@ -291,15 +175,15 @@ export class UiTesterAgent extends BaseAgent {
             ctx,
             `Analyzing ${screenshotImages.length} screenshots visually...`,
           );
-          visualAnalysis = await this.analyzeScreenshots(
+          visualAnalysis = await analyzeScreenshots(
+            this.llmService,
+            this.settings,
             config,
             screenshotImages,
             issue.title,
           );
-
-          // Update manifest with descriptions from visual analysis
           if (screenshotManifestPath) {
-            await this.updateManifestDescriptions(
+            await updateManifestDescriptions(
               screenshotManifestPath,
               visualAnalysis,
             );
@@ -309,60 +193,23 @@ export class UiTesterAgent extends BaseAgent {
         }
       }
 
-      // Build structured previous findings section (Expectation Pattern memory)
-      const previousFindings = extractLastAgentFindings(
+      const userPrompt = buildUserPrompt(
+        issue,
+        previewUrl,
+        diffs,
         commentHistory,
-        'UI Tester',
+        outOfScopeItems,
+        browserData,
+        visualAnalysis,
       );
-      const previousFindingsSection =
-        previousFindings.length > 0
-          ? `\n## YOUR Previous UI Test Findings — Re-Evaluate Each One\n${previousFindings
-              .map(
-                (f, i) =>
-                  `${i + 1}. [${(f.severity ?? 'warning').toUpperCase()}] ${f.message}\n   → NOW CHECK: is this still present in the current code/screenshots?`,
-              )
-              .join(
-                '\n',
-              )}\n\nFor each finding above: if fixed, report in \`resolvedFromPrevious\`. If still present, carry forward with SAME description.\n`
-          : '';
 
-      const loopResolverSection =
-        extractLoopResolverClarifications(commentHistory);
-
-      const userPrompt = `Analyze the UI changes in this merge request${previousFindings.length > 0 ? ' (Re-test after fix attempt)' : ''}:
-
-**Issue:** ${issue.title}
-**Description:** ${issue.description || 'N/A'}
-${previewUrl ? `**Preview URL:** ${previewUrl}` : ''}
-${loopResolverSection ? `\n${loopResolverSection}\n` : ''}${previousFindingsSection}${historySection}
-${scopeGuardSection}
-## Code Changes (${reviewDiffs.length} UI-related file(s)):
-
-${diffText || '_No UI-related files changed._'}
-
-${browserData ? `## Browser Test Results:\n\n${browserData}` : ''}
-${visualAnalysis ? `## Visual Screenshot Analysis:\n\n${visualAnalysis}` : ''}
-
-${
-  previousFindings.length > 0
-    ? 'IMPORTANT: First address each item in "YOUR Previous UI Test Findings" above, then check for new issues.'
-    : 'Analyze the UI changes for layout, responsiveness, accessibility, visual quality, and interactions.'
-}
-
-IMPORTANT: You MUST end your response with the JSON result in this EXACT format:
-${COMPLETION_MARKER}
-\`\`\`json
-{"passed": true/false, "summary": "...", "pagesChecked": 0, "roundNumber": 1, "findings": [{"type": "layout|responsive|accessibility|visual|interaction", "page": "/path", "description": "...", "severity": "info/warning/critical", "expectedState": "...", "observedState": "...", "status": "new|unresolved|blocked"}]}
-\`\`\`
-Do NOT omit the JSON block.`;
-
-      // Resolve workspace for MCP agent loop
+      // ─── Execute LLM (MCP or dual) ────────────────────────
       const workspace = project?.slug
         ? await this.resolveWorkspace(project.slug, ctx.chatSessionId)
         : '';
 
-      // Try MCP agent loop (with shell access) if workspace exists, else fallback to dual LLM
-      let resultContent: string;
+      let resultContent = '';
+      let testResult: UiTestResult | null = null;
 
       const mcpServers = workspace
         ? await this.mcpRegistry.resolveServersForRole(AgentRole.UI_TESTER, {
@@ -373,322 +220,76 @@ Do NOT omit the JSON block.`;
         : [];
 
       if (mcpServers.length > 0 && workspace) {
-        this.logger.log(
-          `Using MCP agent loop with ${mcpServers.length} servers (workspace: ${workspace})`,
+        const mcpContent = await this.runMcpLoop(
+          ctx, config, systemPrompt, userPrompt, mcpServers, workspace,
         );
-        await this.sendAgentMessage(
-          ctx,
-          `Running UI tests with shell access (${mcpServers.length} MCP tools)...`,
-        );
-
-        const mcpResult = await this.mcpAgentLoop.run({
-          provider: config.provider,
-          model: config.model,
-          systemPrompt,
-          userPrompt,
-          mcpServers,
-          maxIterations: 20,
-          temperature: config.parameters.temperature,
-          maxTokens: config.parameters.maxTokens,
-          agentTaskId: ctx.agentTaskId,
-          cwd: workspace,
-        });
-
-        if (mcpResult.finishReason === 'error') {
-          await this.sendAgentMessage(ctx, 'UI Tester MCP loop failed');
-          await this.markFailed(
-            ctx,
-            `MCP agent loop failed: ${mcpResult.errorMessage ?? 'unknown error'}`,
-          );
-          return;
-        }
-
-        resultContent = mcpResult.content;
-        this.logger.log(
-          `MCP loop: ${mcpResult.iterations} iterations, ${mcpResult.toolCallsExecuted} tool calls`,
-        );
+        if (mcpContent === null) return; // MCP failed, already marked
+        resultContent = mcpContent;
       } else {
-        // Fallback: dual LLM call (no shell access)
-        const messages: LlmMessage[] = [
-          { role: 'system', content: systemPrompt },
-          { role: 'user', content: userPrompt },
-        ];
-
-        const dualResult = await this.dualTestService.callDual(
-          config,
-          messages,
+        const dualResult = await this.runDualLlm(
+          ctx, config, systemPrompt, userPrompt, issueId, outOfScopeItems,
         );
+        if (dualResult === null) return; // LLM failed, already marked
+        if (typeof dualResult === 'object') {
+          // Dual merge produced a final UiTestResult — skip parsing
+          testResult = dualResult;
+        } else {
+          resultContent = dualResult;
+        }
+      }
 
-        if (dualResult.primary.finishReason === 'error') {
-          await this.sendAgentMessage(ctx, 'UI Tester LLM call failed');
-          await this.markFailed(
+      // ─── Parse and handle result ───────────────────────────
+      if (!testResult) {
+        testResult = parseTestResult(resultContent, issueId);
+
+        // Retry JSON extraction if parsing returned 0 findings but response was substantial
+        const dualConfigured = this.dualTestService.isDualConfigured(config);
+        if (
+          testResult &&
+          testResult.findings.length === 0 &&
+          resultContent.length > 500 &&
+          !dualConfigured
+        ) {
+          testResult = await this.retryJsonParse(config, resultContent, issueId, testResult);
+        }
+
+        // Retry full parse failure with JSON extraction
+        if (!testResult && resultContent.length > 500) {
+          testResult = await this.retryJsonParse(config, resultContent, issueId, null);
+        }
+
+        if (!testResult) {
+          await this.sendAgentMessage(
             ctx,
-            `LLM call failed: ${dualResult.primary.errorMessage ?? 'unknown error'}`,
+            'Could not parse UI test result — defaulting to pass',
           );
+          await this.handleResult(ctx, issueId, mrIid, gitlabProjectId, {
+            issueId,
+            passed: true,
+            findings: [],
+            summary: 'Parse failed — auto-passed',
+            pagesChecked: 0,
+          });
           return;
         }
 
-        resultContent = dualResult.primary.content;
-
-        // Dual-testing: parse secondary and merge findings
-        if (
-          dualResult.secondary &&
-          dualResult.secondary.finishReason !== 'error'
-        ) {
-          const primaryResult = this.parseTestResult(
-            dualResult.primary.content,
-            issueId,
-          );
-          const secondaryResult = this.parseTestResult(
-            dualResult.secondary.content,
-            issueId,
-          );
-          if (primaryResult && secondaryResult) {
-            const strategy = config.dualStrategy ?? 'merge';
-            const { merged, stats } = this.dualTestService.mergeFindings(
-              primaryResult.findings,
-              secondaryResult.findings,
-              strategy,
-              (f: UiTestFinding) =>
-                `${f.type}:${f.page}:${f.description.substring(0, 40).toLowerCase()}`,
-            );
-
-            const passed = this.dualTestService.determineApproval(merged, 3);
-            // Use merged result directly
-            const mergedTestResult: UiTestResult = {
-              ...primaryResult,
-              findings: merged,
-              passed,
-              pagesChecked: Math.max(
-                primaryResult.pagesChecked,
-                secondaryResult.pagesChecked,
-              ),
-            };
-            const scopedMergedResult = this.applyArchitectScopeFilter(
-              mergedTestResult,
-              outOfScopeItems,
-            );
-
-            await this.sendAgentMessage(
-              ctx,
-              `🔀 **Dual-test** (${strategy}): ${stats.primaryCount} + ${stats.secondaryCount} → ${stats.mergedCount} findings [${dualResult.providers.primary} + ${dualResult.providers.secondary}]`,
-            );
-
-            // ─── Finding Threads for dual-test path ───
-            const dualActiveFindings = scopedMergedResult.findings.filter(
-              (f) => f.severity !== 'info',
-            );
-            const dualFindingsForThreads: FindingForThread[] =
-              dualActiveFindings.map((f) => {
-                const parts = [
-                  `**${f.severity.toUpperCase()}** [${f.type}] — \`${f.page}\``,
-                  '',
-                  f.description,
-                ];
-                if (f.expectedState)
-                  parts.push('', `**Expected:** ${f.expectedState}`);
-                if (f.observedState)
-                  parts.push('', `**Observed:** ${f.observedState}`);
-                return {
-                  severity: f.severity,
-                  message: `[${f.type}] ${f.page}: ${f.description.substring(0, 80)}`,
-                  threadBody: parts.join('\n'),
-                };
-              });
-
-            const {
-              activeThreads: dualAllThreads,
-              resolvedThreads: dualResolvedRecords,
-            } = await syncFindingThreads({
-              prisma: this.prisma,
-              gitlabService: this.gitlabService,
-              issueId,
-              mrIid,
-              gitlabProjectId,
-              agentRole: AgentRole.UI_TESTER,
-              roundNumber: scopedMergedResult.roundNumber ?? 1,
-              findings: dualFindingsForThreads,
-              confirmedResolved: scopedMergedResult.resolvedFromPrevious?.map(
-                (r: any) => ({ message: r.description }),
-              ),
-            });
-
-            const testMarkdown = buildIssueSummaryWithThreadLinks({
-              agentName: 'UI Test',
-              approved: scopedMergedResult.passed,
-              summary: scopedMergedResult.summary,
-              threads: dualAllThreads,
-              resolvedThreads: dualResolvedRecords,
-            });
-            await postAgentComment({
-              prisma: this.prisma,
-              gitlabService: this.gitlabService,
-              issueId,
-              gitlabProjectId,
-              issueIid: issue.gitlabIid!,
-              agentTaskId: ctx.agentTaskId,
-              authorName: 'UI Tester',
-              markdownContent: testMarkdown,
-            });
-
-            if (scopedMergedResult.passed) {
-              await this.handlePassed(
-                ctx,
-                issueId,
-                mrIid,
-                gitlabProjectId,
-                scopedMergedResult,
-              );
-            } else {
-              await this.handleFailed(
-                ctx,
-                issueId,
-                mrIid,
-                gitlabProjectId,
-                scopedMergedResult,
-              );
-            }
-            return;
-          }
-        }
+        // Enforce Architect out-of-scope constraints
+        testResult = applyArchitectScopeFilter(testResult, outOfScopeItems);
       }
 
-      // Parse result (MCP path or single-LLM fallback)
-      let testResult = this.parseTestResult(resultContent, issueId);
-
-      // Retry JSON extraction if parsing returned 0 findings but response was substantial
-      // Skip retry when dual-testing is configured (secondary may have timed out)
-      const dualConfigured = this.dualTestService.isDualConfigured(config);
-      if (
-        testResult &&
-        testResult.findings.length === 0 &&
-        resultContent.length > 500 &&
-        !dualConfigured
-      ) {
-        const retryJson = await this.dualTestService.retryJsonExtraction(
-          config,
-          resultContent,
-          '{"passed": true/false, "summary": "...", "pagesChecked": 0, "findings": [{"type": "accessibility|responsive|ux|consistency|missing", "page": "...", "description": "...", "severity": "info|warning|critical"}]}',
-        );
-        if (retryJson) {
-          const retried = this.parseTestResult(retryJson, issueId);
-          if (retried && retried.findings.length > 0) {
-            this.logger.log(
-              `JSON retry recovered ${retried.findings.length} UI findings`,
-            );
-            testResult = retried;
-          }
-        }
-      }
-
-      // Retry full parse failure with JSON extraction
-      if (!testResult && resultContent.length > 500) {
-        const retryJson = await this.dualTestService.retryJsonExtraction(
-          config,
-          resultContent,
-          '{"passed": true/false, "summary": "...", "pagesChecked": 0, "findings": [{"type": "accessibility|responsive|ux|consistency|missing", "page": "...", "description": "...", "severity": "info|warning|critical"}]}',
-        );
-        if (retryJson) {
-          testResult = this.parseTestResult(retryJson, issueId);
-          if (testResult) {
-            this.logger.log(
-              `JSON retry recovered full UI result (${testResult.findings.length} findings)`,
-            );
-          }
-        }
-      }
-
-      if (!testResult) {
-        await this.sendAgentMessage(
-          ctx,
-          'Could not parse UI test result — defaulting to pass',
-        );
-        await this.handlePassed(ctx, issueId, mrIid, gitlabProjectId, {
-          issueId,
-          passed: true,
-          findings: [],
-          summary: 'Parse failed — auto-passed',
-          pagesChecked: 0,
-        });
-        return;
-      }
-
-      // Enforce Architect out-of-scope constraints server-side to avoid false FAIL loops.
-      testResult = this.applyArchitectScopeFilter(testResult, outOfScopeItems);
-
-      // ─── Finding Threads: Post findings as MR discussion threads ───
-      const activeFindings = testResult.findings.filter(
-        (f) => f.severity !== 'info',
-      );
-      const findingsForThreads: FindingForThread[] = activeFindings.map((f) => {
-        const parts = [
-          `**${f.severity.toUpperCase()}** [${f.type}] — \`${f.page}\``,
-          '',
-          f.description,
-        ];
-        if (f.expectedState) parts.push('', `**Expected:** ${f.expectedState}`);
-        if (f.observedState) parts.push('', `**Observed:** ${f.observedState}`);
-        if (f.verifiableFromCode === false)
-          parts.push('', '_⚠️ Needs browser verification_');
-        return {
-          severity: f.severity,
-          message: `[${f.type}] ${f.page}: ${f.description.substring(0, 80)}`,
-          threadBody: parts.join('\n'),
-        };
-      });
-
-      const {
-        activeThreads: allActiveThreads,
-        resolvedThreads: resolvedThreadRecords,
-      } = await syncFindingThreads({
+      // Post finding threads to MR and comment
+      await postFindingThreadsAndComment({
         prisma: this.prisma,
         gitlabService: this.gitlabService,
         issueId,
         mrIid,
         gitlabProjectId,
-        agentRole: AgentRole.UI_TESTER,
-        roundNumber: testResult.roundNumber ?? 1,
-        findings: findingsForThreads,
-        confirmedResolved: testResult.resolvedFromPrevious?.map((r: any) => ({
-          message: r.description,
-        })),
-      });
-
-      const testMarkdown = buildIssueSummaryWithThreadLinks({
-        agentName: 'UI Test',
-        approved: testResult.passed,
-        summary: testResult.summary,
-        threads: allActiveThreads,
-        resolvedThreads: resolvedThreadRecords,
-      });
-      await postAgentComment({
-        prisma: this.prisma,
-        gitlabService: this.gitlabService,
-        issueId,
-        gitlabProjectId,
         issueIid: issue.gitlabIid!,
         agentTaskId: ctx.agentTaskId,
-        authorName: 'UI Tester',
-        markdownContent: testMarkdown,
+        testResult,
       });
 
-      if (testResult.passed) {
-        await this.handlePassed(
-          ctx,
-          issueId,
-          mrIid,
-          gitlabProjectId,
-          testResult,
-        );
-      } else {
-        await this.handleFailed(
-          ctx,
-          issueId,
-          mrIid,
-          gitlabProjectId,
-          testResult,
-        );
-      }
+      await this.handleResult(ctx, issueId, mrIid, gitlabProjectId, testResult);
     } catch (err) {
       this.logger.error(`UI test failed: ${err.message}`, err.stack);
       await this.sendAgentMessage(ctx, `**UI Tester** error: ${err.message}`);
@@ -696,546 +297,249 @@ Do NOT omit the JSON block.`;
     }
   }
 
-  // ─── Browser Data Formatting ──────────────────────────────
+  // ─── Preview Capture ─────────────────────────────────────
 
-  private formatBrowserData(
-    captures: PageCapture[],
-    a11y: A11yResult | null,
-    responsive: any,
-  ): string {
-    const parts: string[] = [];
-
-    // Page captures (omit base64 for LLM prompt — too large)
-    if (captures.length > 0) {
-      parts.push('### Page Captures:');
-      for (const c of captures) {
-        parts.push(`**${c.route}**`);
-        if (c.consoleErrors.length > 0) {
-          parts.push(
-            `- Console Errors: ${c.consoleErrors.slice(0, 5).join('; ')}`,
-          );
-        } else {
-          parts.push('- No console errors');
-        }
-        // Include a DOM summary (first 2000 chars)
-        const domSummary = c.domSnapshot.substring(0, 2000);
-        parts.push(
-          `- DOM snapshot (first 2000 chars):\n\`\`\`html\n${domSummary}\n\`\`\``,
-        );
-        parts.push('');
-      }
-    }
-
-    // Accessibility results
-    if (a11y) {
-      parts.push('### Accessibility Audit:');
-      parts.push(`- Route: ${a11y.route}`);
-      parts.push(`- Passes: ${a11y.passes}`);
-      parts.push(`- Violations: ${a11y.violations.length}`);
-      for (const v of a11y.violations.slice(0, 10)) {
-        parts.push(
-          `  - **${v.impact}**: ${v.description} (${v.nodes} element(s)) — ${v.id}`,
-        );
-      }
-      parts.push('');
-    }
-
-    // Responsive results
-    if (responsive?.captures?.length > 0) {
-      parts.push('### Responsive Check:');
-      for (const rc of responsive.captures) {
-        parts.push(
-          `- ${rc.viewport} (${rc.width}x${rc.height}): Screenshot captured`,
-        );
-      }
-      parts.push('');
-    }
-
-    return parts.join('\n');
-  }
-
-  private extractRoutesFromDiffs(diffs: any[]): string[] {
-    const routes = new Set<string>();
-
-    for (const d of diffs) {
-      // Look for Angular/React route definitions
-      const routeMatches = d.diff.matchAll(/path:\s*['"`]([^'"`]+)['"`]/g);
-      for (const match of routeMatches) {
-        const route = match[1].startsWith('/') ? match[1] : `/${match[1]}`;
-        routes.add(route);
-      }
-
-      // Look for component file paths that suggest pages
-      const pathMatch = d.new_path.match(/pages?\/([^/]+)/);
-      if (pathMatch) {
-        routes.add(
-          `/${pathMatch[1].replace(/\.(component|page)\.(ts|tsx|vue|svelte)$/, '')}`,
-        );
-      }
-    }
-
-    return [...routes].slice(0, 5); // Max 5 routes
-  }
-
-  // ─── Result Handlers ──────────────────────────────────────
-
-  private async handlePassed(
+  private async capturePreview(
     ctx: AgentContext,
+    previewUrl: string,
+    diffs: any[],
+    project: any,
+    issue: any,
     issueId: string,
-    mrIid: number,
-    gitlabProjectId: number,
-    testResult: UiTestResult,
-  ): Promise<void> {
-    await this.sendAgentMessage(
-      ctx,
-      `**UI Test passed** for MR !${mrIid}\n\n${testResult.summary}`,
-    );
+  ): Promise<{
+    browserData: string;
+    screenshotImages: Array<{ base64: string; label: string }>;
+    screenshotManifestPath: string | undefined;
+  }> {
+    const runner = await this.ensurePlaywright();
+    if (!runner) return { browserData: '', screenshotImages: [], screenshotManifestPath: undefined };
 
-    await this.prisma.agentTask.update({
-      where: { id: ctx.agentTaskId },
-      data: {
-        status: AgentTaskStatus.COMPLETED,
-        output: sanitizeJsonOutput(testResult) as any,
-        completedAt: new Date(),
-      },
-    });
+    await this.sendAgentMessage(ctx, `Running browser tests against ${previewUrl}...`);
 
-    await this.updateStatus(ctx, AgentStatus.IDLE);
+    const routes = extractRoutesFromDiffs(diffs);
+    if (routes.length === 0) routes.push('/');
 
-    this.eventEmitter.emit('agent.uiTestComplete', {
-      projectId: ctx.projectId,
-      chatSessionId: ctx.chatSessionId,
-      issueId,
-      mrIid,
-      gitlabProjectId,
-      passed: true,
-    });
-  }
+    const captures = await runner.capturePages(previewUrl, routes);
+    const a11y = await runner.checkAccessibility(previewUrl, routes[0]);
+    const responsive = await runner.checkResponsive(previewUrl, routes[0]);
 
-  private async handleFailed(
-    ctx: AgentContext,
-    issueId: string,
-    mrIid: number,
-    gitlabProjectId: number,
-    testResult: UiTestResult,
-  ): Promise<void> {
-    const findingsText = testResult.findings
-      .filter((f) => f.severity !== 'info')
-      .map((f) => `- **${f.severity}** [${f.type}] ${f.page}: ${f.description}`)
-      .join('\n');
+    const browserData = formatBrowserData(captures, a11y, responsive);
 
-    await this.sendAgentMessage(
-      ctx,
-      `**UI Test failed** for MR !${mrIid}\n\n${testResult.summary}\n\n${findingsText}`,
-    );
+    // Save screenshots + collect base64 for multimodal LLM
+    const resolvedWorkspace = project?.slug
+      ? await this.resolveWorkspace(project.slug, ctx.chatSessionId)
+      : '';
 
-    await this.prisma.agentTask.update({
-      where: { id: ctx.agentTaskId },
-      data: {
-        status: AgentTaskStatus.COMPLETED,
-        output: sanitizeJsonOutput(testResult) as any,
-        completedAt: new Date(),
-      },
-    });
-
-    await this.updateStatus(ctx, AgentStatus.IDLE);
-
-    const relevantFindings = testResult.findings.filter(
-      (f) => f.severity !== 'info',
-    );
-    const feedback = relevantFindings
-      .map((f, i) => {
-        const persist = f.persistsSinceRound
-          ? ` (open since round ${f.persistsSinceRound})`
-          : '';
-        const verifiable =
-          f.verifiableFromCode === false ? ' [needs browser verification]' : '';
-        const parts = [
-          `${i + 1}. [${f.severity.toUpperCase()}] [${f.type}] ${f.page}${persist}${verifiable}`,
-        ];
-        parts.push(`   Problem: ${f.description}`);
-        if (f.expectedState) parts.push(`   Expected: ${f.expectedState}`);
-        if (f.observedState) parts.push(`   Observed: ${f.observedState}`);
-        return parts.join('\n');
-      })
-      .join('\n\n');
-
-    this.eventEmitter.emit('agent.uiTestComplete', {
-      projectId: ctx.projectId,
-      chatSessionId: ctx.chatSessionId,
-      issueId,
-      mrIid,
-      gitlabProjectId,
-      passed: false,
-      feedback: `UI Test findings:\n\n${feedback}`,
-    });
-  }
-
-  // ─── Parsing ──────────────────────────────────────────────
-
-  private parseTestResult(
-    content: string,
-    issueId: string,
-  ): UiTestResult | null {
-    this.logger.debug(`Parsing UI test result (${content.length} chars)`);
-
-    if (!content.trim()) return null;
-
-    const cleaned = stripThinkTags(content);
-
-    const jsonStr = extractJson(cleaned, COMPLETION_MARKER);
-
-    if (!jsonStr) {
-      this.logger.warn('No JSON found in UI test result — building from text');
-      return this.buildResultFromText(cleaned, issueId);
+    if (!resolvedWorkspace) {
+      return { browserData, screenshotImages: [], screenshotManifestPath: undefined };
     }
 
-    try {
-      const fixed = cleanJsonString(jsonStr);
-
-      const parsed = JSON.parse(fixed);
-      const passed = normalizePass(parsed);
-      const findings = this.parseFindings(
-        parsed.findings || parsed.issues || [],
+    const { screenshotImages, screenshotManifestPath } =
+      await collectAndSaveScreenshots(
+        runner, resolvedWorkspace, issueId, issue.title, captures, responsive,
       );
 
-      let summary = parsed.summary || '';
-      if (!summary || summary.length < 5) {
-        summary = passed
-          ? `UI test passed (${findings.length} finding(s))`
-          : `UI test failed (${findings.filter((f) => f.severity !== 'info').length} issue(s))`;
-      }
-
-      const result: UiTestResult = {
-        issueId,
-        passed,
-        findings,
-        summary,
-        pagesChecked: parsed.pagesChecked ?? 0,
-      };
-
-      if (typeof parsed.roundNumber === 'number') {
-        result.roundNumber = parsed.roundNumber;
-      }
-
-      if (Array.isArray(parsed.resolvedFromPrevious)) {
-        result.resolvedFromPrevious = parsed.resolvedFromPrevious
-          .filter((r: any) => r && typeof r === 'object' && r.description)
-          .map((r: any) => ({
-            type: String(r.type ?? 'visual'),
-            page: String(r.page ?? '/'),
-            description: String(r.description),
-            resolvedBy: String(r.resolvedBy ?? 'unknown'),
-          }));
-      }
-
-      return result;
-    } catch (err) {
-      this.logger.error(`JSON parse failed: ${err.message}`);
-      return this.buildResultFromText(cleaned, issueId);
-    }
+    return { browserData, screenshotImages, screenshotManifestPath };
   }
 
-  private parseFindings(raw: any): UiTestFinding[] {
-    if (!Array.isArray(raw)) return [];
-    const validTypes = [
-      'layout',
-      'responsive',
-      'accessibility',
-      'visual',
-      'interaction',
-    ];
-    return raw
-      .filter((f: any) => f && typeof f === 'object')
-      .map((f: any) => ({
-        type: validTypes.includes(f.type) ? f.type : 'visual',
-        page: String(f.page ?? f.route ?? f.url ?? '/'),
-        description: String(
-          f.description ?? f.message ?? f.details ?? 'No details',
-        ),
-        severity: normalizeSeverity(f.severity),
-        verifiableFromCode:
-          typeof f.verifiableFromCode === 'boolean'
-            ? f.verifiableFromCode
-            : undefined,
-        expectedState: f.expectedState ? String(f.expectedState) : undefined,
-        observedState: f.observedState ? String(f.observedState) : undefined,
-        persistsSinceRound:
-          typeof f.persistsSinceRound === 'number'
-            ? f.persistsSinceRound
-            : undefined,
-        status: ['new', 'resolved', 'unresolved', 'blocked'].includes(f.status)
-          ? f.status
-          : undefined,
-      }));
-  }
+  // ─── MCP Loop Execution ──────────────────────────────────
 
-  private buildResultFromText(text: string, issueId: string): UiTestResult {
-    const lower = text.toLowerCase();
-    const lastLines = lower.split('\n').slice(-10).join(' ');
-
-    const strongFail =
-      /\b(test(s)?\s+(have\s+)?failed|result:\s*fail|verdict:\s*fail|overall:\s*fail|critical\s+issue)\b/.test(
-        lastLines,
-      );
-    // Default to pass if no clear failure signal (prevents infinite loops)
-    const passed = !strongFail;
-
-    this.logger.log(
-      `buildResultFromText: strongFail=${strongFail}, passed=${passed}`,
-    );
-
-    return {
-      issueId,
-      passed,
-      findings: [],
-      summary: strongFail
-        ? 'UI test failed (parsed from text)'
-        : 'UI test passed (no clear failure detected — defaulting to pass)',
-      pagesChecked: 0,
-    };
-  }
-
-  // ─── Visual Screenshot Analysis ─────────────────────────
-
-  private applyArchitectScopeFilter(
-    testResult: UiTestResult,
-    outOfScopeItems: string[],
-  ): UiTestResult {
-    if (outOfScopeItems.length === 0 || testResult.findings.length === 0) {
-      return testResult;
-    }
-
-    const { filtered, removedCount } = filterOutOfScopeFindings(
-      testResult.findings,
-      outOfScopeItems,
-      (f) => `${f.type} ${f.page} ${f.description}`,
-    );
-
-    if (removedCount === 0) return testResult;
-
-    const criticalCount = filtered.filter(
-      (f) => f.severity === 'critical',
-    ).length;
-    const warningCount = filtered.filter(
-      (f) => f.severity === 'warning',
-    ).length;
-    const passed = criticalCount === 0 && warningCount <= 3;
-
-    this.logger.log(
-      `Architect scope filter removed ${removedCount} UI finding(s) as out-of-scope`,
-    );
-
-    const summarySuffix = `Architect scope filter ignored ${removedCount} out-of-scope finding(s).`;
-    const summary = testResult.summary
-      ? `${testResult.summary} ${summarySuffix}`
-      : summarySuffix;
-
-    return {
-      ...testResult,
-      passed,
-      findings: filtered,
-      summary,
-    };
-  }
-
-  /**
-   * Send screenshots to a multimodal LLM for visual analysis.
-   * Returns a text description of each screenshot's appearance, layout, and issues.
-   */
-  private async analyzeScreenshots(
+  private async runMcpLoop(
+    ctx: AgentContext,
     config: ReturnType<typeof this.getRoleConfig>,
-    images: Array<{ base64: string; label: string }>,
-    issueTitle: string,
-  ): Promise<string> {
-    // Build multimodal content: text prompt + images interleaved
-    const contentParts: LlmContentPart[] = [
-      {
-        type: 'text',
-        text: `You are a UI/UX expert reviewing screenshots of a web application.
-Issue being tested: "${issueTitle}"
+    systemPrompt: string,
+    userPrompt: string,
+    mcpServers: any[],
+    workspace: string,
+  ): Promise<string | null> {
+    this.logger.log(
+      `Using MCP agent loop with ${mcpServers.length} servers (workspace: ${workspace})`,
+    );
+    await this.sendAgentMessage(
+      ctx,
+      `Running UI tests with shell access (${mcpServers.length} MCP tools)...`,
+    );
 
-Below are ${images.length} screenshot(s) captured from the application. For EACH screenshot:
-
-1. **Describe** the visual appearance: layout, colors, typography, spacing, alignment
-2. **Identify issues**: broken layouts, overlapping elements, poor contrast, inconsistent styling, missing content, visual glitches
-3. **Rate** the overall visual quality (good/acceptable/poor)
-
-Label each description with the screenshot label provided.
-Use this exact format for each:
-
-### [Screenshot Label]
-**Description:** ...
-**Issues:** ... (or "None found")
-**Visual Quality:** good/acceptable/poor
-`,
-      },
-    ];
-
-    for (const img of images) {
-      contentParts.push({
-        type: 'text',
-        text: `\n--- Screenshot: ${img.label} ---`,
-      });
-      contentParts.push({
-        type: 'image',
-        mediaType: 'image/png',
-        base64: img.base64,
-      });
-    }
-
-    // Use the configured provider — but only if it supports multimodal.
-    // CLI providers (CLAUDE_CODE, CODEX_CLI, etc.) don't support inline images.
-    // Fallback chain: ANTHROPIC > GOOGLE > OPENAI > configured provider
-    let provider = config.provider;
-    const cliProviders = [
-      'CLAUDE_CODE',
-      'CODEX_CLI',
-      'GEMINI_CLI',
-      'QWEN3_CODER',
-    ];
-    if (cliProviders.includes(provider)) {
-      // Try cloud providers that support multimodal
-      for (const fallback of ['ANTHROPIC', 'GOOGLE', 'OPENAI']) {
-        const fbConfig = this.settings.get(
-          `llm.${fallback.toLowerCase()}.apiKey`,
-          undefined,
-          '',
-        );
-        if (fbConfig) {
-          provider = fallback;
-          this.logger.log(
-            `Visual analysis: CLI provider ${config.provider} doesn't support images, falling back to ${provider}`,
-          );
-          break;
-        }
-      }
-      // If no cloud provider available, fall back to Ollama (supports images with multimodal models)
-      if (cliProviders.includes(provider)) {
-        provider = 'OLLAMA';
-        this.logger.log(
-          'Visual analysis: falling back to OLLAMA for multimodal',
-        );
-      }
-    }
-
-    // When falling back to a different provider, use an appropriate model
-    let model = config.model;
-    if (provider === 'OLLAMA' && !model.startsWith('llava') && !model.startsWith('qwen')) {
-      model = 'llava:13b'; // Default multimodal Ollama model
-      this.logger.log(`Visual analysis: using ${model} for Ollama multimodal (original: ${config.model})`);
-    }
-
-    const result = await this.llmService.complete({
-      provider,
-      model,
-      messages: [{ role: 'user', content: contentParts }],
-      temperature: 0.2,
+    const mcpResult = await this.mcpAgentLoop.run({
+      provider: config.provider,
+      model: config.model,
+      systemPrompt,
+      userPrompt,
+      mcpServers,
+      maxIterations: 20,
+      temperature: config.parameters.temperature,
       maxTokens: config.parameters.maxTokens,
+      agentTaskId: ctx.agentTaskId,
+      cwd: workspace,
     });
 
-    if (result.finishReason === 'error' || !result.content) {
-      this.logger.warn('Visual screenshot analysis returned no content');
-      return '';
+    if (mcpResult.finishReason === 'error') {
+      await this.sendAgentMessage(ctx, 'UI Tester MCP loop failed');
+      await this.markFailed(
+        ctx,
+        `MCP agent loop failed: ${mcpResult.errorMessage ?? 'unknown error'}`,
+      );
+      return null;
     }
 
     this.logger.log(
-      `Visual analysis: ${result.content.length} chars from ${provider}/${config.model}`,
+      `MCP loop: ${mcpResult.iterations} iterations, ${mcpResult.toolCallsExecuted} tool calls`,
     );
-    return result.content;
+    return mcpResult.content;
   }
+
+  // ─── Dual LLM Execution ─────────────────────────────────
 
   /**
-   * Parse the LLM visual analysis and update the manifest with per-screenshot descriptions.
+   * Run dual LLM call. Returns:
+   * - UiTestResult: dual merge succeeded, ready for thread posting + handle
+   * - string: primary content to parse (no dual merge)
+   * - null: LLM error, already marked failed
    */
-  private async updateManifestDescriptions(
-    manifestPath: string,
-    visualAnalysis: string,
-  ): Promise<void> {
-    if (!visualAnalysis) return;
+  private async runDualLlm(
+    ctx: AgentContext,
+    config: ReturnType<typeof this.getRoleConfig>,
+    systemPrompt: string,
+    userPrompt: string,
+    issueId: string,
+    outOfScopeItems: string[],
+  ): Promise<UiTestResult | string | null> {
+    const messages: LlmMessage[] = [
+      { role: 'system', content: systemPrompt },
+      { role: 'user', content: userPrompt },
+    ];
 
-    try {
-      const raw = await fs.readFile(manifestPath, 'utf-8');
-      const manifest: ScreenshotManifest = JSON.parse(raw);
+    const dualResult = await this.dualTestService.callDual(config, messages);
 
-      // Parse analysis sections: look for "### [label]" headers
-      const sections = visualAnalysis.split(/^###\s+/m).filter(Boolean);
-
-      for (const section of sections) {
-        const lines = section.trim().split('\n');
-        const headerLine = lines[0]?.trim() ?? '';
-        // Strip markdown formatting from header (brackets, bold, etc.)
-        const sectionLabel = headerLine.replace(/[[\]]/g, '').trim();
-        const sectionBody = lines.slice(1).join('\n').trim();
-
-        // Match section to manifest entry by comparing labels with screenshot metadata
-        for (const entry of manifest.screenshots) {
-          const entryLabel = `${entry.route} — ${entry.viewport}`;
-          // Fuzzy match: check if section header contains route and viewport info
-          if (
-            sectionLabel.includes(entry.route) ||
-            sectionLabel.includes(entry.viewport) ||
-            sectionLabel.toLowerCase().includes(entryLabel.toLowerCase()) ||
-            entryLabel.toLowerCase().includes(sectionLabel.toLowerCase())
-          ) {
-            entry.description = sectionBody.substring(0, 2000);
-
-            // Extract findings from the "Issues:" line
-            const issuesMatch = sectionBody.match(
-              /\*\*Issues?:\*\*\s*(.+?)(?:\n|$)/i,
-            );
-            if (issuesMatch) {
-              const issuesText = issuesMatch[1].trim();
-              if (!/^none/i.test(issuesText) && issuesText.length > 3) {
-                entry.findings = entry.findings ?? [];
-                entry.findings.push(issuesText);
-              }
-            }
-            break;
-          }
-        }
-      }
-
-      await fs.writeFile(manifestPath, JSON.stringify(manifest, null, 2));
-      this.logger.log(`Manifest updated with ${sections.length} descriptions`);
-    } catch (err) {
-      this.logger.warn(
-        `Failed to update manifest descriptions: ${err.message}`,
+    if (dualResult.primary.finishReason === 'error') {
+      await this.sendAgentMessage(ctx, 'UI Tester LLM call failed');
+      await this.markFailed(
+        ctx,
+        `LLM call failed: ${dualResult.primary.errorMessage ?? 'unknown error'}`,
       );
+      return null;
     }
+
+    // Dual-testing: parse secondary and merge findings
+    if (
+      dualResult.secondary &&
+      dualResult.secondary.finishReason !== 'error'
+    ) {
+      const primaryResult = parseTestResult(dualResult.primary.content, issueId);
+      const secondaryResult = parseTestResult(dualResult.secondary.content, issueId);
+      if (primaryResult && secondaryResult) {
+        const strategy = config.dualStrategy ?? 'merge';
+        const { merged, stats } = this.dualTestService.mergeFindings(
+          primaryResult.findings,
+          secondaryResult.findings,
+          strategy,
+          dualTestFindingKey,
+        );
+
+        const passed = this.dualTestService.determineApproval(merged, 3);
+        const mergedTestResult: UiTestResult = {
+          ...primaryResult,
+          findings: merged,
+          passed,
+          pagesChecked: Math.max(
+            primaryResult.pagesChecked,
+            secondaryResult.pagesChecked,
+          ),
+        };
+        const scopedResult = applyArchitectScopeFilter(mergedTestResult, outOfScopeItems);
+
+        await this.sendAgentMessage(
+          ctx,
+          `**Dual-test** (${strategy}): ${stats.primaryCount} + ${stats.secondaryCount} → ${stats.mergedCount} findings [${dualResult.providers.primary} + ${dualResult.providers.secondary}]`,
+        );
+
+        return scopedResult;
+      }
+    }
+
+    return dualResult.primary.content;
   }
 
-  // ─── Diff Fetching ──────────────────────────────────────
+  // ─── JSON Retry ──────────────────────────────────────────
 
-  private async fetchDiffsWithRetry(
-    gitlabProjectId: number,
-    mrIid: number,
-    maxRetries: number,
-    delayMs: number,
-  ): Promise<any[]> {
-    for (let attempt = 1; attempt <= maxRetries; attempt++) {
-      try {
-        const diffs = await this.gitlabService.getMergeRequestDiffs(
-          gitlabProjectId,
-          mrIid,
-        );
-        if (diffs.length > 0) return diffs;
-      } catch (err) {
-        this.logger.warn(
-          `Diff fetch attempt ${attempt}/${maxRetries} failed for MR !${mrIid}: ${err.message}`,
-        );
-      }
-      if (attempt < maxRetries) {
-        await new Promise((resolve) => setTimeout(resolve, delayMs));
-      }
-    }
-    this.logger.warn(
-      `MR !${mrIid} still has no diffs after ${maxRetries} attempts`,
+  private async retryJsonParse(
+    config: ReturnType<typeof this.getRoleConfig>,
+    resultContent: string,
+    issueId: string,
+    existing: UiTestResult | null,
+  ): Promise<UiTestResult | null> {
+    const retryJson = await this.dualTestService.retryJsonExtraction(
+      config,
+      resultContent,
+      '{"passed": true/false, "summary": "...", "pagesChecked": 0, "findings": [{"type": "accessibility|responsive|ux|consistency|missing", "page": "...", "description": "...", "severity": "info|warning|critical"}]}',
     );
-    return [];
+    if (retryJson) {
+      const retried = parseTestResult(retryJson, issueId);
+      if (retried && retried.findings.length > 0) {
+        this.logger.log(
+          `JSON retry recovered ${retried.findings.length} UI findings`,
+        );
+        return retried;
+      }
+      if (!existing && retried) {
+        this.logger.log(
+          `JSON retry recovered full UI result (${retried.findings.length} findings)`,
+        );
+        return retried;
+      }
+    }
+    return existing;
   }
 
-  // ─── Helpers ──────────────────────────────────────────────
+  // ─── Result Handler ─────────────────────────────────────
+
+  private async handleResult(
+    ctx: AgentContext,
+    issueId: string,
+    mrIid: number,
+    gitlabProjectId: number,
+    testResult: UiTestResult,
+  ): Promise<void> {
+    const statusLabel = testResult.passed ? 'passed' : 'failed';
+    const findingsText = testResult.passed
+      ? ''
+      : '\n\n' +
+        testResult.findings
+          .filter((f) => f.severity !== 'info')
+          .map((f) => `- **${f.severity}** [${f.type}] ${f.page}: ${f.description}`)
+          .join('\n');
+
+    await this.sendAgentMessage(
+      ctx,
+      `**UI Test ${statusLabel}** for MR !${mrIid}\n\n${testResult.summary}${findingsText}`,
+    );
+
+    await this.prisma.agentTask.update({
+      where: { id: ctx.agentTaskId },
+      data: {
+        status: AgentTaskStatus.COMPLETED,
+        output: sanitizeJsonOutput(testResult) as any,
+        completedAt: new Date(),
+      },
+    });
+
+    await this.updateStatus(ctx, AgentStatus.IDLE);
+
+    const event: any = {
+      projectId: ctx.projectId,
+      chatSessionId: ctx.chatSessionId,
+      issueId,
+      mrIid,
+      gitlabProjectId,
+      passed: testResult.passed,
+    };
+    if (!testResult.passed) {
+      event.feedback = `UI Test findings:\n\n${buildFailureFeedback(testResult.findings)}`;
+    }
+    this.eventEmitter.emit('agent.uiTestComplete', event);
+  }
+
+  // ─── Helpers ────────────────────────────────────────────
 
   private async markFailed(ctx: AgentContext, reason: string): Promise<void> {
     try {

@@ -1,7 +1,5 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { EventEmitter2 } from '@nestjs/event-emitter';
-import { execFile } from 'child_process';
-import { promisify } from 'util';
 import { PrismaService } from '../../prisma/prisma.service';
 import { SystemSettingsService } from '../../settings/system-settings.service';
 import { ChatService } from '../../chat/chat.service';
@@ -24,39 +22,32 @@ import {
 import {
   syncFindingThreads,
   buildIssueSummaryWithThreadLinks,
-  FindingForThread,
 } from '../finding-thread.utils';
 import {
   buildArchitectScopeGuardSection,
   extractArchitectOutOfScopeItems,
-  filterOutOfScopeFindings,
 } from '../agent-scope.utils';
-import {
-  stripThinkTags,
-  cleanJsonString,
-  extractJson,
-  normalizeSeverity,
-} from '../agent-result-parser';
 import { PenTestResult, SecurityFinding } from './pen-test-result.interface';
 import { AgentRole, AgentStatus, AgentTaskStatus } from '@prisma/client';
 
-const execFileAsync = promisify(execFile);
-
-const COMPLETION_MARKER = ':::SECURITY_TEST_COMPLETE:::';
-// AUDIT_TIMEOUT_MS now configurable via PipelineConfig.auditTimeoutMs (default: 60000)
-const HTTP_TIMEOUT_MS = 10_000;
-
-const SECURITY_HEADERS = [
-  'content-security-policy',
-  'x-frame-options',
-  'x-content-type-options',
-  'strict-transport-security',
-  'x-xss-protection',
-  'referrer-policy',
-  'permissions-policy',
-];
-
-// DEFAULT_MAX_WARNINGS now configurable via PipelineConfig.maxWarningsForApproval (default: 3)
+// Extracted modules
+import {
+  runNpmAudit,
+  checkSecurityHeaders,
+  buildTechStackContext,
+  fetchDiffsWithRetry,
+} from './pen-tester-audit';
+import {
+  parseTestResult,
+  applyArchitectScopeFilter,
+  applyCriticalOverride,
+  buildFindingsForThreads,
+  buildFailureFeedback,
+} from './pen-tester-result';
+import {
+  buildPenTesterUserPrompt,
+  buildPreviousFindingsSection,
+} from './pen-tester-prompt';
 
 const DEFAULT_SYSTEM_PROMPT = loadPrompt('pen-tester');
 
@@ -88,15 +79,13 @@ export class PenTesterAgent extends BaseAgent {
     );
   }
 
-  /** Get the max warnings threshold from pipeline config → per-agent setting → fallback */
+  /** Get the max warnings threshold from pipeline config / per-agent setting / fallback */
   private getMaxWarnings(): number {
-    // 1. Per-agent setting (legacy)
     const val = this.settings.get('pentester.maxWarnings', '', '');
     if (val) {
       const num = parseInt(val, 10);
       if (!isNaN(num)) return num;
     }
-    // 2. PipelineConfig (centralized)
     return this.getMaxWarningsForApproval();
   }
 
@@ -147,7 +136,11 @@ export class PenTesterAgent extends BaseAgent {
           project.slug,
           ctx.chatSessionId,
         );
-        const audit = await this.runNpmAudit(workspace);
+        const audit = await runNpmAudit(
+          workspace,
+          this.getAuditTimeoutMs(),
+          this.logger,
+        );
         auditReport = audit.report;
         auditResult = audit.summary;
       }
@@ -162,16 +155,18 @@ export class PenTesterAgent extends BaseAgent {
             : null;
 
         if (previewUrl) {
-          headerReport = await this.checkSecurityHeaders(previewUrl);
+          headerReport = await checkSecurityHeaders(previewUrl, this.logger);
         }
       }
 
       // ─── Phase 3: MR Diffs ──────────────────
-      const diffs = await this.fetchDiffsWithRetry(
+      const diffs = await fetchDiffsWithRetry(
+        this.gitlabService,
         gitlabProjectId,
         mrIid,
         3,
         5000,
+        this.logger,
       );
 
       const MAX_DIFFS = 15;
@@ -193,86 +188,25 @@ export class PenTesterAgent extends BaseAgent {
         })
         .join('\n\n');
 
-      // ─── Phase 4: Build tech stack context ──────
-      const techStackContext = this.buildTechStackContext(project);
+      // ─── Phase 4: Build LLM prompt ──────────────
+      const { userPrompt, systemPrompt, maxWarnings, outOfScopeItems } =
+        await this.buildPromptContext(
+          issue,
+          project,
+          issueId,
+          diffs,
+          reviewDiffs,
+          diffText,
+          auditReport,
+          headerReport,
+        );
 
-      // ─── Phase 5: LLM Analysis ──────────────
+      // ─── Phase 5: Execute LLM / MCP ──────────────
       const config = this.getRoleConfig();
-      const systemPrompt = config.systemPrompt || DEFAULT_SYSTEM_PROMPT;
-
-      // Inject previous agent comments as context
-      const commentHistory = await getAgentCommentHistory({
-        prisma: this.prisma,
-        issueId,
-        maxChars: this.getMaxHistoryChars(),
-      });
-      const historySection = commentHistory
-        ? `\n## Previous Agent Comments on this Issue\n${commentHistory}\n`
-        : '';
-      const outOfScopeItems = extractArchitectOutOfScopeItems(commentHistory);
-      const scopeGuardSection =
-        buildArchitectScopeGuardSection(outOfScopeItems);
-
-      const maxWarnings = this.getMaxWarnings();
-
-      // Build structured previous findings section (Expectation Pattern memory)
-      const previousFindings = extractLastAgentFindings(
-        commentHistory,
-        'Pen Tester',
-      );
-      const previousFindingsSection =
-        previousFindings.length > 0
-          ? `\n## YOUR Previous Security Findings — Re-Evaluate Each One\n${previousFindings
-              .map(
-                (f, i) =>
-                  `${i + 1}. [${(f.severity ?? 'warning').toUpperCase()}] ${f.file ? `\`${f.file}\`: ` : ''}${f.message}\n   Expected fix: ${f.expectedFix ?? f.suggestion ?? 'not specified'}\n   → NOW CHECK: is this vulnerability still present in the current code?`,
-              )
-              .join(
-                '\n',
-              )}\n\nFor each finding above: if fixed, report in \`resolvedFromPrevious\`. If still present, carry forward with SAME description.\n`
-          : '';
-
-      const loopResolverSection =
-        extractLoopResolverClarifications(commentHistory);
-
-      const userPrompt = `Perform a security analysis of this merge request${previousFindings.length > 0 ? ' (Re-test after fix attempt)' : ''}:
-
-**Issue:** ${issue.title}
-**Description:** ${issue.description || 'N/A'}
-
-## Project Context
-${techStackContext}
-
-**Warning threshold:** PASS if ≤${maxWarnings} warnings and 0 critical findings.
-${loopResolverSection ? `\n${loopResolverSection}\n` : ''}${previousFindingsSection}${historySection}
-${scopeGuardSection}
-## MR Diffs (${reviewDiffs.length} of ${diffs.length} file(s)):
-
-${diffText || '_No diffs available._'}
-
-${auditReport ? `## npm audit Results (production dependencies only):\n\n${auditReport}` : ''}
-
-${headerReport ? `## Security Headers Check:\n\n${headerReport}` : ''}
-
-${
-  previousFindings.length > 0
-    ? 'IMPORTANT: First address each item in "YOUR Previous Security Findings" above, then check for new vulnerabilities.'
-    : 'Analyze the code for OWASP Top 10 vulnerabilities. Be context-aware: consider the tech stack and project type.'
-}
-
-IMPORTANT: You MUST end your response with the JSON result in this EXACT format:
-${COMPLETION_MARKER}
-\`\`\`json
-{"passed": true/false, "summary": "...", "roundNumber": 1, "findings": [{"category": "A03:2021", "severity": "critical/warning/info", "description": "...", "file": "path", "expectedFix": "...", "exploitScenario": "...", "status": "new/unresolved/blocked"}]}
-\`\`\`
-Do NOT omit the JSON block.`;
-
-      // Resolve workspace for MCP agent loop
       const workspace = project?.slug
         ? await this.resolveWorkspace(project.slug, ctx.chatSessionId)
         : '';
 
-      // Try MCP agent loop (with shell + security tools) if workspace exists
       let resultContent: string;
 
       const mcpServers = workspace
@@ -284,369 +218,51 @@ Do NOT omit the JSON block.`;
         : [];
 
       if (mcpServers.length > 0 && workspace) {
-        this.logger.log(
-          `Using MCP agent loop with ${mcpServers.length} servers (workspace: ${workspace})`,
-        );
-        await this.sendAgentMessage(
+        const mcpResult = await this.runMcpPath(
           ctx,
-          `Running security analysis with shell access (${mcpServers.length} MCP tools — semgrep, trivy, etc.)...`,
-        );
-
-        const mcpResult = await this.mcpAgentLoop.run({
-          provider: config.provider,
-          model: config.model,
+          config,
           systemPrompt,
           userPrompt,
           mcpServers,
-          maxIterations: 25,
-          temperature: config.parameters.temperature,
-          maxTokens: config.parameters.maxTokens,
-          agentTaskId: ctx.agentTaskId,
-          cwd: workspace,
-        });
-
-        if (mcpResult.finishReason === 'error') {
-          await this.sendAgentMessage(ctx, 'Pen Tester MCP loop failed');
-          await this.markFailed(
-            ctx,
-            `MCP agent loop failed: ${mcpResult.errorMessage ?? 'unknown error'}`,
-          );
-          return;
-        }
-
-        resultContent = mcpResult.content;
-        this.logger.log(
-          `MCP loop: ${mcpResult.iterations} iterations, ${mcpResult.toolCallsExecuted} tool calls`,
+          workspace,
         );
+        if (!mcpResult) return; // already marked failed
+        resultContent = mcpResult;
       } else {
-        // Fallback: dual LLM call (no shell access)
-        const messages: LlmMessage[] = [
-          { role: 'system', content: systemPrompt },
-          { role: 'user', content: userPrompt },
-        ];
-
-        const dualResult = await this.dualTestService.callDual(
+        const dualResult = await this.runDualLlmPath(
+          ctx,
           config,
-          messages,
+          systemPrompt,
+          userPrompt,
+          issueId,
+          mrIid,
+          gitlabProjectId,
+          issue,
+          auditResult,
+          outOfScopeItems,
+          maxWarnings,
         );
-
-        if (dualResult.primary.finishReason === 'error') {
-          await this.sendAgentMessage(ctx, 'Pen Tester LLM call failed');
-          await this.markFailed(
-            ctx,
-            `LLM call failed: ${dualResult.primary.errorMessage ?? 'unknown error'}`,
-          );
+        if (dualResult === null) return; // already handled
+        if (dualResult === undefined) {
+          // dual path returned early after handling pass/fail itself
           return;
         }
-
-        resultContent = dualResult.primary.content;
-
-        // Dual-testing: parse secondary and merge/consensus findings
-        if (
-          dualResult.secondary &&
-          dualResult.secondary.finishReason !== 'error'
-        ) {
-          const primaryResult = this.parseTestResult(
-            dualResult.primary.content,
-            issueId,
-            auditResult,
-          );
-          const secondaryResult = this.parseTestResult(
-            dualResult.secondary.content,
-            issueId,
-            auditResult,
-          );
-          if (primaryResult && secondaryResult) {
-            const strategy = config.dualStrategy ?? 'merge';
-            const { merged, stats } = this.dualTestService.mergeFindings(
-              primaryResult.findings,
-              secondaryResult.findings,
-              strategy,
-              (f: SecurityFinding) =>
-                `${f.category}:${f.file ?? ''}:${f.severity}:${f.description.substring(0, 40).toLowerCase()}`,
-            );
-
-            const passed = this.dualTestService.determineApproval(
-              merged,
-              maxWarnings,
-            );
-            const mergedTestResult: PenTestResult = {
-              ...primaryResult,
-              findings: merged,
-              passed,
-            };
-            const scopedMergedResult = this.applyArchitectScopeFilter(
-              mergedTestResult,
-              outOfScopeItems,
-              maxWarnings,
-            );
-
-            await this.sendAgentMessage(
-              ctx,
-              `🔀 **Dual-test** (${strategy}): ${stats.primaryCount} + ${stats.secondaryCount} → ${stats.mergedCount} findings [${dualResult.providers.primary} + ${dualResult.providers.secondary}]`,
-            );
-
-            // Rule-based override: critical findings → always fail
-            const critCount = scopedMergedResult.findings.filter(
-              (f) => f.severity === 'critical',
-            ).length;
-            if (scopedMergedResult.passed && critCount > 0) {
-              scopedMergedResult.passed = false;
-              scopedMergedResult.summary = `[OVERRIDE] ${critCount} critical finding(s) — auto-failed. ${scopedMergedResult.summary}`;
-            }
-
-            // ─── Finding Threads for dual-test path ───
-            const dualActiveFindings = scopedMergedResult.findings.filter(
-              (f) => f.severity !== 'info',
-            );
-            const dualFindingsForThreads: FindingForThread[] =
-              dualActiveFindings.map((f) => {
-                const parts = [
-                  `**${f.severity.toUpperCase()}** [${f.category}]`,
-                  '',
-                  f.description,
-                ];
-                if (f.file)
-                  parts.push(
-                    '',
-                    `**File:** \`${f.file}${f.line ? `:${f.line}` : ''}\``,
-                  );
-                if (f.expectedFix)
-                  parts.push('', `**Expected Fix:** ${f.expectedFix}`);
-                if (f.exploitScenario)
-                  parts.push('', `**Exploit Scenario:** ${f.exploitScenario}`);
-                parts.push('', `**Recommendation:** ${f.recommendation}`);
-                return {
-                  severity: f.severity,
-                  message: `[${f.category}] ${f.description.substring(0, 80)}`,
-                  file: f.file,
-                  line: f.line,
-                  threadBody: parts.join('\n'),
-                };
-              });
-
-            const {
-              activeThreads: dualAllThreads,
-              resolvedThreads: dualResolvedRecords,
-            } = await syncFindingThreads({
-              prisma: this.prisma,
-              gitlabService: this.gitlabService,
-              issueId,
-              mrIid,
-              gitlabProjectId,
-              agentRole: AgentRole.PEN_TESTER,
-              roundNumber: scopedMergedResult.roundNumber ?? 1,
-              findings: dualFindingsForThreads,
-              confirmedResolved: scopedMergedResult.resolvedFromPrevious?.map(
-                (r: any) => ({ message: r.description }),
-              ),
-            });
-
-            const testMarkdown = buildIssueSummaryWithThreadLinks({
-              agentName: 'Security Test',
-              approved: scopedMergedResult.passed,
-              summary: scopedMergedResult.summary,
-              threads: dualAllThreads,
-              resolvedThreads: dualResolvedRecords,
-            });
-            await postAgentComment({
-              prisma: this.prisma,
-              gitlabService: this.gitlabService,
-              issueId,
-              gitlabProjectId,
-              issueIid: issue.gitlabIid!,
-              agentTaskId: ctx.agentTaskId,
-              authorName: 'Pen Tester',
-              markdownContent: testMarkdown,
-            });
-
-            if (scopedMergedResult.passed) {
-              await this.handlePassed(
-                ctx,
-                issueId,
-                mrIid,
-                gitlabProjectId,
-                scopedMergedResult,
-              );
-            } else {
-              await this.handleFailed(
-                ctx,
-                issueId,
-                mrIid,
-                gitlabProjectId,
-                scopedMergedResult,
-              );
-            }
-            return;
-          }
-        }
+        resultContent = dualResult;
       }
 
-      // Parse result (MCP path or single-LLM fallback)
-      let testResult = this.parseTestResult(
+      // ─── Phase 6: Parse & evaluate result ──────
+      await this.evaluateAndFinish(
+        ctx,
         resultContent,
-        issueId,
-        auditResult,
-      );
-
-      // If parsing returned 0 findings but the response was substantial, retry JSON extraction
-      // Skip retry when dual-testing is configured (secondary may have timed out)
-      const dualConfigured = this.dualTestService.isDualConfigured(config);
-      if (
-        testResult &&
-        testResult.findings.length === 0 &&
-        resultContent.length > 500 &&
-        !dualConfigured
-      ) {
-        const retryJson = await this.dualTestService.retryJsonExtraction(
-          config,
-          resultContent,
-          '{"passed": true/false, "summary": "1-2 sentences", "findings": [{"category": "A01:2021", "severity": "critical|warning|info", "description": "...", "file": "path", "recommendation": "fix"}], "auditResult": {"vulnerabilities": 0, "critical": 0, "high": 0}}',
-        );
-        if (retryJson) {
-          const retried = this.parseTestResult(retryJson, issueId, auditResult);
-          if (retried && retried.findings.length > 0) {
-            this.logger.log(
-              `JSON retry recovered ${retried.findings.length} security findings`,
-            );
-            testResult = retried;
-          }
-        }
-      }
-
-      // Retry full parse failure
-      if (!testResult && resultContent.length > 500) {
-        const retryJson = await this.dualTestService.retryJsonExtraction(
-          config,
-          resultContent,
-          '{"passed": true/false, "summary": "1-2 sentences", "findings": [{"category": "A01:2021", "severity": "critical|warning|info", "description": "...", "file": "path", "recommendation": "fix"}], "auditResult": {"vulnerabilities": 0, "critical": 0, "high": 0}}',
-        );
-        if (retryJson) {
-          testResult = this.parseTestResult(retryJson, issueId, auditResult);
-          if (testResult) {
-            this.logger.log(
-              `JSON retry recovered full security result (${testResult.findings.length} findings)`,
-            );
-          }
-        }
-      }
-
-      if (!testResult) {
-        await this.sendAgentMessage(
-          ctx,
-          'Could not parse security test result — defaulting to pass',
-        );
-        await this.handlePassed(ctx, issueId, mrIid, gitlabProjectId, {
-          issueId,
-          passed: true,
-          findings: [],
-          summary: 'Parse failed — auto-passed',
-        });
-        return;
-      }
-
-      // Enforce Architect out-of-scope constraints server-side to avoid false FAIL loops.
-      testResult = this.applyArchitectScopeFilter(
-        testResult,
-        outOfScopeItems,
-        maxWarnings,
-      );
-
-      // Rule-based override: critical findings → always fail, regardless of LLM opinion
-      const criticalCount = testResult.findings.filter(
-        (f) => f.severity === 'critical',
-      ).length;
-      const warningCount = testResult.findings.filter(
-        (f) => f.severity === 'warning',
-      ).length;
-      if (testResult.passed && criticalCount > 0) {
-        this.logger.warn(
-          `Pen Tester LLM said passed but found ${criticalCount} critical + ${warningCount} warning findings — overriding to FAIL`,
-        );
-        testResult.passed = false;
-        testResult.summary = `[OVERRIDE] ${criticalCount} critical finding(s) detected — auto-failed. ${testResult.summary}`;
-      }
-
-      // ─── Finding Threads: Post findings as MR discussion threads ───
-      const activeFindings = testResult.findings.filter(
-        (f) => f.severity !== 'info',
-      );
-      const findingsForThreads: FindingForThread[] = activeFindings.map((f) => {
-        const parts = [
-          `**${f.severity.toUpperCase()}** [${f.category}]`,
-          '',
-          f.description,
-        ];
-        if (f.file)
-          parts.push(
-            '',
-            `**File:** \`${f.file}${f.line ? `:${f.line}` : ''}\``,
-          );
-        if (f.expectedFix) parts.push('', `**Expected Fix:** ${f.expectedFix}`);
-        if (f.exploitScenario)
-          parts.push('', `**Exploit Scenario:** ${f.exploitScenario}`);
-        parts.push('', `**Recommendation:** ${f.recommendation}`);
-        return {
-          severity: f.severity,
-          message: `[${f.category}] ${f.description.substring(0, 80)}`,
-          file: f.file,
-          line: f.line,
-          threadBody: parts.join('\n'),
-        };
-      });
-
-      const {
-        activeThreads: allActiveThreads,
-        resolvedThreads: resolvedThreadRecords,
-      } = await syncFindingThreads({
-        prisma: this.prisma,
-        gitlabService: this.gitlabService,
         issueId,
         mrIid,
         gitlabProjectId,
-        agentRole: AgentRole.PEN_TESTER,
-        roundNumber: testResult.roundNumber ?? 1,
-        findings: findingsForThreads,
-        confirmedResolved: testResult.resolvedFromPrevious?.map((r: any) => ({
-          message: r.description,
-        })),
-      });
-
-      const testMarkdown = buildIssueSummaryWithThreadLinks({
-        agentName: 'Security Test',
-        approved: testResult.passed,
-        summary: testResult.summary,
-        threads: allActiveThreads,
-        resolvedThreads: resolvedThreadRecords,
-      });
-      await postAgentComment({
-        prisma: this.prisma,
-        gitlabService: this.gitlabService,
-        issueId,
-        gitlabProjectId,
-        issueIid: issue.gitlabIid!,
-        agentTaskId: ctx.agentTaskId,
-        authorName: 'Pen Tester',
-        markdownContent: testMarkdown,
-      });
-
-      if (testResult.passed) {
-        await this.handlePassed(
-          ctx,
-          issueId,
-          mrIid,
-          gitlabProjectId,
-          testResult,
-        );
-      } else {
-        await this.handleFailed(
-          ctx,
-          issueId,
-          mrIid,
-          gitlabProjectId,
-          testResult,
-        );
-      }
+        issue,
+        auditResult,
+        outOfScopeItems,
+        maxWarnings,
+        config,
+      );
     } catch (err) {
       this.logger.error(`Security test failed: ${err.message}`, err.stack);
       await this.sendAgentMessage(ctx, `**Pen Tester** error: ${err.message}`);
@@ -654,475 +270,352 @@ Do NOT omit the JSON block.`;
     }
   }
 
-  // ─── Tech Stack Context Builder ────────────────────────────
+  // ─── Prompt Building ──────────────────────────────────
 
-  private buildTechStackContext(project: any): string {
-    if (!project?.techStack) {
-      return '_No tech stack information available._';
-    }
-
-    const ts = project.techStack as Record<string, unknown>;
-    const parts: string[] = [];
-
-    const stack = ts['techStack'] as Record<string, unknown> | undefined;
-    if (stack) {
-      if (stack['framework'])
-        parts.push(`- **Framework:** ${stack['framework']}`);
-      if (stack['language']) parts.push(`- **Language:** ${stack['language']}`);
-      if (stack['backend']) parts.push(`- **Backend:** ${stack['backend']}`);
-      if (stack['database']) parts.push(`- **Database:** ${stack['database']}`);
-    }
-
-    const deploy = ts['deployment'] as Record<string, unknown> | undefined;
-    if (deploy) {
-      parts.push(`- **Web Project:** ${deploy['isWebProject'] ? 'Yes' : 'No'}`);
-      if (deploy['devServerCommand'])
-        parts.push(`- **Dev Server:** ${deploy['devServerCommand']}`);
-    }
-
-    if (parts.length === 0) return '_Minimal tech stack info._';
-
-    // Determine project type for LLM context
-    const framework = String(stack?.['framework'] ?? '').toLowerCase();
-    const backend = String(stack?.['backend'] ?? '').toLowerCase();
-
-    let projectType = 'Full-Stack Application';
-    if (
-      !backend &&
-      (framework.includes('angular') ||
-        framework.includes('react') ||
-        framework.includes('vue'))
-    ) {
-      projectType = 'Frontend-Only SPA (no backend)';
-    } else if (
-      !framework &&
-      (backend.includes('nest') ||
-        backend.includes('express') ||
-        backend.includes('fastify'))
-    ) {
-      projectType = 'Backend API (no frontend)';
-    } else if (framework === 'static' || framework === 'html') {
-      projectType = 'Static Site';
-    }
-
-    parts.unshift(`- **Project Type:** ${projectType}`);
-    return parts.join('\n');
-  }
-
-  // ─── npm audit (production deps only) ────────────────────
-
-  private async runNpmAudit(workspace: string): Promise<{
-    report: string;
-    summary: PenTestResult['auditResult'];
-  }> {
-    try {
-      // --omit=dev: Only audit production dependencies to reduce false positives
-      const { stdout } = await execFileAsync(
-        'npm',
-        ['audit', '--omit=dev', '--json'],
-        {
-          cwd: workspace,
-          timeout: this.getAuditTimeoutMs(),
-          maxBuffer: 10 * 1024 * 1024,
-        },
-      ).catch((err) => {
-        // npm audit exits with code 1 when vulnerabilities found — still has useful stdout
-        if (err.stdout) return { stdout: err.stdout, stderr: err.stderr };
-        throw err;
-      });
-
-      const auditData = JSON.parse(stdout);
-      const meta = auditData.metadata?.vulnerabilities || {};
-
-      const summary = {
-        vulnerabilities: (meta.total ?? 0) as number,
-        critical: (meta.critical ?? 0) as number,
-        high: (meta.high ?? 0) as number,
-      };
-
-      // Format report for LLM
-      const lines = [
-        `**Scope:** Production dependencies only (dev excluded)`,
-        `Total vulnerabilities: ${summary.vulnerabilities}`,
-        `Critical: ${summary.critical}`,
-        `High: ${summary.high}`,
-      ];
-
-      // List top advisories
-      const advisories =
-        auditData.advisories || auditData.vulnerabilities || {};
-      const entries = Object.values(advisories).slice(0, 10);
-      for (const adv of entries as any[]) {
-        const name = adv.name || adv.module_name || 'unknown';
-        const severity = adv.severity || 'unknown';
-        const title = adv.title || adv.overview || '';
-        lines.push(`- **${severity}** \`${name}\`: ${title.substring(0, 100)}`);
-      }
-
-      return { report: lines.join('\n'), summary };
-    } catch (err) {
-      this.logger.warn(`npm audit failed: ${err.message}`);
-      return {
-        report: `_npm audit failed: ${err.message}_`,
-        summary: undefined,
-      };
-    }
-  }
-
-  // ─── HTTP Header Check ──────────────────────────────────
-
-  private async checkSecurityHeaders(url: string): Promise<string> {
-    try {
-      const controller = new AbortController();
-      const timeout = setTimeout(() => controller.abort(), HTTP_TIMEOUT_MS);
-
-      const response = await fetch(url, {
-        method: 'HEAD',
-        signal: controller.signal,
-        redirect: 'follow',
-      });
-      clearTimeout(timeout);
-
-      const lines: string[] = [
-        `**URL:** ${url}`,
-        `**Status:** ${response.status}`,
-        '',
-        '### Security Headers:',
-      ];
-
-      for (const header of SECURITY_HEADERS) {
-        const value = response.headers.get(header);
-        if (value) {
-          lines.push(`- ✅ \`${header}\`: ${value.substring(0, 100)}`);
-        } else {
-          lines.push(`- ❌ \`${header}\`: **MISSING**`);
-        }
-      }
-
-      lines.push(
-        '',
-        '_Note: Missing headers on dev/preview servers are typically info-level, not warnings._',
-      );
-
-      return lines.join('\n');
-    } catch (err) {
-      this.logger.warn(`Header check failed: ${err.message}`);
-      return `_Security header check failed: ${err.message}_`;
-    }
-  }
-
-  // ─── Result Handlers ──────────────────────────────────────
-
-  private async handlePassed(
-    ctx: AgentContext,
+  private async buildPromptContext(
+    issue: any,
+    project: any,
     issueId: string,
-    mrIid: number,
-    gitlabProjectId: number,
-    testResult: PenTestResult,
-  ): Promise<void> {
+    diffs: any[],
+    reviewDiffs: any[],
+    diffText: string,
+    auditReport: string,
+    headerReport: string,
+  ) {
+    const config = this.getRoleConfig();
+    const systemPrompt = config.systemPrompt || DEFAULT_SYSTEM_PROMPT;
+
+    const commentHistory = await getAgentCommentHistory({
+      prisma: this.prisma,
+      issueId,
+      maxChars: this.getMaxHistoryChars(),
+    });
+    const historySection = commentHistory
+      ? `\n## Previous Agent Comments on this Issue\n${commentHistory}\n`
+      : '';
+    const outOfScopeItems = extractArchitectOutOfScopeItems(commentHistory);
+    const scopeGuardSection =
+      buildArchitectScopeGuardSection(outOfScopeItems);
+
+    const maxWarnings = this.getMaxWarnings();
+    const previousFindings = extractLastAgentFindings(
+      commentHistory,
+      'Pen Tester',
+    );
+
+    const userPrompt = buildPenTesterUserPrompt({
+      issueTitle: issue.title,
+      issueDescription: issue.description,
+      techStackContext: buildTechStackContext(project),
+      maxWarnings,
+      loopResolverSection: extractLoopResolverClarifications(commentHistory),
+      previousFindingsSection: buildPreviousFindingsSection(previousFindings),
+      historySection,
+      scopeGuardSection,
+      reviewDiffCount: reviewDiffs.length,
+      totalDiffCount: diffs.length,
+      diffText,
+      auditReport,
+      headerReport,
+      hasPreviousFindings: previousFindings.length > 0,
+    });
+
+    return { userPrompt, systemPrompt, maxWarnings, outOfScopeItems };
+  }
+
+  // ─── MCP Execution Path ───────────────────────────────
+
+  private async runMcpPath(
+    ctx: AgentContext,
+    config: any,
+    systemPrompt: string,
+    userPrompt: string,
+    mcpServers: any[],
+    workspace: string,
+  ): Promise<string | null> {
+    this.logger.log(
+      `Using MCP agent loop with ${mcpServers.length} servers (workspace: ${workspace})`,
+    );
     await this.sendAgentMessage(
       ctx,
-      `**Security Test passed** for MR !${mrIid}\n\n${testResult.summary}`,
+      `Running security analysis with shell access (${mcpServers.length} MCP tools — semgrep, trivy, etc.)...`,
     );
 
-    await this.prisma.agentTask.update({
-      where: { id: ctx.agentTaskId },
-      data: {
-        status: AgentTaskStatus.COMPLETED,
-        output: sanitizeJsonOutput(testResult) as any,
-        completedAt: new Date(),
-      },
+    const mcpResult = await this.mcpAgentLoop.run({
+      provider: config.provider,
+      model: config.model,
+      systemPrompt,
+      userPrompt,
+      mcpServers,
+      maxIterations: 25,
+      temperature: config.parameters.temperature,
+      maxTokens: config.parameters.maxTokens,
+      agentTaskId: ctx.agentTaskId,
+      cwd: workspace,
     });
 
-    await this.updateStatus(ctx, AgentStatus.IDLE);
-
-    this.eventEmitter.emit('agent.penTestComplete', {
-      projectId: ctx.projectId,
-      chatSessionId: ctx.chatSessionId,
-      issueId,
-      mrIid,
-      gitlabProjectId,
-      passed: true,
-    });
-  }
-
-  private async handleFailed(
-    ctx: AgentContext,
-    issueId: string,
-    mrIid: number,
-    gitlabProjectId: number,
-    testResult: PenTestResult,
-  ): Promise<void> {
-    const findingsText = testResult.findings
-      .filter((f) => f.severity !== 'info')
-      .map(
-        (f) =>
-          `- **${f.severity}** [${f.category}]${f.file ? ` \`${f.file}${f.line ? `:${f.line}` : ''}\`` : ''}: ${f.description}`,
-      )
-      .join('\n');
-
-    await this.sendAgentMessage(
-      ctx,
-      `**Security Test failed** for MR !${mrIid}\n\n${testResult.summary}\n\n${findingsText}`,
-    );
-
-    await this.prisma.agentTask.update({
-      where: { id: ctx.agentTaskId },
-      data: {
-        status: AgentTaskStatus.COMPLETED,
-        output: sanitizeJsonOutput(testResult) as any,
-        completedAt: new Date(),
-      },
-    });
-
-    await this.updateStatus(ctx, AgentStatus.IDLE);
-
-    const relevantFindings = testResult.findings.filter(
-      (f) => f.severity !== 'info',
-    );
-    const feedback = relevantFindings
-      .map((f, i) => {
-        const persist = f.persistsSinceRound
-          ? ` (open since round ${f.persistsSinceRound})`
-          : '';
-        const parts = [
-          `${i + 1}. [${f.severity.toUpperCase()}] [${f.category}]${persist}`,
-        ];
-        parts.push(`   Vulnerability: ${f.description}`);
-        if (f.file)
-          parts.push(`   File: ${f.file}${f.line ? `:${f.line}` : ''}`);
-        if (f.expectedFix) {
-          parts.push(`   EXPECTED FIX: ${f.expectedFix}`);
-        } else {
-          parts.push(`   Fix: ${f.recommendation}`);
-        }
-        if (f.exploitScenario) parts.push(`   Exploit: ${f.exploitScenario}`);
-        return parts.join('\n');
-      })
-      .join('\n\n');
-
-    this.eventEmitter.emit('agent.penTestComplete', {
-      projectId: ctx.projectId,
-      chatSessionId: ctx.chatSessionId,
-      issueId,
-      mrIid,
-      gitlabProjectId,
-      passed: false,
-      feedback: `Security Test findings:\n\n${feedback}`,
-    });
-  }
-
-  // ─── Parsing ──────────────────────────────────────────────
-
-  private parseTestResult(
-    content: string,
-    issueId: string,
-    auditResult?: PenTestResult['auditResult'],
-  ): PenTestResult | null {
-    this.logger.debug(`Parsing security test result (${content.length} chars)`);
-
-    if (!content.trim()) return null;
-
-    const cleaned = stripThinkTags(content);
-
-    const jsonStr = extractJson(cleaned, COMPLETION_MARKER);
-
-    if (!jsonStr) {
-      this.logger.warn(
-        'No JSON found in security test result — building from text',
+    if (mcpResult.finishReason === 'error') {
+      await this.sendAgentMessage(ctx, 'Pen Tester MCP loop failed');
+      await this.markFailed(
+        ctx,
+        `MCP agent loop failed: ${mcpResult.errorMessage ?? 'unknown error'}`,
       );
-      return this.buildResultFromText(cleaned, issueId, auditResult);
+      return null;
     }
-
-    try {
-      const fixed = cleanJsonString(jsonStr);
-
-      const parsed = JSON.parse(fixed);
-      const findings = this.parseFindings(
-        parsed.findings || parsed.vulnerabilities || parsed.issues || [],
-      );
-
-      // Apply configurable threshold instead of trusting LLM decision blindly
-      const maxWarnings = this.getMaxWarnings();
-      const criticalCount = findings.filter(
-        (f) => f.severity === 'critical',
-      ).length;
-      const warningCount = findings.filter(
-        (f) => f.severity === 'warning',
-      ).length;
-      const passed = criticalCount === 0 && warningCount <= maxWarnings;
-
-      let summary = parsed.summary || '';
-      if (!summary || summary.length < 5) {
-        summary = passed
-          ? `Security test passed (${findings.length} finding(s), ${warningCount} warning(s))`
-          : `Security test failed (${criticalCount} critical, ${warningCount} warning(s))`;
-      }
-
-      // Extract roundNumber and resolvedFromPrevious from LLM output
-      const roundNumber =
-        typeof parsed.roundNumber === 'number' ? parsed.roundNumber : undefined;
-      const resolvedFromPrevious = Array.isArray(parsed.resolvedFromPrevious)
-        ? parsed.resolvedFromPrevious
-            .filter((r: any) => r && typeof r === 'object')
-            .map((r: any) => ({
-              category: String(r.category ?? 'Unknown'),
-              description: String(r.description ?? ''),
-              resolvedBy: String(r.resolvedBy ?? ''),
-            }))
-        : undefined;
-
-      return {
-        issueId,
-        passed,
-        findings,
-        summary,
-        auditResult: parsed.auditResult || auditResult,
-        roundNumber,
-        resolvedFromPrevious,
-      };
-    } catch (err) {
-      this.logger.error(`JSON parse failed: ${err.message}`);
-      return this.buildResultFromText(cleaned, issueId, auditResult);
-    }
-  }
-
-  private parseFindings(raw: any): SecurityFinding[] {
-    if (!Array.isArray(raw)) return [];
-    return raw
-      .filter((f: any) => f && typeof f === 'object')
-      .map((f: any) => ({
-        category: String(f.category ?? f.owasp ?? f.type ?? 'Unknown'),
-        severity: normalizeSeverity(f.severity),
-        description: String(
-          f.description ?? f.message ?? f.details ?? 'No details',
-        ),
-        file: f.file ? String(f.file) : undefined,
-        line: typeof f.line === 'number' ? f.line : undefined,
-        recommendation: String(
-          f.recommendation ?? f.fix ?? f.suggestion ?? 'Review and fix',
-        ),
-        expectedFix: f.expectedFix ? String(f.expectedFix) : undefined,
-        exploitScenario: f.exploitScenario
-          ? String(f.exploitScenario)
-          : undefined,
-        verificationMethod: f.verificationMethod
-          ? String(f.verificationMethod)
-          : undefined,
-        persistsSinceRound:
-          typeof f.persistsSinceRound === 'number'
-            ? f.persistsSinceRound
-            : undefined,
-        status: ['new', 'resolved', 'unresolved', 'blocked'].includes(f.status)
-          ? f.status
-          : undefined,
-      }));
-  }
-
-  private buildResultFromText(
-    text: string,
-    issueId: string,
-    auditResult?: PenTestResult['auditResult'],
-  ): PenTestResult {
-    const lower = text.toLowerCase();
-    const lastLines = lower.split('\n').slice(-10).join(' ');
-
-    // Only fail on strong evidence of critical security issues
-    const strongFail =
-      /\b(critical\s+vulnerabilit|sql\s+injection\s+found|xss\s+exploit|rce\s+found|result:\s*fail|verdict:\s*fail)\b/.test(
-        lastLines,
-      );
-    const passed = !strongFail;
 
     this.logger.log(
-      `buildResultFromText: strongFail=${strongFail}, passed=${passed}`,
+      `MCP loop: ${mcpResult.iterations} iterations, ${mcpResult.toolCallsExecuted} tool calls`,
     );
-
-    return {
-      issueId,
-      passed,
-      findings: [],
-      summary: strongFail
-        ? 'Security test failed (parsed from text)'
-        : 'Security test passed (no critical vulnerabilities detected — defaulting to pass)',
-      auditResult,
-    };
+    return mcpResult.content;
   }
 
-  // ─── Diff Fetching ──────────────────────────────────────
+  // ─── Dual LLM Execution Path ──────────────────────────
 
-  private applyArchitectScopeFilter(
-    testResult: PenTestResult,
+  /**
+   * Run dual-LLM call. Returns:
+   * - string: primary content for further parsing
+   * - undefined: dual path handled pass/fail itself (caller should return)
+   * - null: LLM call failed (caller should return)
+   */
+  private async runDualLlmPath(
+    ctx: AgentContext,
+    config: any,
+    systemPrompt: string,
+    userPrompt: string,
+    issueId: string,
+    mrIid: number,
+    gitlabProjectId: number,
+    issue: any,
+    auditResult: PenTestResult['auditResult'] | undefined,
     outOfScopeItems: string[],
     maxWarnings: number,
-  ): PenTestResult {
-    if (outOfScopeItems.length === 0 || testResult.findings.length === 0) {
-      return testResult;
+  ): Promise<string | undefined | null> {
+    const messages: LlmMessage[] = [
+      { role: 'system', content: systemPrompt },
+      { role: 'user', content: userPrompt },
+    ];
+
+    const dualResult = await this.dualTestService.callDual(config, messages);
+
+    if (dualResult.primary.finishReason === 'error') {
+      await this.sendAgentMessage(ctx, 'Pen Tester LLM call failed');
+      await this.markFailed(
+        ctx,
+        `LLM call failed: ${dualResult.primary.errorMessage ?? 'unknown error'}`,
+      );
+      return null;
     }
 
-    const { filtered, removedCount } = filterOutOfScopeFindings(
-      testResult.findings,
-      outOfScopeItems,
-      (f) =>
-        `${f.category} ${f.description} ${f.recommendation} ${f.file ?? ''}`,
-    );
+    // Dual-testing: parse secondary and merge/consensus findings
+    if (
+      dualResult.secondary &&
+      dualResult.secondary.finishReason !== 'error'
+    ) {
+      const primaryResult = parseTestResult(
+        dualResult.primary.content,
+        issueId,
+        auditResult,
+        maxWarnings,
+        this.logger,
+      );
+      const secondaryResult = parseTestResult(
+        dualResult.secondary.content,
+        issueId,
+        auditResult,
+        maxWarnings,
+        this.logger,
+      );
+      if (primaryResult && secondaryResult) {
+        const strategy = config.dualStrategy ?? 'merge';
+        const { merged, stats } = this.dualTestService.mergeFindings(
+          primaryResult.findings,
+          secondaryResult.findings,
+          strategy,
+          (f: SecurityFinding) =>
+            `${f.category}:${f.file ?? ''}:${f.severity}:${f.description.substring(0, 40).toLowerCase()}`,
+        );
 
-    if (removedCount === 0) return testResult;
+        const passed = this.dualTestService.determineApproval(
+          merged,
+          maxWarnings,
+        );
+        let mergedTestResult: PenTestResult = {
+          ...primaryResult,
+          findings: merged,
+          passed,
+        };
+        mergedTestResult = applyArchitectScopeFilter(
+          mergedTestResult,
+          outOfScopeItems,
+          maxWarnings,
+          this.logger,
+        );
 
-    const criticalCount = filtered.filter(
-      (f) => f.severity === 'critical',
-    ).length;
-    const warningCount = filtered.filter(
-      (f) => f.severity === 'warning',
-    ).length;
-    const passed = criticalCount === 0 && warningCount <= maxWarnings;
+        await this.sendAgentMessage(
+          ctx,
+          `🔀 **Dual-test** (${strategy}): ${stats.primaryCount} + ${stats.secondaryCount} → ${stats.mergedCount} findings [${dualResult.providers.primary} + ${dualResult.providers.secondary}]`,
+        );
 
-    this.logger.log(
-      `Architect scope filter removed ${removedCount} security finding(s) as out-of-scope`,
-    );
+        // Rule-based override: critical findings → always fail
+        applyCriticalOverride(mergedTestResult, this.logger);
 
-    const summarySuffix = `Architect scope filter ignored ${removedCount} out-of-scope finding(s).`;
-    const summary = testResult.summary
-      ? `${testResult.summary} ${summarySuffix}`
-      : summarySuffix;
+        // Post finding threads + comment and handle result
+        await this.finishResult(
+          ctx, issueId, mrIid, gitlabProjectId, issue, mergedTestResult,
+        );
+        return undefined; // signal: dual path handled everything
+      }
+    }
 
-    return {
-      ...testResult,
-      passed,
-      findings: filtered,
-      summary,
-    };
+    return dualResult.primary.content;
   }
 
-  private async fetchDiffsWithRetry(
-    gitlabProjectId: number,
+  // ─── Result Evaluation ────────────────────────────────
+
+  private async evaluateAndFinish(
+    ctx: AgentContext,
+    resultContent: string,
+    issueId: string,
     mrIid: number,
-    maxRetries: number,
-    delayMs: number,
-  ): Promise<any[]> {
-    for (let attempt = 1; attempt <= maxRetries; attempt++) {
-      try {
-        const diffs = await this.gitlabService.getMergeRequestDiffs(
-          gitlabProjectId,
-          mrIid,
+    gitlabProjectId: number,
+    issue: any,
+    auditResult: PenTestResult['auditResult'] | undefined,
+    outOfScopeItems: string[],
+    maxWarnings: number,
+    config: any,
+  ): Promise<void> {
+    let testResult = parseTestResult(
+      resultContent, issueId, auditResult, maxWarnings, this.logger,
+    );
+
+    // Retry JSON extraction when parsing returned empty or failed
+    const jsonTemplate =
+      '{"passed": true/false, "summary": "1-2 sentences", "findings": [{"category": "A01:2021", "severity": "critical|warning|info", "description": "...", "file": "path", "recommendation": "fix"}], "auditResult": {"vulnerabilities": 0, "critical": 0, "high": 0}}';
+    const shouldRetry =
+      resultContent.length > 500 &&
+      !this.dualTestService.isDualConfigured(config);
+
+    if (shouldRetry && (!testResult || testResult.findings.length === 0)) {
+      const retryJson = await this.dualTestService.retryJsonExtraction(
+        config, resultContent, jsonTemplate,
+      );
+      if (retryJson) {
+        const retried = parseTestResult(
+          retryJson, issueId, auditResult, maxWarnings, this.logger,
         );
-        if (diffs.length > 0) return diffs;
-      } catch (err) {
-        this.logger.warn(
-          `Diff fetch attempt ${attempt}/${maxRetries} failed for MR !${mrIid}: ${err.message}`,
-        );
-      }
-      if (attempt < maxRetries) {
-        await new Promise((resolve) => setTimeout(resolve, delayMs));
+        if (retried && (!testResult || retried.findings.length > 0)) {
+          this.logger.log(
+            `JSON retry recovered ${retried.findings.length} security findings`,
+          );
+          testResult = retried;
+        }
       }
     }
-    this.logger.warn(
-      `MR !${mrIid} still has no diffs after ${maxRetries} attempts`,
+
+    if (!testResult) {
+      await this.sendAgentMessage(
+        ctx, 'Could not parse security test result — defaulting to pass',
+      );
+      await this.finishResult(ctx, issueId, mrIid, gitlabProjectId, issue, {
+        issueId, passed: true, findings: [], summary: 'Parse failed — auto-passed',
+      });
+      return;
+    }
+
+    // Apply scope filter + critical override
+    testResult = applyArchitectScopeFilter(
+      testResult, outOfScopeItems, maxWarnings, this.logger,
     );
-    return [];
+    applyCriticalOverride(testResult, this.logger);
+
+    await this.finishResult(ctx, issueId, mrIid, gitlabProjectId, issue, testResult);
   }
 
-  // ─── Helpers ──────────────────────────────────────────────
+  // ─── Finding Threads + Pass/Fail ──────────────────────
+
+  private async finishResult(
+    ctx: AgentContext,
+    issueId: string,
+    mrIid: number,
+    gitlabProjectId: number,
+    issue: any,
+    testResult: PenTestResult,
+  ): Promise<void> {
+    // Sync finding threads to GitLab MR
+    const findingsForThreads = buildFindingsForThreads(testResult.findings);
+    const { activeThreads, resolvedThreads } = await syncFindingThreads({
+      prisma: this.prisma,
+      gitlabService: this.gitlabService,
+      issueId, mrIid, gitlabProjectId,
+      agentRole: AgentRole.PEN_TESTER,
+      roundNumber: testResult.roundNumber ?? 1,
+      findings: findingsForThreads,
+      confirmedResolved: testResult.resolvedFromPrevious?.map((r: any) => ({
+        message: r.description,
+      })),
+    });
+
+    // Post summary comment on the issue
+    const testMarkdown = buildIssueSummaryWithThreadLinks({
+      agentName: 'Security Test',
+      approved: testResult.passed,
+      summary: testResult.summary,
+      threads: activeThreads,
+      resolvedThreads,
+    });
+    await postAgentComment({
+      prisma: this.prisma,
+      gitlabService: this.gitlabService,
+      issueId, gitlabProjectId,
+      issueIid: issue.gitlabIid!,
+      agentTaskId: ctx.agentTaskId,
+      authorName: 'Pen Tester',
+      markdownContent: testMarkdown,
+    });
+
+    // Build chat message
+    const passed = testResult.passed;
+    const statusWord = passed ? 'passed' : 'failed';
+    const findingsText = passed
+      ? ''
+      : '\n\n' +
+        testResult.findings
+          .filter((f) => f.severity !== 'info')
+          .map(
+            (f) =>
+              `- **${f.severity}** [${f.category}]${f.file ? ` \`${f.file}${f.line ? `:${f.line}` : ''}\`` : ''}: ${f.description}`,
+          )
+          .join('\n');
+
+    await this.sendAgentMessage(
+      ctx,
+      `**Security Test ${statusWord}** for MR !${mrIid}\n\n${testResult.summary}${findingsText}`,
+    );
+
+    // Complete task
+    await this.prisma.agentTask.update({
+      where: { id: ctx.agentTaskId },
+      data: {
+        status: AgentTaskStatus.COMPLETED,
+        output: sanitizeJsonOutput(testResult) as any,
+        completedAt: new Date(),
+      },
+    });
+    await this.updateStatus(ctx, AgentStatus.IDLE);
+
+    // Emit event for orchestrator
+    this.eventEmitter.emit('agent.penTestComplete', {
+      projectId: ctx.projectId,
+      chatSessionId: ctx.chatSessionId,
+      issueId, mrIid, gitlabProjectId,
+      passed,
+      ...(passed
+        ? {}
+        : { feedback: `Security Test findings:\n\n${buildFailureFeedback(testResult.findings)}` }),
+    });
+  }
+
+  // ─── Helpers ──────────────────────────────────────────
 
   private async markFailed(ctx: AgentContext, reason: string): Promise<void> {
     try {

@@ -1,7 +1,5 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { EventEmitter2 } from '@nestjs/event-emitter';
-import { execFile } from 'child_process';
-import { promisify } from 'util';
 import * as path from 'path';
 import { PrismaService } from '../../prisma/prisma.service';
 import { SystemSettingsService } from '../../settings/system-settings.service';
@@ -16,6 +14,15 @@ import { BaseAgent, AgentContext, sanitizeJsonOutput } from '../agent-base';
 import { MonitorGateway } from '../../monitor/monitor.gateway';
 import { postAgentComment } from '../agent-comment.utils';
 import { CoderIssueResult } from './coder-result.interface';
+import { buildCodingPrompt, buildFixPrompt, runMcpAgentLoop, McpLoopDeps } from './coder-prompt';
+import {
+  slugify,
+  gitPull,
+  gitCheckout,
+  gitCreateBranch,
+  getChangedFiles,
+  gitCommitAndPush,
+} from './coder-git';
 import {
   AgentRole,
   AgentStatus,
@@ -24,12 +31,13 @@ import {
   IssueStatus,
 } from '@prisma/client';
 
-const execFileAsync = promisify(execFile);
-
 @Injectable()
 export class CoderAgent extends BaseAgent {
   readonly role = AgentRole.CODER;
   protected readonly logger = new Logger(CoderAgent.name);
+
+  /** Lazily built deps object for the extracted MCP loop function */
+  private mcpLoopDeps: McpLoopDeps | null = null;
 
   constructor(
     prisma: PrismaService,
@@ -44,92 +52,70 @@ export class CoderAgent extends BaseAgent {
     private readonly mcpAgentLoop: McpAgentLoopService,
     private readonly mcpRegistry: McpRegistryService,
   ) {
-    super(
-      prisma,
-      settings,
-      chatService,
-      chatGateway,
-      llmService,
-      monitorGateway,
-    );
+    super(prisma, settings, chatService, chatGateway, llmService, monitorGateway);
+  }
+
+  /** Build (and cache) the deps bag for the extracted runMcpAgentLoop */
+  private getMcpLoopDeps(): McpLoopDeps {
+    if (!this.mcpLoopDeps) {
+      this.mcpLoopDeps = {
+        prisma: this.prisma,
+        mcpAgentLoop: this.mcpAgentLoop,
+        mcpRegistry: this.mcpRegistry,
+        wikiReader: this.gitlabService,
+        logger: this.logger,
+        getRoleConfig: () => this.getRoleConfig(),
+        buildKnowledgeSectionWiki: (wr, gpid, ws) =>
+          this.buildKnowledgeSectionWiki(wr, gpid, ws),
+      };
+    }
+    return this.mcpLoopDeps;
   }
 
   // ─── Main Entry: Milestone Coding ──────────────────────────
 
-  /**
-   * Code all issues in the first open milestone sequentially.
-   * Called when issueCompilerComplete fires.
-   */
   async runMilestoneCoding(ctx: AgentContext): Promise<void> {
     try {
       await this.updateStatus(ctx, AgentStatus.WORKING);
 
-      // Load project
       const project = await this.prisma.project.findUnique({
         where: { id: ctx.projectId },
       });
       if (!project?.gitlabProjectId) {
-        await this.sendAgentMessage(
-          ctx,
-          '❌ Project has no GitLab repo linked',
-        );
+        await this.sendAgentMessage(ctx, '❌ Project has no GitLab repo linked');
         await this.markFailed(ctx, 'No GitLab repo linked');
         return;
       }
 
-      // Determine if running in a dev session
-      let isDevSession = false;
       let chatSessionFilter: { chatSessionId?: string } = {};
       if (ctx.chatSessionId) {
         const session = await this.prisma.chatSession.findUnique({
           where: { id: ctx.chatSessionId },
           select: { type: true },
         });
-        isDevSession = session?.type === ChatSessionType.DEV_SESSION;
-        if (isDevSession) {
+        if (session?.type === ChatSessionType.DEV_SESSION) {
           chatSessionFilter = { chatSessionId: ctx.chatSessionId };
         }
       }
 
-      // Resolve workspace — dev sessions use git worktrees
-      const workspace = await this.resolveWorkspace(
-        project.slug,
-        ctx.chatSessionId,
-      );
+      const workspace = await this.resolveWorkspace(project.slug, ctx.chatSessionId);
+      await gitPull(workspace, this.getGitTimeoutMs(), this.logger);
 
-      // Pull latest on workspace
-      await this.gitPull(workspace);
-
-      // Find the NEXT open issue — scoped to session if dev session
-      // Sequential strategy: we only process ONE issue at a time.
-      // After the full pipeline (Review → Test → Docs → Merge), the orchestrator triggers us again.
       const milestones = await this.prisma.milestone.findMany({
         where: {
           projectId: ctx.projectId,
-          issues: {
-            some: {
-              status: IssueStatus.OPEN,
-              parentId: null,
-              ...chatSessionFilter,
-            },
-          },
+          issues: { some: { status: IssueStatus.OPEN, parentId: null, ...chatSessionFilter } },
         },
         include: {
           issues: {
-            where: {
-              parentId: null,
-              status: IssueStatus.OPEN,
-              ...chatSessionFilter,
-            },
-            include: {
-              subIssues: { orderBy: { sortOrder: 'asc' } },
-            },
+            where: { parentId: null, status: IssueStatus.OPEN, ...chatSessionFilter },
+            include: { subIssues: { orderBy: { sortOrder: 'asc' } } },
             orderBy: [{ sortOrder: 'asc' }, { createdAt: 'asc' }],
-            take: 1, // Only the first open issue per milestone
+            take: 1,
           },
         },
         orderBy: { sortOrder: 'asc' },
-        take: 1, // Only the first milestone with open issues
+        take: 1,
       });
 
       if (milestones.length === 0 || milestones[0].issues.length === 0) {
@@ -138,17 +124,9 @@ export class CoderAgent extends BaseAgent {
         return;
       }
 
-      const milestone = milestones[0];
-      const issue = milestone.issues[0];
-
-      // Count remaining open issues for context
+      const issue = milestones[0].issues[0];
       const remainingCount = await this.prisma.issue.count({
-        where: {
-          projectId: ctx.projectId,
-          status: IssueStatus.OPEN,
-          parentId: null,
-          ...chatSessionFilter,
-        },
+        where: { projectId: ctx.projectId, status: IssueStatus.OPEN, parentId: null, ...chatSessionFilter },
       });
 
       await this.sendAgentMessage(
@@ -156,62 +134,39 @@ export class CoderAgent extends BaseAgent {
         `💻 **Coder Agent** — processing issue #${issue.gitlabIid ?? '?'}: **${issue.title}** (${remainingCount} remaining)`,
       );
 
-      // Get the base branch: prefer project.workBranch (e.g. "develop"), fallback to GitLab default
-      const glProject = await this.gitlabService.getProject(
-        project.gitlabProjectId,
-      );
+      const glProject = await this.gitlabService.getProject(project.gitlabProjectId);
       const defaultBranch = project.workBranch || glProject.default_branch;
 
-      // Check if this session has its own branch (session-based branching)
-      // With worktrees, the session workspace is already on the correct branch
       const chatSession = ctx.chatSessionId
         ? await this.prisma.chatSession.findUnique({
             where: { id: ctx.chatSessionId },
             select: { branch: true, type: true },
           })
         : null;
-      const sessionBranch =
-        chatSession?.type === 'DEV_SESSION' ? chatSession.branch : null;
+      const sessionBranch = chatSession?.type === 'DEV_SESSION' ? chatSession.branch : null;
 
       const issueResult = await this.processIssue(
-        ctx,
-        issue,
-        workspace,
-        project.gitlabProjectId,
-        defaultBranch,
-        glProject.path_with_namespace,
-        sessionBranch,
+        ctx, issue, workspace, project.gitlabProjectId,
+        defaultBranch, glProject.path_with_namespace, sessionBranch,
       );
 
-      const statusEmoji =
-        issueResult.status === 'success'
-          ? '✅'
-          : issueResult.status === 'failed'
-            ? '❌'
-            : '⏭️';
+      const emoji = issueResult.status === 'success' ? '✅' : issueResult.status === 'failed' ? '❌' : '⏭️';
       await this.sendAgentMessage(
         ctx,
-        `${statusEmoji} Issue #${issue.gitlabIid ?? '?'} ${issueResult.status}${issueResult.mrIid ? ` — MR !${issueResult.mrIid}` : ''} (${remainingCount - 1} issues remaining)`,
+        `${emoji} Issue #${issue.gitlabIid ?? '?'} ${issueResult.status}${issueResult.mrIid ? ` — MR !${issueResult.mrIid}` : ''} (${remainingCount - 1} issues remaining)`,
       );
 
-      // If coding failed (no codingComplete event), emit codingFailed so
-      // the orchestrator can pause this session's pipeline.
       if (issueResult.status === 'failed') {
         this.eventEmitter.emit('agent.codingFailed', {
-          projectId: ctx.projectId,
-          chatSessionId: ctx.chatSessionId,
-          issueId: issue.id,
-          errorMessage: issueResult.error,
+          projectId: ctx.projectId, chatSessionId: ctx.chatSessionId,
+          issueId: issue.id, errorMessage: issueResult.error,
         });
       }
 
       await this.updateStatus(ctx, AgentStatus.IDLE);
     } catch (err) {
       this.logger.error(`Milestone coding crashed: ${err.message}`, err.stack);
-      await this.sendAgentMessage(
-        ctx,
-        `❌ **Coder Agent** error: ${err.message}`,
-      );
+      await this.sendAgentMessage(ctx, `❌ **Coder Agent** error: ${err.message}`);
       await this.markFailed(ctx, err.message);
     }
   }
@@ -219,324 +174,101 @@ export class CoderAgent extends BaseAgent {
   // ─── Process Single Issue ──────────────────────────────────
 
   private async processIssue(
-    ctx: AgentContext,
-    issue: any,
-    workspace: string,
-    gitlabProjectId: number,
-    defaultBranch: string,
-    projectPath: string,
-    sessionBranch?: string | null,
+    ctx: AgentContext, issue: any, workspace: string,
+    gitlabProjectId: number, defaultBranch: string,
+    projectPath: string, sessionBranch?: string | null,
   ): Promise<CoderIssueResult> {
     const start = Date.now();
-    // Always create a feature branch — for session issues it branches from the session branch
-    const branchName = `feature/${issue.gitlabIid ?? issue.id}-${this.slugify(issue.title)}`;
+    const branchName = `feature/${issue.gitlabIid ?? issue.id}-${slugify(issue.title)}`;
     const baseBranch = sessionBranch || defaultBranch;
+    const timeout = this.getGitTimeoutMs();
     const result: CoderIssueResult = {
-      issueId: issue.id,
-      gitlabIid: issue.gitlabIid,
-      branch: branchName,
-      filesChanged: [],
-      status: 'failed',
-      durationMs: 0,
+      issueId: issue.id, gitlabIid: issue.gitlabIid,
+      branch: branchName, filesChanged: [], status: 'failed', durationMs: 0,
     };
-
-    // Reuse the orchestrator-created task instead of creating a duplicate
-    const agentTask = { id: ctx.agentTaskId };
+    const taskId = ctx.agentTaskId;
 
     try {
-      // Update issue status
-      await this.issuesService.update(issue.id, {
-        status: IssueStatus.IN_PROGRESS,
-      });
+      await this.issuesService.update(issue.id, { status: IssueStatus.IN_PROGRESS });
+      await this.prisma.agentTask.update({ where: { id: taskId }, data: { issueId: issue.id } });
 
-      // Link orchestrator task to this issue
-      await this.prisma.agentTask.update({
-        where: { id: ctx.agentTaskId },
-        data: { issueId: issue.id },
-      });
+      await this.sendAgentMessage(ctx, `🔨 Coding issue #${issue.gitlabIid ?? '?'}: **${issue.title}**`);
 
-      await this.sendAgentMessage(
-        ctx,
-        `🔨 Coding issue #${issue.gitlabIid ?? '?'}: **${issue.title}**`,
-      );
-
-      // Post start comment
       if (issue.gitlabIid && gitlabProjectId) {
         await postAgentComment({
-          prisma: this.prisma,
-          gitlabService: this.gitlabService,
-          issueId: issue.id,
-          gitlabProjectId,
-          issueIid: issue.gitlabIid,
-          agentTaskId: agentTask.id,
-          authorName: 'Coder Agent',
+          prisma: this.prisma, gitlabService: this.gitlabService,
+          issueId: issue.id, gitlabProjectId, issueIid: issue.gitlabIid,
+          agentTaskId: taskId, authorName: 'Coder Agent',
           markdownContent: `## 🤖 Coder Agent Starting\n\nBranch: \`${branchName}\``,
         });
       }
 
-      // Checkout base branch, pull latest, create feature branch
-      await this.gitCheckout(workspace, baseBranch);
-      await this.gitPull(workspace);
-      await this.gitCreateBranch(workspace, branchName);
+      await gitCheckout(workspace, baseBranch, timeout, this.logger);
+      await gitPull(workspace, timeout, this.logger);
+      await gitCreateBranch(workspace, branchName, timeout);
 
-      // Build the coding prompt
-      const prompt = this.buildCodingPrompt(issue);
+      await this.log(taskId, 'INFO', `Running MCP agent loop for issue: ${issue.title}`);
+      await runMcpAgentLoop(this.getMcpLoopDeps(), workspace, buildCodingPrompt(issue), taskId, ctx.projectId);
 
-      // Run MCP agent loop (LLM + filesystem tools)
-      await this.log(
-        agentTask.id,
-        'INFO',
-        `Running MCP agent loop for issue: ${issue.title}`,
-      );
-      await this.runMcpAgentLoop(
-        workspace,
-        prompt,
-        agentTask.id,
-        ctx.projectId,
-      );
-
-      // Check what changed (includes both uncommitted AND committed changes vs base)
-      const changedFiles = await this.getChangedFiles(workspace, baseBranch);
+      const changedFiles = await getChangedFiles(workspace, baseBranch, timeout, this.logger);
       result.filesChanged = changedFiles;
 
       if (changedFiles.length === 0) {
-        await this.sendAgentMessage(
-          ctx,
-          `⚠️ Agent produced no file changes for #${issue.gitlabIid ?? '?'} — marking for manual review`,
-        );
-        result.status = 'skipped';
-        await this.gitCheckout(workspace, baseBranch);
-
-        // Reset issue status so it doesn't stay orphaned in IN_PROGRESS
-        await this.issuesService.update(issue.id, {
-          status: IssueStatus.NEEDS_REVIEW,
-        });
-
-        await this.prisma.agentTask.update({
-          where: { id: agentTask.id },
-          data: { status: AgentTaskStatus.COMPLETED, completedAt: new Date() },
-        });
-
-        // Emit event so orchestrator can advance (no MR → review will be skipped)
-        this.eventEmitter.emit('agent.codingComplete', {
-          projectId: ctx.projectId,
-          chatSessionId: ctx.chatSessionId,
-          issueId: issue.id,
-          gitlabIid: issue.gitlabIid,
-          mrIid: undefined,
-          gitlabProjectId,
-          branch: branchName,
-        });
-
-        result.durationMs = Date.now() - start;
-        return result;
+        return this.handleNoChanges(ctx, issue, workspace, baseBranch, branchName, gitlabProjectId, taskId, result, start);
       }
 
-      // Commit & push
-      const commitSha = await this.gitCommitAndPush(
-        workspace,
-        branchName,
+      const commitSha = await gitCommitAndPush(
+        workspace, branchName,
         `feat: implement ${issue.title}\n\nCloses #${issue.gitlabIid ?? ''}`,
+        timeout, this.logger,
       );
 
-      // Create MR — always create, targeting session branch for sessions or default for infra
       if (gitlabProjectId) {
-        try {
-          const mr = await this.gitlabService.createMergeRequest(
-            gitlabProjectId,
-            {
-              source_branch: branchName,
-              target_branch: baseBranch,
-              title: `feat: ${issue.title}`,
-              description: `Closes #${issue.gitlabIid ?? ''}\n\n---\n_Automatically created by Coder Agent_\n\n**Changed files:** ${changedFiles.length}\n${changedFiles.map((f) => `- \`${f}\``).join('\n')}`,
-            },
-          );
-          result.mrIid = mr.iid;
-          result.mrUrl = mr.web_url;
-
-          // Update agent task with MR info
-          await this.prisma.agentTask.update({
-            where: { id: agentTask.id },
-            data: { gitlabMrIid: mr.iid },
-          });
-        } catch (mrErr) {
-          // Handle 409 Conflict — MR already exists for this branch
-          if (
-            mrErr?.response?.status === 409 ||
-            mrErr?.message?.includes('409')
-          ) {
-            this.logger.log(
-              `MR already exists for ${branchName}, looking up existing MR`,
-            );
-            const existingMr =
-              await this.gitlabService.findMergeRequestByBranch(
-                gitlabProjectId,
-                branchName,
-              );
-            if (existingMr) {
-              result.mrIid = existingMr.iid;
-              result.mrUrl = existingMr.web_url;
-              await this.prisma.agentTask.update({
-                where: { id: agentTask.id },
-                data: { gitlabMrIid: existingMr.iid },
-              });
-              this.logger.log(
-                `Found existing MR !${existingMr.iid} for ${branchName}`,
-              );
-            } else {
-              this.logger.warn(
-                `MR creation failed with 409 but no existing MR found for ${branchName}`,
-              );
-              await this.log(
-                agentTask.id,
-                'WARN',
-                `MR creation failed: ${mrErr.message}`,
-              );
-            }
-          } else {
-            this.logger.warn(`MR creation failed: ${mrErr.message}`);
-            await this.log(
-              agentTask.id,
-              'WARN',
-              `MR creation failed: ${mrErr.message}`,
-            );
-          }
-        }
+        await this.createOrFindMr(branchName, baseBranch, issue, gitlabProjectId, changedFiles, taskId, result);
       }
 
-      // Update issue status → IN_REVIEW
-      await this.issuesService.update(issue.id, {
-        status: IssueStatus.IN_REVIEW,
-      });
+      await this.issuesService.update(issue.id, { status: IssueStatus.IN_REVIEW });
 
-      // Build commit URL for GitLab
       const gitlabBaseUrl = this.settings.gitlabUrl;
       const commitUrl = `${gitlabBaseUrl}/${projectPath}/-/commit/${commitSha}`;
-      const commitShort = commitSha.substring(0, 8);
       result.commitSha = commitSha;
       result.commitUrl = commitUrl;
 
-      // Post implementation-complete comment (same rich markdown for local + GitLab)
       if (issue.gitlabIid && gitlabProjectId) {
-        const commentBody = [
-          `## 🔨 Implementation Complete`,
-          '',
-          `**Commit:** [\`${commitShort}\`](${commitUrl}) — [View Diff](${commitUrl})`,
-          `**Branch:** \`${branchName}\``,
-          result.mrUrl ? `**MR:** [!${result.mrIid}](${result.mrUrl})` : '',
-          `**Changed files (${changedFiles.length}):**`,
-          ...changedFiles.map((f) => `- \`${f}\``),
-          '',
-          '---',
-          '_Implemented by Coder Agent_',
-        ]
-          .filter(Boolean)
-          .join('\n');
-
-        await postAgentComment({
-          prisma: this.prisma,
-          gitlabService: this.gitlabService,
-          issueId: issue.id,
-          gitlabProjectId,
-          issueIid: issue.gitlabIid,
-          agentTaskId: agentTask.id,
-          authorName: 'Coder Agent',
-          markdownContent: commentBody,
-        });
+        await this.postImplementationComment(issue, gitlabProjectId, taskId, branchName, commitSha, commitUrl, changedFiles, result);
       }
 
-      // Complete the task
       await this.prisma.agentTask.update({
-        where: { id: agentTask.id },
-        data: {
-          status: AgentTaskStatus.COMPLETED,
-          output: sanitizeJsonOutput(result) as any,
-          completedAt: new Date(),
-        },
+        where: { id: taskId },
+        data: { status: AgentTaskStatus.COMPLETED, output: sanitizeJsonOutput(result) as any, completedAt: new Date() },
       });
 
       result.status = 'success';
       result.durationMs = Date.now() - start;
 
-      // Emit coding complete — always emit so the pipeline advances
       this.eventEmitter.emit('agent.codingComplete', {
-        projectId: ctx.projectId,
-        chatSessionId: ctx.chatSessionId,
-        issueId: issue.id,
-        gitlabIid: issue.gitlabIid,
-        mrIid: result.mrIid,
-        gitlabProjectId,
-        branch: branchName,
+        projectId: ctx.projectId, chatSessionId: ctx.chatSessionId,
+        issueId: issue.id, gitlabIid: issue.gitlabIid,
+        mrIid: result.mrIid, gitlabProjectId, branch: branchName,
       });
       if (!result.mrIid) {
-        this.logger.warn(
-          `No MR created for issue ${issue.gitlabIid} — codingComplete emitted without MR`,
-        );
+        this.logger.warn(`No MR created for issue ${issue.gitlabIid} — codingComplete emitted without MR`);
       }
 
-      // Switch back to base branch (session branch for sessions, default for infra)
-      await this.gitCheckout(workspace, baseBranch);
-
+      await gitCheckout(workspace, baseBranch, timeout, this.logger);
       return result;
     } catch (err) {
-      this.logger.error(
-        `processIssue failed for ${issue.title}: ${err.message}`,
-      );
-      result.error = err.message;
-      result.status = 'failed';
-      result.durationMs = Date.now() - start;
-
-      // Mark task as FAILED in DB (prevents orphaned RUNNING tasks)
-      try {
-        await this.prisma.agentTask.update({
-          where: { id: agentTask.id },
-          data: {
-            status: AgentTaskStatus.FAILED,
-            completedAt: new Date(),
-            output: sanitizeJsonOutput(result) as any,
-          },
-        });
-      } catch {
-        /* best effort */
-      }
-
-      await this.sendAgentMessage(
-        ctx,
-        `❌ Failed to code issue #${issue.gitlabIid ?? '?'}: ${err.message}`,
-      );
-
-      // Reset issue status so it can be retried
-      try {
-        await this.issuesService.update(issue.id, { status: IssueStatus.OPEN });
-      } catch {
-        /* best effort */
-      }
-
-      // Try to switch back to base branch
-      try {
-        await this.gitCheckout(workspace, baseBranch);
-      } catch {
-        // Best effort
-      }
-
-      return result;
+      return this.handleProcessError(ctx, err, issue, workspace, baseBranch, timeout, taskId, result, start);
     }
   }
 
   // ─── Fix Issue (re-trigger from review/pipeline/user) ──────
 
-  /**
-   * Fix an existing issue based on feedback.
-   * Re-uses existing branch, pushes to the same MR.
-   */
   async fixIssue(
-    ctx: AgentContext,
-    issueId: string,
-    feedback: string,
-    feedbackSource: 'review' | 'pipeline' | 'user',
+    ctx: AgentContext, issueId: string,
+    feedback: string, feedbackSource: 'review' | 'pipeline' | 'user',
   ): Promise<void> {
-    // Reuse the orchestrator-created task instead of creating a duplicate
-    const agentTask = { id: ctx.agentTaskId };
+    const taskId = ctx.agentTaskId;
 
     try {
       await this.updateStatus(ctx, AgentStatus.WORKING);
@@ -544,27 +276,17 @@ export class CoderAgent extends BaseAgent {
       const issue = await this.prisma.issue.findUnique({
         where: { id: issueId },
         include: {
-          project: {
-            select: {
-              id: true,
-              slug: true,
-              gitlabProjectId: true,
-              workBranch: true,
-            },
-          },
+          project: { select: { id: true, slug: true, gitlabProjectId: true, workBranch: true } },
           subIssues: { orderBy: { sortOrder: 'asc' } },
         },
       });
 
       if (!issue || !issue.project.gitlabProjectId) {
-        this.logger.warn(
-          `fixIssue: issue ${issueId} not found or no GitLab project`,
-        );
+        this.logger.warn(`fixIssue: issue ${issueId} not found or no GitLab project`);
         await this.updateStatus(ctx, AgentStatus.IDLE);
         return;
       }
 
-      // Check if issue belongs to a dev session — use worktree if so
       const issueSession = issue.chatSessionId
         ? await this.prisma.chatSession.findUnique({
             where: { id: issue.chatSessionId },
@@ -573,736 +295,280 @@ export class CoderAgent extends BaseAgent {
         : null;
       const isSessionIssue = issueSession?.type === ChatSessionType.DEV_SESSION;
 
-      const workspace =
-        isSessionIssue && issueSession?.branch
-          ? await this.resolveWorkspace(
-              issue.project.slug,
-              issue.chatSessionId!,
-            )
-          : path.resolve(this.settings.devopsWorkspacePath, issue.project.slug);
-      const branchName = `feature/${issue.gitlabIid ?? issue.id}-${this.slugify(issue.title)}`;
+      const workspace = isSessionIssue && issueSession?.branch
+        ? await this.resolveWorkspace(issue.project.slug, issue.chatSessionId!)
+        : path.resolve(this.settings.devopsWorkspacePath, issue.project.slug);
+      const branchName = `feature/${issue.gitlabIid ?? issue.id}-${slugify(issue.title)}`;
+      const timeout = this.getGitTimeoutMs();
 
-      // Update issue status
-      await this.issuesService.update(issueId, {
-        status: IssueStatus.IN_PROGRESS,
-      });
-
-      // Update orchestrator task with fix details
+      await this.issuesService.update(issueId, { status: IssueStatus.IN_PROGRESS });
       await this.prisma.agentTask.update({
-        where: { id: ctx.agentTaskId },
+        where: { id: taskId },
         data: { input: { feedback, feedbackSource } as any },
       });
 
-      const sourceLabel =
-        feedbackSource === 'review'
-          ? 'Code Review'
-          : feedbackSource === 'pipeline'
-            ? 'CI/CD Pipeline'
-            : 'User Feedback';
+      const sourceLabel = feedbackSource === 'review' ? 'Code Review'
+        : feedbackSource === 'pipeline' ? 'CI/CD Pipeline' : 'User Feedback';
 
       await this.sendAgentMessage(
-        ctx,
-        `🔧 Fixing issue #${issue.gitlabIid ?? '?'}: **${issue.title}** (${sourceLabel})`,
+        ctx, `🔧 Fixing issue #${issue.gitlabIid ?? '?'}: **${issue.title}** (${sourceLabel})`,
       );
 
-      // Post fix-start comment
       if (issue.gitlabIid) {
         await postAgentComment({
-          prisma: this.prisma,
-          gitlabService: this.gitlabService,
-          issueId,
-          gitlabProjectId: issue.project.gitlabProjectId,
-          issueIid: issue.gitlabIid,
-          agentTaskId: agentTask.id,
+          prisma: this.prisma, gitlabService: this.gitlabService,
+          issueId, gitlabProjectId: issue.project.gitlabProjectId,
+          issueIid: issue.gitlabIid, agentTaskId: taskId,
           authorName: 'Coder Agent',
           markdownContent: `## 🔧 Fix in Progress (${sourceLabel})\n\n> ${feedback.substring(0, 5000)}`,
         });
       }
 
-      // Checkout existing feature branch
-      await this.gitCheckout(workspace, branchName);
-      await this.gitPull(workspace);
+      await gitCheckout(workspace, branchName, timeout, this.logger);
+      await gitPull(workspace, timeout, this.logger);
 
-      // Build fix prompt with feedback context
-      const fixPrompt = this.buildFixPrompt(issue, feedback, feedbackSource);
+      const glProject = await this.gitlabService.getProject(issue.project.gitlabProjectId);
+      const fixDefaultBranch = issue.project.workBranch || glProject?.default_branch || 'main';
+      const sessionBaseBranch = isSessionIssue && issueSession?.branch
+        ? issueSession.branch : fixDefaultBranch;
 
-      // Fetch GitLab project info (needed for default branch detection + commit URL)
-      const glProject = await this.gitlabService.getProject(
-        issue.project.gitlabProjectId,
-      );
-      const gitlabBaseUrl = this.settings.gitlabUrl;
-      const fixDefaultBranch =
-        issue.project.workBranch || glProject?.default_branch || 'main';
-
-      // Run MCP agent loop (LLM + filesystem tools)
-      await this.runMcpAgentLoop(
-        workspace,
-        fixPrompt,
-        agentTask.id,
-        ctx.projectId,
+      await runMcpAgentLoop(
+        this.getMcpLoopDeps(), workspace,
+        buildFixPrompt(issue, feedback, feedbackSource), taskId, ctx.projectId,
       );
 
-      // Check changes (includes both uncommitted AND committed changes vs base branch)
-      const sessionBaseBranch =
-        isSessionIssue && issueSession?.branch
-          ? issueSession.branch
-          : fixDefaultBranch;
-      const changedFiles = await this.getChangedFiles(
-        workspace,
-        sessionBaseBranch,
-      );
+      const changedFiles = await getChangedFiles(workspace, sessionBaseBranch, timeout, this.logger);
 
-      // If no files were changed, the fix attempt was a no-op — signal failure
       if (changedFiles.length === 0) {
-        this.logger.warn(
-          `Fix attempt produced 0 code changes for issue ${issueId}`,
+        await this.handleFixNoChanges(
+          ctx, issue, issueId, branchName, feedbackSource,
+          issue.project.gitlabProjectId, workspace, sessionBaseBranch, timeout, taskId,
         );
-        await this.sendAgentMessage(
-          ctx,
-          `⚠️ Fix attempt produced no code changes for #${issue.gitlabIid ?? '?'} — skipping review`,
-        );
-
-        await this.prisma.agentTask.update({
-          where: { id: agentTask.id },
-          data: {
-            status: AgentTaskStatus.COMPLETED,
-            output: {
-              changedFiles: [],
-              feedbackSource,
-              noChanges: true,
-            } as any,
-            completedAt: new Date(),
-          },
-        });
-        await this.updateStatus(ctx, AgentStatus.IDLE);
-
-        // Emit codingComplete with noChanges flag so orchestrator skips review
-        const existingTask = await this.prisma.agentTask.findFirst({
-          where: { issueId, gitlabMrIid: { not: null } },
-          orderBy: { startedAt: 'desc' },
-          select: { gitlabMrIid: true },
-        });
-        this.eventEmitter.emit('agent.codingComplete', {
-          projectId: ctx.projectId,
-          chatSessionId: ctx.chatSessionId,
-          issueId,
-          gitlabIid: issue.gitlabIid,
-          mrIid: existingTask?.gitlabMrIid ?? undefined,
-          gitlabProjectId: issue.project.gitlabProjectId,
-          branch: branchName,
-          noChanges: true,
-        });
-
-        await this.gitCheckout(workspace, sessionBaseBranch);
         return;
       }
 
-      let commitSha: string | undefined;
-      let commitUrl: string | undefined;
-      commitSha = await this.gitCommitAndPush(
-        workspace,
-        branchName,
+      const commitSha = await gitCommitAndPush(
+        workspace, branchName,
         `fix: address ${sourceLabel.toLowerCase()} for ${issue.title}`,
+        timeout, this.logger,
       );
-      commitUrl = `${gitlabBaseUrl}/${glProject.path_with_namespace}/-/commit/${commitSha}`;
+      const gitlabBaseUrl = this.settings.gitlabUrl;
+      const commitUrl = `${gitlabBaseUrl}/${glProject.path_with_namespace}/-/commit/${commitSha}`;
+      const commitShort = commitSha.substring(0, 8);
 
-      const commitShort = commitSha?.substring(0, 8);
+      await this.issuesService.update(issueId, { status: IssueStatus.IN_REVIEW });
 
-      // Update issue → IN_REVIEW
-      await this.issuesService.update(issueId, {
-        status: IssueStatus.IN_REVIEW,
-      });
-
-      // Complete task
       await this.prisma.agentTask.update({
-        where: { id: agentTask.id },
+        where: { id: taskId },
         data: {
           status: AgentTaskStatus.COMPLETED,
-          output: sanitizeJsonOutput({
-            changedFiles,
-            feedbackSource,
-            commitSha,
-          }) as any,
+          output: sanitizeJsonOutput({ changedFiles, feedbackSource, commitSha }) as any,
           completedAt: new Date(),
         },
       });
 
-      // Post fix-complete comment
       if (issue.gitlabIid) {
         const fixComment = [
-          `## ✅ Fix Applied (${sourceLabel})`,
-          '',
-          commitUrl
-            ? `**Commit:** [\`${commitShort}\`](${commitUrl}) — [View Diff](${commitUrl})`
-            : '',
+          `## ✅ Fix Applied (${sourceLabel})`, '',
+          commitUrl ? `**Commit:** [\`${commitShort}\`](${commitUrl}) — [View Diff](${commitUrl})` : '',
           `**Changed files (${changedFiles.length}):**`,
           ...changedFiles.map((f) => `- \`${f}\``),
-          '',
-          '---',
-          '_Fixed by Coder Agent_',
-        ]
-          .filter(Boolean)
-          .join('\n');
+          '', '---', '_Fixed by Coder Agent_',
+        ].filter(Boolean).join('\n');
 
         await postAgentComment({
-          prisma: this.prisma,
-          gitlabService: this.gitlabService,
-          issueId,
-          gitlabProjectId: issue.project.gitlabProjectId,
-          issueIid: issue.gitlabIid,
-          agentTaskId: agentTask.id,
-          authorName: 'Coder Agent',
-          markdownContent: fixComment,
+          prisma: this.prisma, gitlabService: this.gitlabService,
+          issueId, gitlabProjectId: issue.project.gitlabProjectId,
+          issueIid: issue.gitlabIid, agentTaskId: taskId,
+          authorName: 'Coder Agent', markdownContent: fixComment,
         });
       }
 
-      await this.sendAgentMessage(
-        ctx,
-        `✅ Fix applied for #${issue.gitlabIid ?? '?'} — ${changedFiles.length} file(s) changed`,
-      );
+      await this.sendAgentMessage(ctx, `✅ Fix applied for #${issue.gitlabIid ?? '?'} — ${changedFiles.length} file(s) changed`);
 
-      // Find existing MR IID for this issue's branch
       const existingTask = await this.prisma.agentTask.findFirst({
         where: { issueId, gitlabMrIid: { not: null } },
         orderBy: { startedAt: 'desc' },
         select: { gitlabMrIid: true },
       });
-
-      // Re-emit coding complete for review — always emit so the pipeline advances
       const mrIid = existingTask?.gitlabMrIid;
       this.eventEmitter.emit('agent.codingComplete', {
-        projectId: ctx.projectId,
-        chatSessionId: ctx.chatSessionId,
-        issueId,
-        gitlabIid: issue.gitlabIid,
-        mrIid: mrIid ?? undefined,
-        gitlabProjectId: issue.project.gitlabProjectId,
-        branch: branchName,
+        projectId: ctx.projectId, chatSessionId: ctx.chatSessionId,
+        issueId, gitlabIid: issue.gitlabIid, mrIid: mrIid ?? undefined,
+        gitlabProjectId: issue.project.gitlabProjectId, branch: branchName,
       });
       if (!mrIid) {
-        this.logger.warn(
-          `No MR found for fixIssue ${issueId} — codingComplete emitted without MR`,
-        );
+        this.logger.warn(`No MR found for fixIssue ${issueId} — codingComplete emitted without MR`);
       }
 
-      // Switch back to base branch (session branch for sessions, default for infra)
-      const baseForCheckout =
-        isSessionIssue && issueSession?.branch
-          ? issueSession.branch
-          : glProject.default_branch;
-      await this.gitCheckout(workspace, baseForCheckout);
-
+      const baseForCheckout = isSessionIssue && issueSession?.branch ? issueSession.branch : glProject.default_branch;
+      await gitCheckout(workspace, baseForCheckout, timeout, this.logger);
       await this.updateStatus(ctx, AgentStatus.IDLE);
     } catch (err) {
       this.logger.error(`fixIssue failed: ${err.message}`, err.stack);
-
-      // Mark task as FAILED in DB (prevents orphaned RUNNING tasks)
       try {
         await this.prisma.agentTask.update({
-          where: { id: agentTask.id },
+          where: { id: taskId },
           data: { status: AgentTaskStatus.FAILED, completedAt: new Date() },
         });
-      } catch {
-        /* best effort */
-      }
-
-      // Do NOT reset issue to OPEN — that causes it to fall out of the pipeline.
-      // Instead, emit codingFailed so the orchestrator can retrigger or move to NEEDS_REVIEW.
+      } catch { /* best effort */ }
 
       await this.sendAgentMessage(ctx, `❌ Fix failed: ${err.message}`);
       await this.updateStatus(ctx, AgentStatus.ERROR);
 
-      // Emit failure event so the orchestrator continues the pipeline
       this.eventEmitter.emit('agent.codingFailed', {
-        projectId: ctx.projectId,
-        chatSessionId: ctx.chatSessionId,
-        issueId,
-        isFixAttempt: true,
-        errorMessage: err.message,
+        projectId: ctx.projectId, chatSessionId: ctx.chatSessionId,
+        issueId, isFixAttempt: true, errorMessage: err.message,
       });
     }
   }
 
-  // ─── MCP Agent Loop Execution ─────────────────────────────
+  // ─── Private Helpers ───────────────────────────────────────
 
-  /**
-   * Run the MCP agent loop: LLM + filesystem tools.
-   * The LLM reads, writes, and edits files via MCP server.
-   * Returns the final LLM summary.
-   */
-  private async runMcpAgentLoop(
-    workspace: string,
-    prompt: string,
-    agentTaskId: string,
-    projectId?: string,
-  ): Promise<string> {
-    const config = this.getRoleConfig();
-    const model = config.model || 'qwen3.5:35b';
-
-    const mcpServers = await this.mcpRegistry.resolveServersForRole(
-      AgentRole.CODER,
-      { workspace, allowedPaths: [workspace], projectId },
+  /** Handle processIssue when agent produced zero file changes */
+  private async handleNoChanges(
+    ctx: AgentContext, issue: any, workspace: string,
+    baseBranch: string, branchName: string, gitlabProjectId: number,
+    taskId: string, result: CoderIssueResult, start: number,
+  ): Promise<CoderIssueResult> {
+    const timeout = this.getGitTimeoutMs();
+    await this.sendAgentMessage(
+      ctx, `⚠️ Agent produced no file changes for #${issue.gitlabIid ?? '?'} — marking for manual review`,
     );
+    result.status = 'skipped';
+    await gitCheckout(workspace, baseBranch, timeout, this.logger);
+    await this.issuesService.update(issue.id, { status: IssueStatus.NEEDS_REVIEW });
+    await this.prisma.agentTask.update({
+      where: { id: taskId },
+      data: { status: AgentTaskStatus.COMPLETED, completedAt: new Date() },
+    });
+    this.eventEmitter.emit('agent.codingComplete', {
+      projectId: ctx.projectId, chatSessionId: ctx.chatSessionId,
+      issueId: issue.id, gitlabIid: issue.gitlabIid,
+      mrIid: undefined, gitlabProjectId, branch: branchName,
+    });
+    result.durationMs = Date.now() - start;
+    return result;
+  }
 
-    // Read project knowledge base for context (Wiki-First)
-    let gitlabProjectId: number | null = null;
-    if (projectId) {
-      const proj = await this.prisma.project.findUnique({
-        where: { id: projectId },
-        select: { gitlabProjectId: true },
-      });
-      gitlabProjectId = proj?.gitlabProjectId ?? null;
-    }
-    const knowledgeSection = await this.buildKnowledgeSectionWiki(
-      this.gitlabService,
-      gitlabProjectId,
-      workspace,
+  /** Handle fixIssue when fix attempt produced zero code changes */
+  private async handleFixNoChanges(
+    ctx: AgentContext, issue: any, issueId: string,
+    branchName: string, feedbackSource: string,
+    gitlabProjectId: number, workspace: string,
+    sessionBaseBranch: string, timeout: number, taskId: string,
+  ): Promise<void> {
+    this.logger.warn(`Fix attempt produced 0 code changes for issue ${issueId}`);
+    await this.sendAgentMessage(
+      ctx, `⚠️ Fix attempt produced no code changes for #${issue.gitlabIid ?? '?'} — skipping review`,
     );
-
-    const systemPrompt = [
-      'You are a skilled software developer. Your task is to implement features by reading and modifying files in the project.',
-      '',
-      `IMPORTANT — Working Directory: ${workspace}`,
-      'You are ALREADY inside the project directory. All files exist directly here.',
-      'All file operations MUST use paths RELATIVE to this directory.',
-      'Example: To create "src/main.ts", use path "src/main.ts" — NOT "project-name/src/main.ts".',
-      'NEVER use absolute paths like "/home/..." — always use relative paths from the project root.',
-      'NEVER create a subfolder named after the project. Files go directly into the current directory.',
-      '',
-      'Available tools:',
-      '- File tools: browse directories, read/write/edit files, search',
-      '- Shell tool (run_command): execute commands like npm install, npm audit fix, git status, etc.',
-      '  Shell commands run in the project root directory automatically.',
-      '',
-      'Workflow:',
-      '1. First, explore the project structure using list_directory with path "."',
-      '2. Read relevant files to understand existing code patterns',
-      '3. Implement the requested changes by writing or editing files (RELATIVE paths only!)',
-      '4. CRITICAL — Adding dependencies:',
-      '   - npm/Node.js: ALWAYS use `npm install <package>` (NOT manual package.json edits).',
-      '     This updates BOTH package.json AND package-lock.json automatically.',
-      '     If you edit package.json directly, you MUST run `npm install` afterwards to sync the lockfile.',
-      '     CI/CD uses `npm ci` which ONLY reads package-lock.json — missing lockfile entries = broken builds.',
-      '   - Maven/Java: add to pom.xml, then run `mvn compile` to verify resolution',
-      '   - Gradle: add to build.gradle, then run `gradle build`',
-      '5. Verify your changes are consistent with the existing codebase',
-      '',
-      'Java/Vaadin/Spring Boot specifics:',
-      '- Follow standard Maven directory layout: src/main/java, src/main/resources, src/test/java',
-      '- Use Spring annotations: @Service, @Repository, @RestController, @Entity, etc.',
-      '- For Vaadin Flow views: extend com.vaadin.flow.component classes, use @Route annotation',
-      '- For JPA entities: use @Entity, @Table, @Column annotations with proper relationships',
-      '- For Flyway migrations: create SQL files in src/main/resources/db/migration/ with naming V{N}__{description}.sql',
-      '- application.properties/yml goes in src/main/resources/',
-      '- Do NOT modify the Maven wrapper (mvnw) files',
-      '',
-      'Rules:',
-      '- ALWAYS use relative paths (e.g., "src/app.ts", "src/main/java/com/example/MyClass.java")',
-      '- Follow existing code patterns and conventions',
-      '- Reuse existing services, components, and utilities — do NOT duplicate code',
-      '- Add error handling where appropriate',
-      '- Do NOT create test files unless the task specifically asks for tests',
-      '- Do NOT modify unrelated files',
-      '- If asked to fix security vulnerabilities, use "npm audit fix" or update dependency versions in pom.xml/package.json',
-      '- When done, respond with a brief summary of what you changed',
-      '',
-      'Code Structure (IMPORTANT):',
-      '- Keep files SMALL and focused: max ~300 lines per file. If a file grows beyond that, split it.',
-      '- One class/service per file. One component per file. Name files after what they contain.',
-      '- Use logical folder structure: group by feature/domain, not by type.',
-      '  Good: auth/keycloak.service.ts, auth/auth.guard.ts, auth/auth.interceptor.ts',
-      '  Bad: services/service1.ts, services/service2.ts (all services in one folder)',
-      '- Extract shared logic into utils/helpers instead of copy-pasting between files.',
-      '- Avoid deep nesting: max 3 levels of if/for/try. Extract helper methods instead.',
-      '- Prefer composition over inheritance. Use dependency injection.',
-      '- NO spaghetti code: each function should do ONE thing. If a function exceeds ~50 lines, split it.',
-      knowledgeSection,
-    ].join('\n');
-
-    this.logger.log(
-      `Starting MCP agent loop in ${workspace} with model ${model}`,
-    );
-
-    const result = await this.mcpAgentLoop.run({
-      provider: config.provider,
-      model,
-      systemPrompt,
-      userPrompt: prompt,
-      mcpServers,
-      maxIterations: 30,
-      temperature: config.parameters.temperature,
-      maxTokens: config.parameters.maxTokens,
-      agentTaskId,
-      cwd: workspace,
-      onToolCall: (name, args) => {
-        this.logger.debug(
-          `Tool call: ${name}(${JSON.stringify(args).substring(0, 150)})`,
-        );
-      },
-      onIteration: (iteration) => {
-        this.logger.debug(`Agent loop iteration ${iteration}`);
+    await this.prisma.agentTask.update({
+      where: { id: taskId },
+      data: {
+        status: AgentTaskStatus.COMPLETED,
+        output: { changedFiles: [], feedbackSource, noChanges: true } as any,
+        completedAt: new Date(),
       },
     });
+    await this.updateStatus(ctx, AgentStatus.IDLE);
 
-    this.logger.log(
-      `MCP agent loop finished: ${result.finishReason}, ${result.iterations} iterations, ${result.toolCallsExecuted} tool calls, ${result.durationMs}ms`,
-    );
-
-    if (result.finishReason === 'error' && result.toolCallsExecuted === 0) {
-      throw new Error(
-        result.errorMessage ||
-          'MCP agent loop failed — LLM returned no usable output',
-      );
-    }
-
-    // Retry once if LLM returned text without editing any files
-    if (result.toolCallsExecuted === 0 && result.finishReason === 'complete') {
-      this.logger.warn(
-        `MCP agent loop returned 0 tool calls — retrying with explicit file-edit instruction`,
-      );
-
-      const retryResult = await this.mcpAgentLoop.run({
-        provider: config.provider,
-        model,
-        systemPrompt,
-        userPrompt: [
-          'CRITICAL: Your previous attempt returned TEXT ONLY without editing any files.',
-          'You MUST use the file tools (write_file, edit_file) to make actual code changes.',
-          'Do NOT explain what needs to be done — ACTUALLY DO IT by calling the tools.',
-          '',
-          'Original task:',
-          prompt,
-        ].join('\n'),
-        mcpServers,
-        maxIterations: 30,
-        temperature: config.parameters.temperature,
-        maxTokens: config.parameters.maxTokens,
-        agentTaskId,
-        cwd: workspace,
-      });
-
-      this.logger.log(
-        `MCP retry finished: ${retryResult.finishReason}, ${retryResult.toolCallsExecuted} tool calls`,
-      );
-
-      if (retryResult.toolCallsExecuted === 0) {
-        this.logger.warn('MCP retry also returned 0 tool calls — giving up');
-      }
-
-      return retryResult.content;
-    }
-
-    return result.content;
+    const existingTask = await this.prisma.agentTask.findFirst({
+      where: { issueId, gitlabMrIid: { not: null } },
+      orderBy: { startedAt: 'desc' },
+      select: { gitlabMrIid: true },
+    });
+    this.eventEmitter.emit('agent.codingComplete', {
+      projectId: ctx.projectId, chatSessionId: ctx.chatSessionId,
+      issueId, gitlabIid: issue.gitlabIid,
+      mrIid: existingTask?.gitlabMrIid ?? undefined,
+      gitlabProjectId, branch: branchName, noChanges: true,
+    });
+    await gitCheckout(workspace, sessionBaseBranch, timeout, this.logger);
   }
 
-  // ─── Prompt Builders ──────────────────────────────────────
-
-  private buildCodingPrompt(issue: any): string {
-    const parts: string[] = [
-      `Implement the following feature:`,
-      '',
-      `## ${issue.title}`,
-      '',
-      issue.description || 'No description provided.',
-    ];
-
-    if (issue.subIssues?.length > 0) {
-      parts.push('', '## Sub-tasks:');
-      for (const sub of issue.subIssues) {
-        parts.push(
-          `- ${sub.title}${sub.description ? `: ${sub.description}` : ''}`,
-        );
-      }
-    }
-
-    return parts.join('\n');
-  }
-
-  private buildFixPrompt(issue: any, feedback: string, source: string): string {
-    const sourceLabel: Record<string, string> = {
-      review: 'Code Review',
-      'functional-test': 'Functional Test',
-      'ui-test': 'UI Test',
-      security: 'Security/Pen Test',
-      pipeline: 'Pipeline',
-      user: 'User Feedback',
-    };
-
-    const parts: string[] = [
-      `# Fix Required: ${issue.title}`,
-      '',
-      `## Context`,
-      issue.description || 'No description provided.',
-      '',
-      `## ${sourceLabel[source] || source} Findings`,
-      '',
-      `The following issues were found by the **${sourceLabel[source] || source}** and MUST be fixed:`,
-      '',
-      feedback,
-      '',
-      `## Fix Instructions`,
-      '',
-      `1. Read each finding carefully — pay attention to file paths, line numbers, and severity levels`,
-      `2. For CRITICAL/HIGH severity: these MUST be fixed, they are blocking`,
-      `3. For WARNING/MEDIUM severity: fix these too, they will cause the review to fail again`,
-      `4. For each finding: open the mentioned file, locate the issue, and make a concrete code change`,
-      `5. Do NOT just add comments or TODOs — make actual code fixes`,
-      `6. After fixing, verify your changes don't break existing functionality`,
-      '',
-      `## Expectation-Driven Fixing`,
-      '',
-      `The reviewer/tester findings above may contain "EXPECTED FIX:" fields. These are CONCRETE code`,
-      `changes that the reviewer/tester wants to see. Follow these rules:`,
-      '',
-      `- For each finding with an "EXPECTED FIX:" field: implement that change LITERALLY in the specified`,
-      `  file and line. The reviewer/tester already told you what they want to see.`,
-      `- Do NOT reinterpret or refactor around the expected fix — make the change they requested.`,
-      `- For findings marked "(open since round N)" or "(failing since round N)": this has been requested`,
-      `  N times already. If you skipped it before, do NOT skip it again.`,
-      `- For findings with "Expected:" and "Observed:" fields: the gap between these two is what you`,
-      `  need to fix. Make the observed match the expected.`,
-      '',
-      `## Common Traps to Avoid`,
-      '',
-      `- Do NOT add a validation to the wrong place (e.g., config instead of runtime validate())`,
-      `- Do NOT address a finding by adding a comment explaining why it is not needed`,
-      `- Do NOT fix finding A but accidentally break the fix for finding B from the previous round`,
-      `- If a finding says "line 42 in file X": OPEN FILE X, GO TO LINE 42, and make the change THERE`,
-      '',
-      `IMPORTANT: Previous fix attempts for this issue may have failed. Make sure you actually change the relevant source files. A fix attempt that produces 0 file changes will be rejected.`,
-    ];
-
-    return parts.join('\n');
-  }
-
-  // ─── Git Helpers ──────────────────────────────────────────
-
-  private async gitPull(cwd: string): Promise<void> {
+  /** Create MR or find existing one on 409 conflict */
+  private async createOrFindMr(
+    branchName: string, baseBranch: string, issue: any,
+    gitlabProjectId: number, changedFiles: string[],
+    taskId: string, result: CoderIssueResult,
+  ): Promise<void> {
     try {
-      await execFileAsync('git', ['pull', '--ff-only'], {
-        cwd,
-        timeout: this.getGitTimeoutMs(),
+      const mr = await this.gitlabService.createMergeRequest(gitlabProjectId, {
+        source_branch: branchName, target_branch: baseBranch,
+        title: `feat: ${issue.title}`,
+        description: `Closes #${issue.gitlabIid ?? ''}\n\n---\n_Automatically created by Coder Agent_\n\n**Changed files:** ${changedFiles.length}\n${changedFiles.map((f) => `- \`${f}\``).join('\n')}`,
       });
-    } catch (err) {
-      this.logger.debug(`git pull failed (non-fatal): ${err.message}`);
-    }
-  }
-
-  private async gitCheckout(cwd: string, branch: string): Promise<void> {
-    // Stash any uncommitted AND untracked changes before switching branches
-    try {
-      const { stdout: status } = await execFileAsync(
-        'git',
-        ['status', '--porcelain'],
-        { cwd, timeout: this.getGitTimeoutMs() },
-      );
-      if (status.trim()) {
-        this.logger.debug(
-          `Stashing ${status.trim().split('\n').length} changes (incl. untracked) before checkout ${branch}`,
-        );
-        await execFileAsync(
-          'git',
-          [
-            'stash',
-            'push',
-            '--include-untracked',
-            '-m',
-            `auto-stash before checkout ${branch}`,
-          ],
-          { cwd, timeout: this.getGitTimeoutMs() },
-        );
-      }
-    } catch (stashErr) {
-      this.logger.warn(`git stash failed: ${stashErr.message}`);
-    }
-    try {
-      await execFileAsync('git', ['checkout', branch], {
-        cwd,
-        timeout: this.getGitTimeoutMs(),
-      });
-    } catch (checkoutErr) {
-      // Handle "branch already checked out in another worktree" error
-      // CLI tools (Codex, Claude) can leave stale /tmp worktrees referencing the branch
-      if (
-        checkoutErr.message?.includes('Arbeitsverzeichnis') ||
-        checkoutErr.message?.includes('worktree')
-      ) {
-        this.logger.warn(
-          `Branch ${branch} locked by another worktree — pruning stale worktrees and retrying`,
-        );
-        try {
-          await execFileAsync('git', ['worktree', 'prune'], {
-            cwd,
-            timeout: this.getGitTimeoutMs(),
-          });
-          await execFileAsync('git', ['checkout', branch], {
-            cwd,
-            timeout: this.getGitTimeoutMs(),
-          });
-          return;
-        } catch (retryErr) {
-          this.logger.warn(
-            `Worktree prune didn't help — force-removing stale worktree locks`,
-          );
-          // Find and remove the stale worktree
-          try {
-            const { stdout: worktreeList } = await execFileAsync(
-              'git',
-              ['worktree', 'list', '--porcelain'],
-              { cwd, timeout: this.getGitTimeoutMs() },
-            );
-            const lines = worktreeList.split('\n');
-            for (let i = 0; i < lines.length; i++) {
-              if (lines[i].startsWith('branch refs/heads/' + branch)) {
-                // Previous line has the worktree path
-                const pathLine = lines[i - 2] || '';
-                const wtPath = pathLine.replace('worktree ', '').trim();
-                if (wtPath && wtPath.startsWith('/tmp/')) {
-                  this.logger.log(
-                    `Removing stale worktree at ${wtPath} for branch ${branch}`,
-                  );
-                  await execFileAsync(
-                    'git',
-                    ['worktree', 'remove', '--force', wtPath],
-                    { cwd, timeout: this.getGitTimeoutMs() },
-                  ).catch((err) => { this.logger.warn(`Failed to remove stale worktree ${wtPath}: ${err.message}`); });
-                  await execFileAsync('git', ['checkout', branch], {
-                    cwd,
-                    timeout: this.getGitTimeoutMs(),
-                  });
-                  return;
-                }
-              }
-            }
-          } catch {
-            /* fall through to original error */
-          }
+      result.mrIid = mr.iid;
+      result.mrUrl = mr.web_url;
+      await this.prisma.agentTask.update({ where: { id: taskId }, data: { gitlabMrIid: mr.iid } });
+    } catch (mrErr) {
+      if (mrErr?.response?.status === 409 || mrErr?.message?.includes('409')) {
+        this.logger.log(`MR already exists for ${branchName}, looking up existing MR`);
+        const existingMr = await this.gitlabService.findMergeRequestByBranch(gitlabProjectId, branchName);
+        if (existingMr) {
+          result.mrIid = existingMr.iid;
+          result.mrUrl = existingMr.web_url;
+          await this.prisma.agentTask.update({ where: { id: taskId }, data: { gitlabMrIid: existingMr.iid } });
+          this.logger.log(`Found existing MR !${existingMr.iid} for ${branchName}`);
+        } else {
+          this.logger.warn(`MR creation failed with 409 but no existing MR found for ${branchName}`);
+          await this.log(taskId, 'WARN', `MR creation failed: ${mrErr.message}`);
         }
-        throw checkoutErr;
+      } else {
+        this.logger.warn(`MR creation failed: ${mrErr.message}`);
+        await this.log(taskId, 'WARN', `MR creation failed: ${mrErr.message}`);
       }
-      throw checkoutErr;
     }
   }
 
-  private async gitCreateBranch(cwd: string, branch: string): Promise<void> {
-    try {
-      await execFileAsync('git', ['checkout', '-b', branch], {
-        cwd,
-        timeout: this.getGitTimeoutMs(),
-      });
-    } catch {
-      // Branch may already exist — try to check it out
-      await execFileAsync('git', ['checkout', branch], {
-        cwd,
-        timeout: this.getGitTimeoutMs(),
-      });
-    }
-  }
+  /** Post implementation-complete comment to GitLab */
+  private async postImplementationComment(
+    issue: any, gitlabProjectId: number, taskId: string,
+    branchName: string, commitSha: string, commitUrl: string,
+    changedFiles: string[], result: CoderIssueResult,
+  ): Promise<void> {
+    const commitShort = commitSha.substring(0, 8);
+    const commentBody = [
+      `## 🔨 Implementation Complete`, '',
+      `**Commit:** [\`${commitShort}\`](${commitUrl}) — [View Diff](${commitUrl})`,
+      `**Branch:** \`${branchName}\``,
+      result.mrUrl ? `**MR:** [!${result.mrIid}](${result.mrUrl})` : '',
+      `**Changed files (${changedFiles.length}):**`,
+      ...changedFiles.map((f) => `- \`${f}\``),
+      '', '---', '_Implemented by Coder Agent_',
+    ].filter(Boolean).join('\n');
 
-  /**
-   * Get changed files — checks both uncommitted changes (git status) AND
-   * committed changes vs default branch (git diff). CLI providers like Codex
-   * commit changes directly, so git status alone returns empty.
-   */
-  private async getChangedFiles(
-    cwd: string,
-    defaultBranch = 'main',
-  ): Promise<string[]> {
-    const files = new Set<string>();
-
-    // 1. Uncommitted changes (for MCP/API providers that don't commit)
-    try {
-      const { stdout } = await execFileAsync('git', ['status', '--porcelain'], {
-        cwd,
-        timeout: this.getGitTimeoutMs(),
-        maxBuffer: 10 * 1024 * 1024,
-      });
-      for (const line of stdout.trim().split('\n')) {
-        if (line.trim()) files.add(line.substring(3).trim());
-      }
-    } catch {
-      /* ignore */
-    }
-
-    // 2. Committed changes vs default branch (for CLI providers that auto-commit)
-    try {
-      const { stdout } = await execFileAsync(
-        'git',
-        ['diff', '--name-only', defaultBranch + '...HEAD'],
-        { cwd, timeout: this.getGitTimeoutMs(), maxBuffer: 10 * 1024 * 1024 },
-      );
-      for (const line of stdout.trim().split('\n')) {
-        if (line.trim()) files.add(line.trim());
-      }
-    } catch (err) {
-      this.logger.debug(`git diff vs ${defaultBranch} failed: ${err.message}`);
-    }
-
-    return [...files];
-  }
-
-  /**
-   * Commit uncommitted changes (if any) and push the branch.
-   * CLI providers may already have committed — in that case we skip the commit
-   * and just push their commits.
-   */
-  private async gitCommitAndPush(
-    cwd: string,
-    branch: string,
-    message: string,
-  ): Promise<string> {
-    // Stage and commit any uncommitted changes (may be empty for CLI providers)
-    await execFileAsync('git', ['add', '.'], {
-      cwd,
-      timeout: this.getGitTimeoutMs(),
-      maxBuffer: 10 * 1024 * 1024,
+    await postAgentComment({
+      prisma: this.prisma, gitlabService: this.gitlabService,
+      issueId: issue.id, gitlabProjectId, issueIid: issue.gitlabIid,
+      agentTaskId: taskId, authorName: 'Coder Agent',
+      markdownContent: commentBody,
     });
-    try {
-      await execFileAsync('git', ['commit', '-m', message], {
-        cwd,
-        timeout: this.getGitTimeoutMs(),
-        maxBuffer: 10 * 1024 * 1024,
-      });
-    } catch (commitErr) {
-      // "nothing to commit" is fine — CLI provider already committed
-      // Check message, stdout, AND stderr since Node distributes the text across properties
-      const errText = [commitErr.message, commitErr.stdout, commitErr.stderr]
-        .filter(Boolean)
-        .join(' ');
-      if (
-        !errText.includes('nothing to commit') &&
-        !errText.includes('nichts zu committen')
-      ) {
-        throw commitErr;
-      }
-      this.logger.debug(
-        'No uncommitted changes to commit — CLI provider likely already committed',
-      );
-    }
-
-    const { stdout } = await execFileAsync('git', ['rev-parse', 'HEAD'], {
-      cwd,
-      timeout: this.getGitTimeoutMs(),
-    });
-    const commitSha = stdout.trim();
-
-    await execFileAsync('git', ['push', '-u', 'origin', branch], {
-      cwd,
-      timeout: this.getGitTimeoutMs(),
-      maxBuffer: 10 * 1024 * 1024,
-    });
-    return commitSha;
   }
 
-  // ─── Utility ──────────────────────────────────────────────
+  /** Handle processIssue catch block */
+  private async handleProcessError(
+    ctx: AgentContext, err: any, issue: any, workspace: string,
+    baseBranch: string, timeout: number, taskId: string,
+    result: CoderIssueResult, start: number,
+  ): Promise<CoderIssueResult> {
+    this.logger.error(`processIssue failed for ${issue.title}: ${err.message}`);
+    result.error = err.message;
+    result.status = 'failed';
+    result.durationMs = Date.now() - start;
 
-  /** Slug from issue title for branch names */
-  private slugify(text: string): string {
-    return text
-      .toLowerCase()
-      .replace(/[^a-z0-9]+/g, '-')
-      .replace(/^-+|-+$/g, '')
-      .substring(0, 40);
+    try {
+      await this.prisma.agentTask.update({
+        where: { id: taskId },
+        data: { status: AgentTaskStatus.FAILED, completedAt: new Date(), output: sanitizeJsonOutput(result) as any },
+      });
+    } catch { /* best effort */ }
+
+    await this.sendAgentMessage(ctx, `❌ Failed to code issue #${issue.gitlabIid ?? '?'}: ${err.message}`);
+    try { await this.issuesService.update(issue.id, { status: IssueStatus.OPEN }); } catch { /* best effort */ }
+    try { await gitCheckout(workspace, baseBranch, timeout, this.logger); } catch { /* best effort */ }
+
+    return result;
   }
 
   private async markFailed(ctx: AgentContext, reason: string): Promise<void> {

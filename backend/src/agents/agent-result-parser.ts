@@ -11,9 +11,7 @@ export function stripThinkTags(content: string): string {
 
 /** Fix common JSON issues: trailing commas, control characters */
 export function cleanJsonString(jsonStr: string): string {
-  return jsonStr
-    .replace(/,\s*([}\]])/g, '$1')
-    .replace(/[\x00-\x1F\x7F]/g, ' ');
+  return jsonStr.replace(/,\s*([}\]])/g, '$1').replace(/[\x00-\x1F\x7F]/g, ' ');
 }
 
 /** Strip code fences and extract the first JSON object from a string */
@@ -98,21 +96,11 @@ export function normalizePass(parsed: any): boolean {
     return parsed.passed.toLowerCase() === 'true';
   if (parsed.status) {
     const s = String(parsed.status).toLowerCase();
-    return (
-      s === 'pass' ||
-      s === 'passed' ||
-      s === 'success' ||
-      s === 'secure'
-    );
+    return s === 'pass' || s === 'passed' || s === 'success' || s === 'secure';
   }
   if (parsed.result) {
     const r = String(parsed.result).toLowerCase();
-    return (
-      r === 'pass' ||
-      r === 'passed' ||
-      r === 'success' ||
-      r === 'secure'
-    );
+    return r === 'pass' || r === 'passed' || r === 'success' || r === 'secure';
   }
   return false;
 }
@@ -134,10 +122,10 @@ export function normalizeApproval(parsed: any): boolean {
 }
 
 /** Normalize severity string to standard levels */
-export function normalizeSeverity(
-  raw: any,
-): 'info' | 'warning' | 'critical' {
-  const s = String(raw ?? 'info').toLowerCase().trim();
+export function normalizeSeverity(raw: any): 'info' | 'warning' | 'critical' {
+  const s = String(raw ?? 'info')
+    .toLowerCase()
+    .trim();
   if (s === 'critical' || s === 'error' || s === 'high' || s === 'blocker')
     return 'critical';
   if (

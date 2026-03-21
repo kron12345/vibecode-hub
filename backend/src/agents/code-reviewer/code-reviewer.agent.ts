@@ -20,30 +20,24 @@ import {
 import {
   buildArchitectScopeGuardSection,
   extractArchitectOutOfScopeItems,
-  filterOutOfScopeFindings,
 } from '../agent-scope.utils';
 import {
   syncFindingThreads,
   buildIssueSummaryWithThreadLinks,
   FindingForThread,
 } from '../finding-thread.utils';
-import {
-  stripThinkTags,
-  cleanJsonString,
-  extractJson,
-  normalizeApproval,
-  normalizeSeverity,
-} from '../agent-result-parser';
 import { ReviewResult, ReviewFinding } from './review-result.interface';
+import {
+  COMPLETION_MARKER,
+  parseReviewResult,
+  applyArchitectScopeFilter,
+} from './code-reviewer-result';
 import {
   AgentRole,
   AgentStatus,
   AgentTaskStatus,
   IssueStatus,
 } from '@prisma/client';
-
-/** Marker the LLM emits when review is done */
-const COMPLETION_MARKER = ':::REVIEW_COMPLETE:::';
 
 const DEFAULT_SYSTEM_PROMPT = loadPrompt('code-reviewer');
 
@@ -247,14 +241,13 @@ ${
       }
 
       // Parse primary review result
-      let reviewResult = this.parseReviewResult(
+      let reviewResult = parseReviewResult(
         dualResult.primary.content,
         issueId,
         mrIid,
       );
 
       // If parsing returned 0 findings but the response was substantial, retry JSON extraction
-      // Skip retry when secondary timed out — trust primary as-is to avoid phantom findings
       const secondaryTimedOut =
         this.dualTestService.isDualConfigured(config) && !dualResult.secondary;
       if (
@@ -269,7 +262,7 @@ ${
           '{"approved": true/false, "summary": "1-2 sentences", "findings": [{"severity": "critical|warning|info", "file": "path", "line": 0, "message": "description", "suggestion": "fix"}]}',
         );
         if (retryJson) {
-          const retried = this.parseReviewResult(retryJson, issueId, mrIid);
+          const retried = parseReviewResult(retryJson, issueId, mrIid);
           if (retried && retried.findings.length > 0) {
             this.logger.log(
               `JSON retry recovered ${retried.findings.length} findings`,
@@ -285,7 +278,7 @@ ${
         dualResult.secondary &&
         dualResult.secondary.finishReason !== 'error'
       ) {
-        const secondaryReview = this.parseReviewResult(
+        const secondaryReview = parseReviewResult(
           dualResult.secondary.content,
           issueId,
           mrIid,
@@ -300,7 +293,6 @@ ${
               `${f.file}:${f.line ?? ''}:${f.message.substring(0, 50).toLowerCase()}`,
           );
 
-          // Code reviews tolerate more warnings than tests — approve with up to 5 non-critical warnings
           const approved = this.dualTestService.determineApproval(merged, 5);
           reviewResult = { ...reviewResult, findings: merged, approved };
 
@@ -326,11 +318,8 @@ ${
         return;
       }
 
-      // Enforce Architect out-of-scope constraints server-side to prevent false review loops.
-      reviewResult = this.applyArchitectScopeFilter(
-        reviewResult,
-        outOfScopeItems,
-      );
+      // Enforce Architect out-of-scope constraints server-side
+      reviewResult = applyArchitectScopeFilter(reviewResult, outOfScopeItems);
 
       // ─── Finding Threads: Post findings as MR discussion threads ───
       const findingsForThreads: FindingForThread[] = reviewResult.findings.map(
@@ -368,7 +357,7 @@ ${
         confirmedResolved: reviewResult.resolvedFromPrevious,
       });
 
-      // Post issue summary with thread links (backward-compatible)
+      // Post issue summary with thread links
       const reviewMarkdown = buildIssueSummaryWithThreadLinks({
         agentName: 'Code Review',
         approved: reviewResult.approved,
@@ -405,7 +394,7 @@ ${
         );
       }
     } catch (err) {
-      // Enhanced error logging with stack trace for crash-site identification
+      // Enhanced error logging with stack trace
       const isJsonError =
         err.message?.includes('json') || err.message?.includes('Json');
       const stack = err.stack?.split('\n').slice(1, 6).join('\n') ?? '';
@@ -415,7 +404,6 @@ ${
       );
       if (stack) this.logger.error(`Stack trace:\n${stack}`);
 
-      // Save stack trace to agent logs for DB-level debugging
       try {
         const debugMsg = `Review failed: ${err.message?.substring(0, 300) ?? 'unknown'}\nStack: ${stack.substring(0, 400)}`;
         await this.log(ctx.agentTaskId, 'ERROR', debugMsg);
@@ -436,7 +424,6 @@ ${
           `;
           this.logger.log('Raw SQL fallback succeeded — task marked COMPLETED');
           await this.updateStatus(ctx, AgentStatus.IDLE);
-          // Emit approved event so pipeline continues (better to auto-approve than to hang)
           this.eventEmitter.emit('agent.reviewApproved', {
             projectId: ctx.projectId,
             chatSessionId: ctx.chatSessionId,
@@ -475,7 +462,7 @@ ${
       `✅ **Code Review approved** for MR !${mrIid}\n\n${reviewResult.summary}`,
     );
 
-    // Update issue → TESTING
+    // Update issue -> TESTING
     const approvedIssue = await this.prisma.issue.update({
       where: { id: issueId },
       data: { status: IssueStatus.TESTING },
@@ -485,7 +472,7 @@ ${
     if (approvedIssue.gitlabIid) {
       await this.gitlabService
         .syncStatusLabel(gitlabProjectId, approvedIssue.gitlabIid, 'TESTING')
-        .catch(() => {}); // GitLab label sync is best-effort — failure doesn't affect pipeline
+        .catch(() => {});
     }
 
     // Complete task — with diagnostic logging if JSONB save fails
@@ -500,7 +487,6 @@ ${
         },
       });
     } catch (saveErr) {
-      // Log the EXACT data that failed to save for debugging
       this.logger.error(
         `JSONB save failed in handleApproved: ${saveErr.message}`,
       );
@@ -510,7 +496,6 @@ ${
       this.logger.error(
         `Sanitized output sample: ${JSON.stringify(sanitizedOutput ?? null).substring(0, 500)}`,
       );
-      // Retry with a minimal safe output
       await this.prisma.agentTask.update({
         where: { id: ctx.agentTaskId },
         data: {
@@ -555,17 +540,16 @@ ${
       `⚠️ **Code Review: changes requested** for MR !${mrIid}\n\n${reviewResult.summary}\n\n${findingsText}`,
     );
 
-    // Update issue → IN_PROGRESS
+    // Update issue -> IN_PROGRESS
     const changedIssue = await this.prisma.issue.update({
       where: { id: issueId },
       data: { status: IssueStatus.IN_PROGRESS },
     });
 
-    // Sync status label to GitLab
     if (changedIssue.gitlabIid) {
       await this.gitlabService
         .syncStatusLabel(gitlabProjectId, changedIssue.gitlabIid, 'IN_PROGRESS')
-        .catch(() => {}); // GitLab label sync is best-effort — failure doesn't affect pipeline
+        .catch(() => {});
     }
 
     // Complete review task — with fallback if JSONB save fails
@@ -586,7 +570,6 @@ ${
       this.logger.error(
         `Output sample: ${JSON.stringify(sanitizedChangesOutput ?? null).substring(0, 500)}`,
       );
-      // Retry with minimal safe output — preserve findings count + summary for pipeline logic
       await this.prisma.agentTask.update({
         where: { id: ctx.agentTaskId },
         data: {
@@ -607,7 +590,7 @@ ${
 
     await this.updateStatus(ctx, AgentStatus.IDLE);
 
-    // Build feedback for Coder — include expectedFix and persistence info
+    // Build feedback for Coder
     const findingsForCoder = reviewResult.findings
       .map((f, i) => {
         const persist = f.firstReportedRound
@@ -638,426 +621,7 @@ ${
     });
   }
 
-  // ─── Parsing ──────────────────────────────────────────────
-
-  private parseReviewResult(
-    content: string,
-    issueId: string,
-    mrIid: number,
-  ): ReviewResult | null {
-    this.logger.debug(`Parsing review result (${content.length} chars)`);
-
-    if (!content.trim()) {
-      this.logger.error('Review content is empty — LLM returned nothing');
-      return null;
-    }
-
-    // Step 1: Strip <think> tags (deepseek-r1 may include them even with think:false)
-    const cleaned = stripThinkTags(content);
-
-    if (cleaned.length !== content.length) {
-      this.logger.debug(
-        `Stripped <think> tags: ${content.length} → ${cleaned.length} chars`,
-      );
-    }
-
-    // Step 2: Try to extract JSON after the completion marker
-    let jsonStr = extractJson(cleaned, COMPLETION_MARKER, 'approved');
-
-    if (!jsonStr) {
-      this.logger.warn(
-        'Could not extract JSON from review — attempting text-based analysis',
-      );
-      return this.buildResultFromText(cleaned, issueId, mrIid);
-    }
-
-    try {
-      // Fix common JSON issues
-      jsonStr = cleanJsonString(jsonStr);
-
-      const parsed = JSON.parse(jsonStr);
-
-      // Normalize different JSON formats:
-      // Format A (expected): { approved: bool, summary: str, findings: [...] }
-      // Format B (deepseek-r1): { status: "APPROVED"|"CHANGES_REQUIRED", issues: [...], summary?: str }
-      // Format C: { decision: "approve"|"reject", comments: [...] }
-      const approved = normalizeApproval(parsed);
-      const findings = this.parseFindings(
-        parsed.findings ||
-          parsed.issues ||
-          parsed.comments ||
-          parsed.problems ||
-          [],
-      );
-      // Build summary — avoid using status/decision strings as summary
-      let summary = parsed.summary || this.extractSummaryFromText(cleaned);
-      // Clean up common prefixes from extracted summaries
-      if (summary) {
-        summary = summary
-          .replace(
-            /^[:\s]*(?:CHANGES_REQUIRED|APPROVED|CHANGES REQUESTED)[:\s]*/i,
-            '',
-          )
-          .trim();
-      }
-      if (!summary || summary.length < 5) {
-        summary = approved
-          ? 'Code review passed'
-          : `Changes requested (${findings.length} finding(s))`;
-      }
-
-      // Repair "No details" findings by extracting info from the summary or raw text
-      // Some LLMs (gpt-5.3-codex) put finding details in summary instead of finding objects
-      const noDetailFindings = findings.filter(
-        (f) => f.message === 'No details',
-      );
-      if (noDetailFindings.length > 0) {
-        // Strategy 1: Parse numbered items from summary: "1. 🔴 Description (file:line)"
-        if (summary && summary.length > 20) {
-          const summaryItems =
-            summary.match(
-              /\d+\.\s*[🔴🟡🔵⚠️]?\s*\*?\*?(?:critical|warning|info)?:?\*?\*?\s*(.+?)(?=\d+\.\s*[🔴🟡🔵⚠️]|$)/gi,
-            ) || [];
-          for (
-            let i = 0;
-            i < noDetailFindings.length && i < summaryItems.length;
-            i++
-          ) {
-            const item = summaryItems[i]
-              .replace(
-                /^\d+\.\s*[🔴🟡🔵⚠️]?\s*\*?\*?(?:critical|warning|info)?:?\*?\*?\s*/i,
-                '',
-              )
-              .trim();
-            if (item.length > 5) {
-              noDetailFindings[i].message = item.substring(0, 300);
-              this.logger.debug(
-                `Repaired "No details" finding ${i + 1} from summary: ${item.substring(0, 80)}`,
-              );
-            }
-          }
-        }
-
-        // Strategy 2: Try extracting from the raw text before the JSON
-        // Look for bullet points, numbered lists, or severity markers in the pre-JSON text
-        const stillEmpty = findings.filter((f) => f.message === 'No details');
-        if (stillEmpty.length > 0) {
-          const markerPos = cleaned.indexOf(COMPLETION_MARKER);
-          const beforeJson =
-            markerPos > 0
-              ? cleaned.substring(0, markerPos)
-              : cleaned.substring(0, cleaned.lastIndexOf('{'));
-          if (beforeJson.length > 50) {
-            // Find severity-tagged lines: **critical**, **warning**, 🔴, etc.
-            const detailLines =
-              beforeJson.match(
-                /(?:^|\n)\s*(?:\d+\.\s*)?(?:[🔴🟡🔵]\s*)?(?:\*\*(?:critical|warning|info)\*\*[:\s—–-]*)?(.{10,200}?)(?=\n\s*(?:\d+\.|\*\*|[🔴🟡🔵]|$))/gim,
-              ) || [];
-            const cleanLines = detailLines
-              .map((l) =>
-                l
-                  .replace(/^\s*\d+\.\s*/, '')
-                  .replace(/[🔴🟡🔵]\s*/, '')
-                  .replace(/\*\*/g, '')
-                  .trim(),
-              )
-              .filter(
-                (l) =>
-                  l.length > 10 && !l.startsWith('```') && !l.startsWith('##'),
-              );
-            for (
-              let i = 0;
-              i < stillEmpty.length && i < cleanLines.length;
-              i++
-            ) {
-              stillEmpty[i].message = cleanLines[i].substring(0, 300);
-              this.logger.debug(
-                `Repaired "No details" finding ${i + 1} from raw text: ${cleanLines[i].substring(0, 80)}`,
-              );
-            }
-          }
-        }
-
-        // Strategy 3: If ALL findings are STILL "No details" after repair,
-        // the review output is unusable — treat as parse failure, NOT auto-approve
-        const finallyEmpty = findings.filter((f) => f.message === 'No details');
-        if (finallyEmpty.length === findings.length && findings.length > 0) {
-          this.logger.warn(
-            `All ${findings.length} findings have "No details" after repair attempts — treating as parse failure`,
-          );
-          return this.buildResultFromText(cleaned, issueId, mrIid);
-        }
-      }
-
-      // Apply decision rules ourselves — don't blindly trust LLM's "approved" field
-      // APPROVE if: no critical findings AND ≤2 warnings (matches system prompt)
-      const criticalFindings = findings.filter(
-        (f) => f.severity === 'critical',
-      );
-      const warningFindings = findings.filter((f) => f.severity === 'warning');
-      const ruleBasedApproval =
-        criticalFindings.length === 0 && warningFindings.length <= 2;
-
-      if (ruleBasedApproval !== approved) {
-        this.logger.warn(
-          `Overriding LLM approval (${approved}) → ${ruleBasedApproval} based on decision rules: ` +
-            `${criticalFindings.length} critical, ${warningFindings.length} warnings, ${findings.length} total findings`,
-        );
-      }
-
-      // Extract Expectation Pattern metadata
-      const roundNumber =
-        typeof parsed.roundNumber === 'number' ? parsed.roundNumber : undefined;
-      const resolvedFromPrevious = Array.isArray(parsed.resolvedFromPrevious)
-        ? parsed.resolvedFromPrevious
-            .filter((r: any) => r && typeof r === 'object' && r.message)
-            .map((r: any) => ({
-              message: String(r.message),
-              resolvedBy: String(r.resolvedBy ?? ''),
-            }))
-        : undefined;
-
-      const result: ReviewResult = {
-        issueId,
-        mrIid,
-        approved: ruleBasedApproval,
-        summary,
-        findings,
-        roundNumber,
-        resolvedFromPrevious,
-      };
-
-      this.logger.log(
-        `Parsed review: approved=${result.approved}, findings=${result.findings.length} (${criticalFindings.length}C/${warningFindings.length}W), summary="${result.summary.substring(0, 80)}"`,
-      );
-      return result;
-    } catch (err) {
-      this.logger.error(
-        `JSON parse failed: ${err.message} — raw JSON: ${jsonStr.substring(0, 200)}`,
-      );
-      // Fall back to text analysis
-      return this.buildResultFromText(cleaned, issueId, mrIid);
-    }
-  }
-
-  /**
-   * Parse findings array with validation.
-   * Handles multiple formats: findings, issues, comments, problems.
-   */
-  private parseFindings(rawFindings: any): ReviewFinding[] {
-    if (!Array.isArray(rawFindings)) return [];
-    const result = rawFindings
-      .filter((f: any) => f && typeof f === 'object')
-      .map((f: any) => ({
-        severity: normalizeSeverity(f.severity || f.type || f.level),
-        file: String(f.file ?? f.path ?? f.filename ?? 'unknown'),
-        line:
-          typeof f.line === 'number'
-            ? f.line
-            : typeof f.lineNumber === 'number'
-              ? f.lineNumber
-              : undefined,
-        message: String(
-          f.message ?? f.description ?? f.comment ?? f.text ?? 'No details',
-        ),
-        suggestion: f.suggestion
-          ? String(f.suggestion)
-          : f.suggestedFix
-            ? String(f.suggestedFix)
-            : undefined,
-        expectedFix: f.expectedFix ? String(f.expectedFix) : undefined,
-        firstReportedRound:
-          typeof f.firstReportedRound === 'number'
-            ? f.firstReportedRound
-            : undefined,
-        status: ['new', 'resolved', 'unresolved', 'blocked'].includes(f.status)
-          ? f.status
-          : undefined,
-      }));
-
-    // Post-validation: detect field-mixing (expectedFix text in message field)
-    for (const finding of result) {
-      if (
-        finding.message &&
-        /^(Erwarteter Fix|Expected Fix|Fix:|Suggestion:|Empfehlung:)/i.test(
-          finding.message,
-        )
-      ) {
-        // Move the fix text to expectedFix if not already set
-        if (!finding.expectedFix) {
-          finding.expectedFix = finding.message;
-        }
-        // Try to use suggestion as the real message, or mark as needs-detail
-        finding.message =
-          finding.suggestion ??
-          `Finding in ${finding.file}${finding.line ? `:${finding.line}` : ''} (see expectedFix for details)`;
-      }
-    }
-
-    return result;
-  }
-
-  /**
-   * Fallback: analyze the review text to determine approval/findings
-   * when JSON parsing fails completely.
-   */
-  private buildResultFromText(
-    text: string,
-    issueId: string,
-    mrIid: number,
-  ): ReviewResult {
-    const lower = text.toLowerCase();
-
-    // Determine approval from text keywords
-    const hasChangesRequested =
-      lower.includes('request changes') ||
-      lower.includes('changes requested') ||
-      lower.includes('changes_required') ||
-      lower.includes('not approved') ||
-      lower.includes('reject');
-
-    const hasApproved =
-      lower.includes('approved') ||
-      lower.includes('approve') ||
-      lower.includes('lgtm') ||
-      lower.includes('looks good');
-
-    // Count severity mentions as proxy findings
-    const criticalCount = (lower.match(/critical/g) || []).length;
-    const warningCount = (lower.match(/warning/g) || []).length;
-
-    // Extract the first paragraph after any "summary" keyword as the summary
-    const summary =
-      this.extractSummaryFromText(text) ||
-      'Review analysis completed (parsed from text)';
-
-    // Build synthetic findings from text analysis
-    const findings: ReviewFinding[] = [];
-    const findingPattern =
-      /(?:^|\n)\s*(?:\d+\.\s*)?(?:\*\*)?(?:(?:critical|warning|info)[:\s—-]+)(.*?)(?:\n|$)/gi;
-    let match: RegExpExecArray | null;
-    while ((match = findingPattern.exec(text)) !== null) {
-      const line = match[0].trim();
-      const severity = /critical/i.test(line)
-        ? 'critical'
-        : /warning/i.test(line)
-          ? 'warning'
-          : 'info';
-      findings.push({
-        severity,
-        file: 'unknown',
-        message: match[1]?.trim() || line.substring(0, 100),
-      });
-    }
-
-    // Apply decision rules: no critical findings AND ≤2 warnings → approve
-    // This prevents false rejections when the LLM doesn't output clear keywords
-    const criticalFindings = findings.filter((f) => f.severity === 'critical');
-    const warningFindings = findings.filter((f) => f.severity === 'warning');
-    const ruleBasedApproval =
-      criticalFindings.length === 0 && warningFindings.length <= 2;
-
-    // Use rule-based approval but let explicit rejection override if findings back it up
-    const approved = ruleBasedApproval || (hasApproved && !hasChangesRequested);
-
-    this.logger.log(
-      `Text-based review: approved=${approved} (rule=${ruleBasedApproval}, keywords: approve=${hasApproved}, reject=${hasChangesRequested}), criticals=${criticalCount}, warnings=${warningCount}, findings=${findings.length}`,
-    );
-
-    return { issueId, mrIid, approved, summary, findings };
-  }
-
-  /**
-   * Extract a summary sentence from the review text.
-   */
-  private extractSummaryFromText(text: string): string | null {
-    // Look for explicit summary section
-    const summaryMatch = text.match(
-      /(?:summary|decision|conclusion|overall)[:\s]*\n?\s*(.+?)(?:\n\n|\n(?=[#*\-]))/i,
-    );
-    if (summaryMatch) {
-      const cleaned = summaryMatch[1].replace(/^\*+\s*|\s*\*+$/g, '').trim();
-      if (cleaned.length > 10) return cleaned.substring(0, 200);
-    }
-
-    // Look for the first substantial paragraph (skip headers like "**Review Analysis:**")
-    const markerPos = text.indexOf(COMPLETION_MARKER);
-    const beforeMarker = markerPos > 0 ? text.substring(0, markerPos) : text;
-
-    // Split into paragraphs and find the first meaningful one
-    const paragraphs = beforeMarker
-      .split(/\n\n+/)
-      .map((p) =>
-        p
-          .replace(/^\*+\s*|\s*\*+$/g, '')
-          .replace(/^#+\s*/, '')
-          .trim(),
-      )
-      .filter(
-        (p) => p.length > 30 && !p.startsWith('###') && !p.startsWith('---'),
-      );
-
-    if (paragraphs.length > 0) {
-      // Use the first real paragraph as summary
-      const first = paragraphs[0].split('\n')[0]; // Just the first line
-      return first.substring(0, 200);
-    }
-
-    // Last resort: last sentence before JSON
-    const sentences = beforeMarker
-      .split(/[.\n]/)
-      .filter((s) => s.trim().length > 20);
-    if (sentences.length > 0) {
-      return sentences[sentences.length - 1]
-        .replace(/^\*+\s*|\s*\*+$/g, '')
-        .trim()
-        .substring(0, 200);
-    }
-    return null;
-  }
-
   // ─── Diff Fetching ──────────────────────────────────────
-
-  private applyArchitectScopeFilter(
-    reviewResult: ReviewResult,
-    outOfScopeItems: string[],
-  ): ReviewResult {
-    if (outOfScopeItems.length === 0 || reviewResult.findings.length === 0) {
-      return reviewResult;
-    }
-
-    const { filtered, removedCount } = filterOutOfScopeFindings(
-      reviewResult.findings,
-      outOfScopeItems,
-      (f) => `${f.file} ${f.message} ${f.suggestion ?? ''}`,
-    );
-
-    if (removedCount === 0) return reviewResult;
-
-    const criticalCount = filtered.filter(
-      (f) => f.severity === 'critical',
-    ).length;
-    const warningCount = filtered.filter(
-      (f) => f.severity === 'warning',
-    ).length;
-    const approved = criticalCount === 0 && warningCount <= 2;
-
-    this.logger.log(
-      `Architect scope filter removed ${removedCount} review finding(s) as out-of-scope`,
-    );
-
-    const summarySuffix = `Architect scope filter ignored ${removedCount} out-of-scope finding(s).`;
-    const summary = reviewResult.summary
-      ? `${reviewResult.summary} ${summarySuffix}`
-      : summarySuffix;
-
-    return {
-      ...reviewResult,
-      approved,
-      findings: filtered,
-      summary,
-    };
-  }
 
   /**
    * Fetch MR diffs with retry — GitLab may not have computed diffs
@@ -1113,7 +677,6 @@ ${
       await this.updateStatus(ctx, AgentStatus.ERROR);
       await this.log(ctx.agentTaskId, 'ERROR', `Review failed: ${reason}`);
 
-      // Emit failure event so orchestrator can pause the pipeline
       this.eventEmitter.emit('agent.taskFailed', {
         projectId: ctx.projectId,
         chatSessionId: ctx.chatSessionId,

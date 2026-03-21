@@ -15,12 +15,13 @@ import {
   InterviewResult,
   FeatureInterviewResult,
 } from '../interviewer/interview-result.interface';
+import { IssueCompilerResult } from './issue-compiler-result.interface';
 import {
-  CompiledIssue,
-  CompiledMilestone,
-  CompiledTask,
-  IssueCompilerResult,
-} from './issue-compiler-result.interface';
+  COMPLETION_MARKER,
+  ISSUE_COMPLETION_INSTRUCTIONS,
+  normalizeResult,
+  parseCompilationJson,
+} from './issue-compiler-result';
 import {
   AgentRole,
   AgentStatus,
@@ -30,65 +31,7 @@ import {
   IssuePriority,
 } from '@prisma/client';
 
-/** Marker the LLM emits when compilation is done */
-const COMPLETION_MARKER = ':::ISSUES_COMPILED:::';
-
 const DEFAULT_SYSTEM_PROMPT = loadPrompt('issue-compiler');
-
-/** Completion instructions appended to ALL system prompts (custom or default) */
-const ISSUE_COMPLETION_INSTRUCTIONS = `
-
-## MANDATORY Quality Standards (ALWAYS follow these)
-
-### Issue Descriptions — MINIMUM REQUIREMENTS
-Every issue description MUST use this Markdown structure:
-- **Overview** (2-3 sentences): What and why
-- **Requirements** (bullet list): Specific, testable requirements including edge cases
-- **Technical Notes** (bullet list): Suggested approach, components, files, endpoints, data models
-- **Acceptance Criteria** (checkbox list): Verifiable conditions for "done"
-
-Minimum 400 characters per issue description. The Coder Agent implements ONLY what you describe — omissions become bugs.
-
-### Task Descriptions — MINIMUM REQUIREMENTS
-Every task description MUST be 2-4 sentences (minimum 100 characters) explaining exactly what to implement, which files to touch, and what the expected behavior is.
-
-## MANDATORY Completion Format (ALWAYS follow this)
-When done compiling issues, end your message with EXACTLY this format.
-The marker line and JSON block MUST appear — without them the system cannot proceed.
-
-${COMPLETION_MARKER}
-\`\`\`json
-{
-  "milestones": [
-    {
-      "title": "v0.1 — Phase Name",
-      "description": "What this phase achieves and what should be working by the end (2-3 sentences).",
-      "issues": [
-        {
-          "title": "Specific imperative issue title",
-          "description": "## Overview\\nWhat needs to be built and why (2-3 sentences).\\n\\n## Requirements\\n- Specific testable requirement 1\\n- Specific testable requirement 2\\n- Edge case handling\\n\\n## Technical Notes\\n- Suggested component/service/endpoint names\\n- Data model details\\n- Integration points with other features\\n\\n## Acceptance Criteria\\n- [ ] Verifiable condition 1\\n- [ ] Verifiable condition 2\\n- [ ] Error/edge case handled",
-          "priority": "HIGH",
-          "labels": ["frontend", "setup"],
-          "tasks": [
-            {
-              "title": "Specific task title with context",
-              "description": "2-4 sentences explaining what to implement. Name the files, components, or services to create. Describe the expected inputs, outputs, and behavior including error handling."
-            }
-          ]
-        }
-      ]
-    }
-  ]
-}
-\`\`\`
-
-CRITICAL RULES:
-- The JSON must be valid and parseable
-- Every issue description MUST be at least 400 characters with all 4 sections (Overview, Requirements, Technical Notes, Acceptance Criteria)
-- Every task description MUST be at least 100 characters (2+ sentences)
-- Group ALL issues into milestones — do not return a flat "issues" array at the top level
-- Use \\n for newlines inside JSON strings
-- Do NOT include thinking tags, comments, or trailing commas in the JSON`;
 
 @Injectable()
 export class IssueCompilerAgent extends BaseAgent {
@@ -127,14 +70,14 @@ export class IssueCompilerAgent extends BaseAgent {
 
       // Step 1: Load project data
       const projectData = await this.loadProjectData(ctx);
-      if (!projectData) return; // Fatal — already handled
+      if (!projectData) return;
 
       // Step 2: Call LLM to compile issues
       const rawResult = await this.callLlmForCompilation(ctx, projectData);
-      if (!rawResult) return; // Fatal — already handled
+      if (!rawResult) return;
 
       // Step 3: Normalize result
-      const compiledResult = this.normalizeResult(rawResult);
+      const compiledResult = normalizeResult(rawResult);
 
       // Step 4: Create milestones, issues + tasks in DB + GitLab
       await this.createMilestonesAndIssues(ctx, projectData, compiledResult);
@@ -175,7 +118,6 @@ export class IssueCompilerAgent extends BaseAgent {
       let interviewResult: InterviewResult;
 
       if (isDevSession) {
-        // Dev session: get features from the FEATURE_INTERVIEW task output
         const featureTask = await this.prisma.agentTask.findFirst({
           where: {
             type: AgentTaskType.FEATURE_INTERVIEW,
@@ -192,7 +134,6 @@ export class IssueCompilerAgent extends BaseAgent {
           throw new Error('No features found in feature interview result');
         }
 
-        // Build InterviewResult-compatible object from FeatureInterviewResult + project.techStack
         const projectTechStack =
           (project.techStack as unknown as InterviewResult) || {};
         interviewResult = {
@@ -216,7 +157,6 @@ export class IssueCompilerAgent extends BaseAgent {
           interviewResult.description = `${featureResult.sessionGoal}\n\n## Environment Context\n${envDoc.substring(0, 3000)}`;
         }
       } else {
-        // Infrastructure: use project.techStack from initial interview
         interviewResult = project.techStack as unknown as InterviewResult;
         if (!interviewResult?.features?.length) {
           throw new Error('No features found in interview result');
@@ -275,7 +215,6 @@ export class IssueCompilerAgent extends BaseAgent {
     const featureList = interviewResult.features
       .map((f, i) => {
         if (typeof f === 'string') return `${i + 1}. ${f}`;
-        // Rich feature object from interview
         const parts = [`${i + 1}. **${f.title}** [${f.priority ?? 'medium'}]`];
         if (f.description) parts.push(`   ${f.description}`);
         if (f.acceptanceCriteria?.length) {
@@ -355,50 +294,7 @@ IMPORTANT: Respond with ONLY the JSON object. No prose, no explanation, no markd
       }
 
       try {
-        let jsonPart = result.content.includes(COMPLETION_MARKER)
-          ? result.content.substring(
-              result.content.indexOf(COMPLETION_MARKER) +
-                COMPLETION_MARKER.length,
-            )
-          : result.content;
-
-        // Strip thinking tags that local LLMs (qwen3.5) often wrap around output
-        jsonPart = jsonPart.replace(/<think>[\s\S]*?<\/think>/g, '').trim();
-
-        // Strip Markdown code fences (```json ... ``` or ``` ... ```)
-        const codeFenceMatch = jsonPart.match(
-          /```(?:json)?\s*\n?([\s\S]*?)```/,
-        );
-        if (codeFenceMatch) {
-          jsonPart = codeFenceMatch[1].trim();
-        }
-
-        // Try to find the outermost JSON object containing "milestones" or "issues"
-        const jsonMatch = jsonPart.match(/\{[\s\S]*\}/);
-        if (!jsonMatch) {
-          throw new Error('No JSON object found in LLM response');
-        }
-
-        // Clean common JSON issues from local LLMs
-        let jsonStr = jsonMatch[0];
-        // Remove trailing commas before } or ]
-        jsonStr = jsonStr.replace(/,\s*([}\]])/g, '$1');
-
-        // Try parsing as-is first
-        try {
-          return JSON.parse(jsonStr);
-        } catch (firstErr) {
-          // Attempt bracket-balanced extraction from the beginning
-          this.logger.warn(
-            `First JSON parse failed (${firstErr.message}), trying bracket-balanced extraction`,
-          );
-          const balanced = this.extractBalancedJson(jsonStr);
-          if (balanced) {
-            const cleaned = balanced.replace(/,\s*([}\]])/g, '$1');
-            return JSON.parse(cleaned);
-          }
-          throw firstErr;
-        }
+        return parseCompilationJson(result.content);
       } catch (err) {
         this.logger.error(
           `Failed to parse compilation result (attempt ${attempt}/${MAX_RETRIES}): ${err.message}`,
@@ -411,7 +307,6 @@ IMPORTANT: Respond with ONLY the JSON object. No prose, no explanation, no markd
             ctx,
             `⚠️ JSON parse failed (attempt ${attempt}/${MAX_RETRIES}), retrying...`,
           );
-          // Add a hint to the messages for the retry to be more explicit about JSON format
           messages.push(
             { role: 'assistant', content: result.content.substring(0, 200) },
             {
@@ -430,164 +325,7 @@ IMPORTANT: Respond with ONLY the JSON object. No prose, no explanation, no markd
         return null;
       }
     }
-    return null; // Should not reach here
-  }
-
-  /**
-   * Extract a balanced JSON object from a string by counting brackets.
-   * Handles cases where LLM adds text after the JSON.
-   */
-  private extractBalancedJson(str: string): string | null {
-    const start = str.indexOf('{');
-    if (start === -1) return null;
-
-    let depth = 0;
-    let inString = false;
-    let escape = false;
-
-    for (let i = start; i < str.length; i++) {
-      const ch = str[i];
-
-      if (escape) {
-        escape = false;
-        continue;
-      }
-
-      if (ch === '\\' && inString) {
-        escape = true;
-        continue;
-      }
-
-      if (ch === '"') {
-        inString = !inString;
-        continue;
-      }
-
-      if (inString) continue;
-
-      if (ch === '{') depth++;
-      else if (ch === '}') {
-        depth--;
-        if (depth === 0) {
-          return str.substring(start, i + 1);
-        }
-      }
-    }
-
     return null;
-  }
-
-  // ─── Step 3: Normalize ──────────────────────────────────────
-
-  private normalizeResult(raw: Record<string, any>): IssueCompilerResult {
-    // Helper: find a value by trying multiple key variants
-    const pick = (...keys: string[]): any => {
-      for (const k of keys) {
-        if (raw[k] !== undefined) return raw[k];
-      }
-      return undefined;
-    };
-
-    // Try to extract milestones
-    const rawMilestones: any[] | undefined = pick(
-      'milestones',
-      'phases',
-      'versions',
-      'sprints',
-    );
-
-    let milestones: CompiledMilestone[];
-
-    if (Array.isArray(rawMilestones) && rawMilestones.length > 0) {
-      // LLM returned milestone-grouped output
-      milestones = rawMilestones.map((m: any, i: number) => ({
-        title: m.title ?? m.name ?? `v0.${i + 1} — Phase ${i + 1}`,
-        description: m.description ?? m.summary ?? '',
-        issues: this.normalizeIssues(m.issues ?? m.items ?? m.tickets ?? []),
-      }));
-    } else {
-      // Fallback: flat issues list → wrap in single milestone
-      const flatIssues =
-        pick('issues', 'items', 'tickets', 'compiled_issues') ?? [];
-      milestones = [
-        {
-          title: 'v0.1 — MVP',
-          description: 'All project issues',
-          issues: this.normalizeIssues(flatIssues),
-        },
-      ];
-    }
-
-    // Build flat issues array from milestones
-    const allIssues = milestones.flatMap((m) => m.issues);
-    const totalTasks = allIssues.reduce((sum, i) => sum + i.tasks.length, 0);
-
-    this.logger.debug(
-      `Normalized: ${milestones.length} milestones, ${allIssues.length} issues, ${totalTasks} tasks`,
-    );
-
-    return {
-      milestones,
-      issues: allIssues,
-      totalMilestones: milestones.length,
-      totalIssues: allIssues.length,
-      totalTasks,
-    };
-  }
-
-  /** Normalize a raw issues array from LLM output */
-  private normalizeIssues(rawIssues: any[]): CompiledIssue[] {
-    return rawIssues.map((raw: any) => {
-      const title = raw.title ?? raw.name ?? raw.summary ?? 'Untitled Issue';
-      const description = raw.description ?? raw.body ?? raw.details ?? '';
-
-      // Normalize priority
-      let priority = (raw.priority ?? raw.severity ?? 'MEDIUM').toUpperCase();
-      if (!['LOW', 'MEDIUM', 'HIGH', 'CRITICAL'].includes(priority)) {
-        priority = 'MEDIUM';
-      }
-
-      // Normalize labels
-      let labels = raw.labels ?? raw.tags ?? [];
-      if (typeof labels === 'string') {
-        labels = labels.split(',').map((l: string) => l.trim().toLowerCase());
-      }
-      labels = labels.map((l: string) => l.toLowerCase());
-
-      // Normalize tasks
-      const tasks: CompiledTask[] = (
-        raw.tasks ??
-        raw.subtasks ??
-        raw.sub_tasks ??
-        raw.children ??
-        []
-      ).map((t: any) => ({
-        title: t.title ?? t.name ?? t.summary ?? 'Untitled Task',
-        description: t.description ?? t.body ?? t.details ?? '',
-      }));
-
-      // Ensure at least 2 tasks
-      if (tasks.length < 2) {
-        tasks.push({
-          title: `Implement ${title}`,
-          description: 'Core implementation',
-        });
-        if (tasks.length < 2) {
-          tasks.push({
-            title: `Test ${title}`,
-            description: 'Write tests and verify',
-          });
-        }
-      }
-
-      return {
-        title,
-        description,
-        priority: priority as CompiledIssue['priority'],
-        labels,
-        tasks,
-      };
-    });
   }
 
   // ─── Step 4: Create Milestones + Issues + Tasks ──────────────
@@ -631,9 +369,7 @@ IMPORTANT: Respond with ONLY the JSON object. No prose, no explanation, no markd
             ctx.agentTaskId,
             'WARN',
             `GitLab milestone failed: ${milestone.title}`,
-            {
-              error: err.message,
-            },
+            { error: err.message },
           );
         }
       }
@@ -659,19 +395,17 @@ IMPORTANT: Respond with ONLY the JSON object. No prose, no explanation, no markd
           ctx.agentTaskId,
           'WARN',
           `DB milestone failed: ${milestone.title}`,
-          {
-            error: err.message,
-          },
+          { error: err.message },
         );
       }
 
       await this.sendAgentMessage(ctx, `🏁 Milestone: **${milestone.title}**`);
 
-      // Create issues within this milestone (order matters for sequential pipeline!)
+      // Create issues within this milestone
       for (let issueIdx = 0; issueIdx < milestone.issues.length; issueIdx++) {
         const compiledIssue = milestone.issues[issueIdx];
         try {
-          // Deduplication: skip if issue with same title already exists in this project
+          // Deduplication
           const existing = await this.prisma.issue.findFirst({
             where: { projectId: project.id, title: compiledIssue.title },
           });
@@ -680,9 +414,7 @@ IMPORTANT: Respond with ONLY the JSON object. No prose, no explanation, no markd
               ctx.agentTaskId,
               'INFO',
               `Skipped duplicate issue: ${compiledIssue.title}`,
-              {
-                existingIssueId: existing.id,
-              },
+              { existingIssueId: existing.id },
             );
             continue;
           }
@@ -722,10 +454,9 @@ IMPORTANT: Respond with ONLY the JSON object. No prose, no explanation, no markd
                 priority: this.mapPriority(compiledIssue.priority),
                 labels: compiledIssue.labels,
                 parentId: issue.id,
-                syncToGitlab: false, // We'll create as WorkItem Task instead
+                syncToGitlab: false,
               });
 
-              // Create as GitLab Task (child of issue) if GitLab is available
               if (gitlabProjectPath && issue.gitlabIid && gitlabProjectId) {
                 try {
                   const parentWorkItemId =
@@ -755,9 +486,7 @@ IMPORTANT: Respond with ONLY the JSON object. No prose, no explanation, no markd
                     ctx.agentTaskId,
                     'WARN',
                     `GitLab task failed: ${task.title}`,
-                    {
-                      error: glErr.message,
-                    },
+                    { error: glErr.message },
                   );
                   failedTasks++;
                 }
@@ -790,9 +519,7 @@ IMPORTANT: Respond with ONLY the JSON object. No prose, no explanation, no markd
             ctx.agentTaskId,
             'ERROR',
             `Issue creation failed: ${compiledIssue.title}`,
-            {
-              error: issueErr.message,
-            },
+            { error: issueErr.message },
           );
         }
       }

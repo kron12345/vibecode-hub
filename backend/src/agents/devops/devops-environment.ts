@@ -27,9 +27,7 @@ export function buildEnvironmentDoc(
     '## Tech Stack',
     ts.framework ? `- **Framework:** ${ts.framework}` : null,
     ts.language ? `- **Language:** ${ts.language}` : null,
-    ts.backend && ts.backend !== 'none'
-      ? `- **Backend:** ${ts.backend}`
-      : null,
+    ts.backend && ts.backend !== 'none' ? `- **Backend:** ${ts.backend}` : null,
     ts.database && ts.database !== 'none'
       ? `- **Database:** ${ts.database}`
       : null,
@@ -53,9 +51,7 @@ export function buildEnvironmentDoc(
     '',
     '## MCP Servers',
     ...(interviewResult.mcpServers && interviewResult.mcpServers.length > 0
-      ? interviewResult.mcpServers.map(
-          (s) => `- **${s.name}** — ${s.purpose}`,
-        )
+      ? interviewResult.mcpServers.map((s) => `- **${s.name}** — ${s.purpose}`)
       : ['- _None configured_']),
     '',
     '## Installed Packages',

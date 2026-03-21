@@ -143,7 +143,7 @@ export function extractLoopResolverClarifications(
   // Extract all Loop Resolver blocks
   const blocks: string[] = [];
   for (const match of matches) {
-    const start = match.index!;
+    const start = match.index;
     // Find end: next agent comment or end of string
     const nextAgent = commentHistory.indexOf('\n[', start + 10);
     const end = nextAgent > start ? nextAgent : commentHistory.length;

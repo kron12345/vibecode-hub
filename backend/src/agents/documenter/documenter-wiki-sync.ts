@@ -4,9 +4,7 @@ import * as fs from 'fs/promises';
 import { GitlabService } from '../../gitlab/gitlab.service';
 import { PrismaService } from '../../prisma/prisma.service';
 import { DocFile } from './documenter-result.interface';
-import {
-  ScreenshotManifest,
-} from '../ui-tester/ui-test-result.interface';
+import { ScreenshotManifest } from '../ui-tester/ui-test-result.interface';
 
 // ─── Types ────────────────────────────────────────────────
 
@@ -90,7 +88,10 @@ export async function syncDocsToWiki(
         .catch(() => '');
 
       // Only update if new content is substantially longer or page doesn't exist yet
-      if (existingWikiContent && wf.content.length < existingWikiContent.length * 0.7) {
+      if (
+        existingWikiContent &&
+        wf.content.length < existingWikiContent.length * 0.7
+      ) {
         logger.warn(
           `Wiki page "${title}" not updated: new content (${wf.content.length} chars) shorter than existing (${existingWikiContent.length} chars) — would lose data`,
         );
@@ -98,11 +99,7 @@ export async function syncDocsToWiki(
         continue;
       }
 
-      await gitlabService.upsertWikiPage(
-        gitlabProjectId,
-        title,
-        wf.content,
-      );
+      await gitlabService.upsertWikiPage(gitlabProjectId, title, wf.content);
       wikiPages.push(title);
       logger.log(`Wiki page synced: ${title}`);
     } catch (err) {
@@ -163,7 +160,12 @@ export async function syncDocsToWiki(
   );
 
   // Regenerate sidebar from all existing wiki pages
-  await regenerateWikiSidebar(gitlabProjectId, projectName, gitlabService, logger);
+  await regenerateWikiSidebar(
+    gitlabProjectId,
+    projectName,
+    gitlabService,
+    logger,
+  );
 
   return { wikiPages, screenshotWikiContent, screenshotWikiImages };
 }
@@ -244,9 +246,7 @@ export async function processScreenshots(
         wikiSections.push('');
       }
     } catch (err) {
-      logger.warn(
-        `Failed to upload screenshot ${entry.file}: ${err.message}`,
-      );
+      logger.warn(`Failed to upload screenshot ${entry.file}: ${err.message}`);
     }
   }
 
@@ -354,10 +354,7 @@ export async function updateWikiHome(
     let updated: string;
     if (existing.includes('_No features implemented yet._')) {
       // Replace placeholder with first feature
-      updated = existing.replace(
-        '_No features implemented yet._',
-        featureLink,
-      );
+      updated = existing.replace('_No features implemented yet._', featureLink);
     } else if (existing.includes('## Features')) {
       // Append after the last feature link in the Features section
       const featuresIdx = existing.indexOf('## Features');
@@ -404,10 +401,7 @@ export async function regenerateWikiSidebar(
 
     // Group pages by top-level directory
     const topLevel: string[] = [];
-    const grouped: Record<
-      string,
-      Array<{ slug: string; title: string }>
-    > = {};
+    const grouped: Record<string, Array<{ slug: string; title: string }>> = {};
 
     for (const page of pages) {
       if (page.slug === '_sidebar') continue; // Skip sidebar itself
@@ -453,9 +447,7 @@ export async function regenerateWikiSidebar(
     );
     logger.log('Wiki sidebar regenerated');
   } catch (err) {
-    logger.warn(
-      `Wiki sidebar regeneration failed (non-fatal): ${err.message}`,
-    );
+    logger.warn(`Wiki sidebar regeneration failed (non-fatal): ${err.message}`);
   }
 }
 
