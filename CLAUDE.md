@@ -145,15 +145,16 @@ Diese Checks laufen AUTOMATISCH mit, nicht erst auf Nachfrage. Jede Datei die ic
 
 #### Beim Schreiben von Code — IMMER beachten:
 
-1. **Keine ungenutzten Imports** — Jede Import-Zeile muss verwendet werden. Nach Refactoring/Löschen prüfen ob Imports verwaist sind.
-2. **Keine `console.log/error/warn`** im Frontend — Stattdessen: `toast`-Signal, `alert()`, oder Error-Signal für UI-Feedback. `console.debug` in Voice-Services ist OK.
-3. **Keine leeren `.catch(() => {})`** — Entweder `this.logger.warn()` ODER erklärender Kommentar warum Swallow OK ist (z.B. `// GitLab label sync is best-effort`).
-4. **Keine dynamischen `require()`** — Immer Top-Level `import` verwenden. Kein `const x = require('y')` in Methodenbodies.
-5. **Kein `as any` ohne Grund** — Wenn Cast nötig: kurzer Kommentar warum (z.B. `// Prisma JSON field`). Besser: korrekten Type definieren.
-6. **Keine Magic Numbers** — Timeouts, Limits, Thresholds → `PipelineConfig` oder Konstante mit sprechendem Namen.
-7. **Shared Types nutzen** — `@vibcode/shared` für alle Frontend↔Backend Types. NICHT lokal duplizieren.
-8. **Shared Parsing nutzen** — `agent-result-parser.ts` für JSON-Extraction, Severity-Normalisierung etc. NICHT in jedem Agent neu implementieren.
-9. **Prompts in Markdown** — Agent System-Prompts gehören in `backend/prompts/*.md`, NICHT als Inline-Strings.
+1. **Max ~500 Zeilen pro Datei** — Wird eine Datei größer, sofort sinnvoll aufteilen. Namenskonvention: `{modul}-{concern}.ts` (z.B. `gitlab-issues.service.ts`, `devops-ci.ts`, `documenter-wiki-sync.ts`). Angular Components: eigene Datei pro Component. Lieber 3 kleine fokussierte Dateien als 1 Monolith.
+2. **Keine ungenutzten Imports** — Jede Import-Zeile muss verwendet werden. Nach Refactoring/Löschen prüfen ob Imports verwaist sind.
+3. **Keine `console.log/error/warn`** im Frontend — Stattdessen: `toast`-Signal, `alert()`, oder Error-Signal für UI-Feedback. `console.debug` in Voice-Services ist OK.
+4. **Keine leeren `.catch(() => {})`** — Entweder `this.logger.warn()` ODER erklärender Kommentar warum Swallow OK ist (z.B. `// GitLab label sync is best-effort`).
+5. **Keine dynamischen `require()`** — Immer Top-Level `import` verwenden. Kein `const x = require('y')` in Methodenbodies.
+6. **Kein `as any` ohne Grund** — Wenn Cast nötig: kurzer Kommentar warum (z.B. `// Prisma JSON field`). Besser: korrekten Type definieren.
+7. **Keine Magic Numbers** — Timeouts, Limits, Thresholds → `PipelineConfig` oder Konstante mit sprechendem Namen.
+8. **Shared Types nutzen** — `@vibcode/shared` für alle Frontend↔Backend Types. NICHT lokal duplizieren.
+9. **Shared Parsing nutzen** — `agent-result-parser.ts` für JSON-Extraction, Severity-Normalisierung etc. NICHT in jedem Agent neu implementieren.
+10. **Prompts in Markdown** — Agent System-Prompts gehören in `backend/prompts/*.md`, NICHT als Inline-Strings.
 
 #### Vor jedem Commit — IMMER ausführen:
 
