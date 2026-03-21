@@ -136,12 +136,20 @@ export class UpdateProjectDto {
   @IsEnum(ProjectStatus)
   status?: ProjectStatus;
 
-  @ApiProperty({ required: false, description: 'Base branch for feature branches (e.g. "develop"). Null = GitLab default.' })
+  @ApiProperty({
+    required: false,
+    description:
+      'Base branch for feature branches (e.g. "develop"). Null = GitLab default.',
+  })
   @IsOptional()
   @IsString()
   workBranch?: string | null;
 
-  @ApiProperty({ required: false, description: 'Override global maxFixAttempts per project. Null = use global setting.' })
+  @ApiProperty({
+    required: false,
+    description:
+      'Override global maxFixAttempts per project. Null = use global setting.',
+  })
   @IsOptional()
   @IsInt()
   @Min(1)

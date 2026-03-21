@@ -18,7 +18,12 @@ import { EventEmitter2 } from '@nestjs/event-emitter';
 import { ChatSessionType, MessageRole } from '@prisma/client';
 import { ChatService } from './chat.service';
 import { SessionBranchService } from './session-branch.service';
-import { CreateChatSessionDto, CreateDevSessionDto, UpdateSessionDto, SendMessageDto } from './chat.dto';
+import {
+  CreateChatSessionDto,
+  CreateDevSessionDto,
+  UpdateSessionDto,
+  SendMessageDto,
+} from './chat.dto';
 
 const MAX_FILE_SIZE = 10 * 1024 * 1024; // 10 MB
 const ALLOWED_MIME_TYPES = [
@@ -78,7 +83,11 @@ export class ChatController {
 
   @Post('sessions/dev')
   createDevSession(@Body() dto: CreateDevSessionDto) {
-    return this.sessionBranch.createDevSession(dto.projectId, dto.title, dto.branch);
+    return this.sessionBranch.createDevSession(
+      dto.projectId,
+      dto.title,
+      dto.branch,
+    );
   }
 
   @Post('sessions/:id/archive')
@@ -126,16 +135,23 @@ export class ChatController {
   // ─── File Upload ────────────────────────────────────────────
 
   @Post('upload')
-  @UseInterceptors(FileInterceptor('file', {
-    limits: { fileSize: MAX_FILE_SIZE },
-    fileFilter: (_req, file, cb) => {
-      if (ALLOWED_MIME_TYPES.includes(file.mimetype)) {
-        cb(null, true);
-      } else {
-        cb(new BadRequestException(`File type ${file.mimetype} not allowed. Allowed: ${ALLOWED_MIME_TYPES.join(', ')}`), false);
-      }
-    },
-  }))
+  @UseInterceptors(
+    FileInterceptor('file', {
+      limits: { fileSize: MAX_FILE_SIZE },
+      fileFilter: (_req, file, cb) => {
+        if (ALLOWED_MIME_TYPES.includes(file.mimetype)) {
+          cb(null, true);
+        } else {
+          cb(
+            new BadRequestException(
+              `File type ${file.mimetype} not allowed. Allowed: ${ALLOWED_MIME_TYPES.join(', ')}`,
+            ),
+            false,
+          );
+        }
+      },
+    }),
+  )
   @ApiConsumes('multipart/form-data')
   @ApiBody({
     schema: {
@@ -151,9 +167,12 @@ export class ChatController {
     @Body('chatSessionId') chatSessionId: string,
   ) {
     if (!file) throw new BadRequestException('No file uploaded');
-    if (!chatSessionId) throw new BadRequestException('chatSessionId is required');
+    if (!chatSessionId)
+      throw new BadRequestException('chatSessionId is required');
 
-    this.logger.log(`File upload: ${file.originalname} (${file.mimetype}, ${file.size} bytes) for session ${chatSessionId}`);
+    this.logger.log(
+      `File upload: ${file.originalname} (${file.mimetype}, ${file.size} bytes) for session ${chatSessionId}`,
+    );
 
     // Extract text content based on file type
     let extractedText = '';
@@ -170,7 +189,8 @@ export class ChatController {
         this.logger.log(`PDF parsed: ${extractedText.length} chars extracted`);
       } catch (err) {
         this.logger.warn(`PDF parse failed: ${err.message}`);
-        extractedText = '[PDF parsing failed — please describe the content manually]';
+        extractedText =
+          '[PDF parsing failed — please describe the content manually]';
       }
     } else if (isText) {
       extractedText = file.buffer.toString('utf-8').trim();
@@ -185,9 +205,11 @@ export class ChatController {
         : `📎 **Uploaded:** ${file.originalname} (${Math.ceil(file.size / 1024)} KB)`;
 
     // Truncate extracted text for the context (max 15k chars to fit in LLM context)
-    const truncatedText = extractedText.length > 15000
-      ? extractedText.substring(0, 15000) + '\n\n[... truncated, document too long ...]'
-      : extractedText;
+    const truncatedText =
+      extractedText.length > 15000
+        ? extractedText.substring(0, 15000) +
+          '\n\n[... truncated, document too long ...]'
+        : extractedText;
 
     // Build metadata
     const metadata: Record<string, unknown> = {

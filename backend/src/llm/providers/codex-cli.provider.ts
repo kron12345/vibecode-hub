@@ -22,8 +22,8 @@ export class CodexCliProvider extends CliBaseProvider {
   protected buildArgs(options: LlmCompletionOptions): string[] {
     const args = [
       'exec',
-      '--full-auto',           // Auto-approve tools within sandbox
-      '--ephemeral',           // Don't persist session files
+      '--full-auto', // Auto-approve tools within sandbox
+      '--ephemeral', // Don't persist session files
     ];
 
     if (options.model) {

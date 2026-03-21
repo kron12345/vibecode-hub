@@ -20,7 +20,11 @@ export class AnthropicProvider implements LlmStreamingProvider {
     const apiKey = this.settings.anthropicApiKey;
     if (!apiKey) {
       this.logger.error('Anthropic API key not configured');
-      return { content: '', finishReason: 'error' };
+      return {
+        content: '',
+        finishReason: 'error',
+        errorMessage: 'Anthropic API key not configured',
+      };
     }
 
     const systemMessage = options.messages.find((m) => m.role === 'system');
@@ -56,7 +60,11 @@ export class AnthropicProvider implements LlmStreamingProvider {
       if (!response.ok) {
         const errorText = await response.text();
         this.logger.error(`Anthropic error ${response.status}: ${errorText}`);
-        return { content: '', finishReason: 'error' };
+        return {
+          content: '',
+          finishReason: 'error',
+          errorMessage: `Anthropic HTTP ${response.status}: ${errorText.substring(0, 300)}`,
+        };
       }
 
       const data = await response.json();
@@ -71,18 +79,23 @@ export class AnthropicProvider implements LlmStreamingProvider {
           ? {
               promptTokens: data.usage.input_tokens,
               completionTokens: data.usage.output_tokens,
-              totalTokens:
-                data.usage.input_tokens + data.usage.output_tokens,
+              totalTokens: data.usage.input_tokens + data.usage.output_tokens,
             }
           : undefined,
       };
     } catch (err) {
       this.logger.error(`Anthropic request failed: ${err.message}`);
-      return { content: '', finishReason: 'error' };
+      return {
+        content: '',
+        finishReason: 'error',
+        errorMessage: `Anthropic request failed: ${err.message}`,
+      };
     }
   }
 
-  async *streamComplete(options: LlmCompletionOptions): AsyncGenerator<LlmStreamChunk> {
+  async *streamComplete(
+    options: LlmCompletionOptions,
+  ): AsyncGenerator<LlmStreamChunk> {
     const apiKey = this.settings.anthropicApiKey;
     if (!apiKey) {
       this.logger.error('Anthropic API key not configured');
@@ -101,7 +114,9 @@ export class AnthropicProvider implements LlmStreamingProvider {
       max_tokens: options.maxTokens ?? 4096,
       stream: true,
       ...(systemMessage && { system: getTextContent(systemMessage.content) }),
-      ...(options.temperature !== undefined && { temperature: options.temperature }),
+      ...(options.temperature !== undefined && {
+        temperature: options.temperature,
+      }),
     };
 
     try {
@@ -117,7 +132,9 @@ export class AnthropicProvider implements LlmStreamingProvider {
 
       if (!response.ok) {
         const errorText = await response.text();
-        this.logger.error(`Anthropic stream error ${response.status}: ${errorText}`);
+        this.logger.error(
+          `Anthropic stream error ${response.status}: ${errorText}`,
+        );
         yield { content: '', done: true };
         return;
       }
@@ -150,7 +167,10 @@ export class AnthropicProvider implements LlmStreamingProvider {
 
   private async *parseSSE(response: Response): AsyncGenerator<LlmStreamChunk> {
     const reader = response.body?.getReader();
-    if (!reader) { yield { content: '', done: true }; return; }
+    if (!reader) {
+      yield { content: '', done: true };
+      return;
+    }
 
     const decoder = new TextDecoder();
     let buffer = '';
@@ -166,7 +186,10 @@ export class AnthropicProvider implements LlmStreamingProvider {
       for (const line of lines) {
         if (!line.startsWith('data: ')) continue;
         const data = line.slice(6).trim();
-        if (data === '[DONE]') { yield { content: '', done: true }; return; }
+        if (data === '[DONE]') {
+          yield { content: '', done: true };
+          return;
+        }
 
         try {
           const event = JSON.parse(data);
@@ -177,7 +200,9 @@ export class AnthropicProvider implements LlmStreamingProvider {
             yield { content: '', done: true };
             return;
           }
-        } catch { /* skip */ }
+        } catch {
+          /* skip */
+        }
       }
     }
     yield { content: '', done: true };

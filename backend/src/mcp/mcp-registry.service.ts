@@ -1,8 +1,18 @@
-import { Injectable, Logger, OnModuleInit, NotFoundException, BadRequestException } from '@nestjs/common';
+import {
+  Injectable,
+  Logger,
+  OnModuleInit,
+  NotFoundException,
+  BadRequestException,
+} from '@nestjs/common';
 import * as path from 'path';
 import { PrismaService } from '../prisma/prisma.service';
 import { SystemSettingsService } from '../settings/system-settings.service';
-import { AgentRole, McpServerDefinition, McpOverrideAction } from '@prisma/client';
+import {
+  AgentRole,
+  McpServerDefinition,
+  McpOverrideAction,
+} from '@prisma/client';
 import { McpServerConfig } from './mcp.interfaces';
 import { CreateMcpServerDto, UpdateMcpServerDto } from './mcp-registry.dto';
 
@@ -14,7 +24,14 @@ export interface McpRuntimeContext {
 }
 
 /** Shell server .mjs path (relative to compiled dist output) */
-const SHELL_SERVER_PATH = path.resolve(__dirname, '..', '..', 'mcp', 'servers', 'shell-server.mjs');
+const SHELL_SERVER_PATH = path.resolve(
+  __dirname,
+  '..',
+  '..',
+  'mcp',
+  'servers',
+  'shell-server.mjs',
+);
 
 @Injectable()
 export class McpRegistryService implements OnModuleInit {
@@ -75,7 +92,9 @@ export class McpRegistryService implements OnModuleInit {
   }
 
   async update(id: string, dto: UpdateMcpServerDto) {
-    const existing = await this.prisma.mcpServerDefinition.findUnique({ where: { id } });
+    const existing = await this.prisma.mcpServerDefinition.findUnique({
+      where: { id },
+    });
     if (!existing) throw new NotFoundException(`MCP server "${id}" not found`);
 
     const server = await this.prisma.mcpServerDefinition.update({
@@ -97,7 +116,9 @@ export class McpRegistryService implements OnModuleInit {
   }
 
   async delete(id: string) {
-    const existing = await this.prisma.mcpServerDefinition.findUnique({ where: { id } });
+    const existing = await this.prisma.mcpServerDefinition.findUnique({
+      where: { id },
+    });
     if (!existing) throw new NotFoundException(`MCP server "${id}" not found`);
     if (existing.builtin) {
       throw new BadRequestException('Built-in servers cannot be deleted');
@@ -109,18 +130,25 @@ export class McpRegistryService implements OnModuleInit {
   // ─── Role Assignments ────────────────────────────────────────
 
   async setRoleAssignments(serverId: string, roles: AgentRole[]) {
-    const existing = await this.prisma.mcpServerDefinition.findUnique({ where: { id: serverId } });
-    if (!existing) throw new NotFoundException(`MCP server "${serverId}" not found`);
+    const existing = await this.prisma.mcpServerDefinition.findUnique({
+      where: { id: serverId },
+    });
+    if (!existing)
+      throw new NotFoundException(`MCP server "${serverId}" not found`);
 
     await this.prisma.$transaction([
-      this.prisma.mcpServerOnRole.deleteMany({ where: { mcpServerId: serverId } }),
+      this.prisma.mcpServerOnRole.deleteMany({
+        where: { mcpServerId: serverId },
+      }),
       ...roles.map((role) =>
         this.prisma.mcpServerOnRole.create({
           data: { mcpServerId: serverId, agentRole: role },
         }),
       ),
     ]);
-    this.logger.log(`Set ${roles.length} role assignments for server "${existing.name}"`);
+    this.logger.log(
+      `Set ${roles.length} role assignments for server "${existing.name}"`,
+    );
   }
 
   async getServersForRole(role: AgentRole): Promise<McpServerDefinition[]> {
@@ -128,9 +156,7 @@ export class McpRegistryService implements OnModuleInit {
       where: { agentRole: role },
       include: { mcpServer: true },
     });
-    return assignments
-      .map((a) => a.mcpServer)
-      .filter((s) => s.enabled);
+    return assignments.map((a) => a.mcpServer).filter((s) => s.enabled);
   }
 
   // ─── Project Overrides ───────────────────────────────────────
@@ -138,7 +164,9 @@ export class McpRegistryService implements OnModuleInit {
   async getProjectOverrides(projectId: string) {
     return this.prisma.mcpServerProjectOverride.findMany({
       where: { projectId },
-      include: { mcpServer: { select: { id: true, name: true, displayName: true } } },
+      include: {
+        mcpServer: { select: { id: true, name: true, displayName: true } },
+      },
     });
   }
 
@@ -176,7 +204,13 @@ export class McpRegistryService implements OnModuleInit {
    */
   /** Server names that are always included regardless of tech stack */
   private static readonly UNIVERSAL_SERVERS = new Set([
-    'filesystem', 'git', 'gitlab', 'shell', 'memory', 'sequentialthinking', 'searxng',
+    'filesystem',
+    'git',
+    'gitlab',
+    'shell',
+    'memory',
+    'sequentialthinking',
+    'searxng',
   ]);
 
   async resolveServersForRole(
@@ -193,10 +227,14 @@ export class McpRegistryService implements OnModuleInit {
 
       if (overrides.length > 0) {
         const disabledIds = new Set(
-          overrides.filter((o) => o.action === McpOverrideAction.DISABLE).map((o) => o.mcpServerId),
+          overrides
+            .filter((o) => o.action === McpOverrideAction.DISABLE)
+            .map((o) => o.mcpServerId),
         );
         const enabledIds = new Set(
-          overrides.filter((o) => o.action === McpOverrideAction.ENABLE).map((o) => o.mcpServerId),
+          overrides
+            .filter((o) => o.action === McpOverrideAction.ENABLE)
+            .map((o) => o.mcpServerId),
         );
 
         // Remove disabled servers
@@ -205,9 +243,10 @@ export class McpRegistryService implements OnModuleInit {
         // Add explicitly enabled servers that aren't already in the list
         if (enabledIds.size > 0) {
           const existingIds = new Set(servers.map((s) => s.id));
-          const additionalServers = await this.prisma.mcpServerDefinition.findMany({
-            where: { id: { in: [...enabledIds] }, enabled: true },
-          });
+          const additionalServers =
+            await this.prisma.mcpServerDefinition.findMany({
+              where: { id: { in: [...enabledIds] }, enabled: true },
+            });
           for (const s of additionalServers) {
             if (!existingIds.has(s.id)) servers.push(s);
           }
@@ -219,7 +258,9 @@ export class McpRegistryService implements OnModuleInit {
     }
 
     if (servers.length === 0) {
-      this.logger.warn(`No MCP servers configured for role ${role} — using fallback`);
+      this.logger.warn(
+        `No MCP servers configured for role ${role} — using fallback`,
+      );
       return this.getFallbackServers(role, context);
     }
 
@@ -244,7 +285,9 @@ export class McpRegistryService implements OnModuleInit {
     if (!project?.techStack) return servers;
 
     const techStack = project.techStack as any;
-    const requestedServers = techStack.mcpServers as Array<{ name: string }> | undefined;
+    const requestedServers = techStack.mcpServers as
+      | Array<{ name: string }>
+      | undefined;
 
     if (!requestedServers || requestedServers.length === 0) return servers;
 
@@ -258,7 +301,9 @@ export class McpRegistryService implements OnModuleInit {
     const filtered = servers.filter((s) => whitelist.has(s.name));
 
     if (filtered.length < before) {
-      const removed = servers.filter((s) => !whitelist.has(s.name)).map((s) => s.name);
+      const removed = servers
+        .filter((s) => !whitelist.has(s.name))
+        .map((s) => s.name);
       this.logger.log(
         `Tech-stack filter: removed ${removed.join(', ')} (not in project whitelist: ${requestedServers.map((s) => s.name).join(', ')})`,
       );
@@ -268,7 +313,10 @@ export class McpRegistryService implements OnModuleInit {
   }
 
   /** Convert a single DB record into McpServerConfig with runtime placeholders replaced */
-  private resolveServer(server: McpServerDefinition, context: McpRuntimeContext): McpServerConfig {
+  private resolveServer(
+    server: McpServerDefinition,
+    context: McpRuntimeContext,
+  ): McpServerConfig {
     const resolvedArgs = [...server.args];
 
     // Process argTemplate: replace placeholders and append to args
@@ -344,7 +392,10 @@ export class McpRegistryService implements OnModuleInit {
   }
 
   /** Fallback: hardcoded servers matching previous behavior (safety net) */
-  private getFallbackServers(role: AgentRole, context: McpRuntimeContext): McpServerConfig[] {
+  private getFallbackServers(
+    role: AgentRole,
+    context: McpRuntimeContext,
+  ): McpServerConfig[] {
     const needsShell = new Set<AgentRole>([
       AgentRole.CODER,
       AgentRole.FUNCTIONAL_TESTER,
@@ -357,7 +408,10 @@ export class McpRegistryService implements OnModuleInit {
         {
           name: 'filesystem',
           command: 'npx',
-          args: ['@modelcontextprotocol/server-filesystem', ...(context.allowedPaths || [context.workspace])],
+          args: [
+            '@modelcontextprotocol/server-filesystem',
+            ...(context.allowedPaths || [context.workspace]),
+          ],
         },
         {
           name: 'shell',
@@ -458,7 +512,8 @@ export class McpRegistryService implements OnModuleInit {
       {
         name: 'vaadin',
         displayName: 'Vaadin MCP',
-        description: 'Vaadin Flow documentation, component examples, best practices (official remote server)',
+        description:
+          'Vaadin Flow documentation, component examples, best practices (official remote server)',
         category: 'coding',
         command: '',
         args: [],
@@ -468,7 +523,8 @@ export class McpRegistryService implements OnModuleInit {
       {
         name: 'spring-docs',
         displayName: 'Spring Docs MCP',
-        description: 'Spring Boot, Spring Data JPA, Spring Security documentation and guides',
+        description:
+          'Spring Boot, Spring Data JPA, Spring Security documentation and guides',
         category: 'coding',
         command: 'npx',
         args: ['-y', '@enokdev/springdocs-mcp@latest'],
@@ -547,16 +603,22 @@ export class McpRegistryService implements OnModuleInit {
       {
         name: 'sequential-thinking',
         displayName: 'Sequential Thinking',
-        description: 'Structured step-by-step reasoning for complex problem solving and debugging',
+        description:
+          'Structured step-by-step reasoning for complex problem solving and debugging',
         category: 'knowledge',
         command: 'npx',
         args: ['-y', '@modelcontextprotocol/server-sequential-thinking'],
-        defaultRoles: [AgentRole.ARCHITECT, AgentRole.CODER, AgentRole.CODE_REVIEWER],
+        defaultRoles: [
+          AgentRole.ARCHITECT,
+          AgentRole.CODER,
+          AgentRole.CODE_REVIEWER,
+        ],
       },
       {
         name: 'memory',
         displayName: 'Memory (Knowledge Graph)',
-        description: 'Persistent knowledge graph for entities and relationships across sessions',
+        description:
+          'Persistent knowledge graph for entities and relationships across sessions',
         category: 'knowledge',
         command: 'npx',
         args: ['-y', '@modelcontextprotocol/server-memory'],
@@ -567,7 +629,8 @@ export class McpRegistryService implements OnModuleInit {
       {
         name: 'searxng',
         displayName: 'SearXNG Search',
-        description: 'Privacy-respecting web search via local SearXNG instance. Find documentation, examples, best practices, and solutions.',
+        description:
+          'Privacy-respecting web search via local SearXNG instance. Find documentation, examples, best practices, and solutions.',
         category: 'knowledge',
         command: 'npx',
         args: ['-y', 'mcp-searxng'],
@@ -604,7 +667,9 @@ export class McpRegistryService implements OnModuleInit {
             data: { mcpServerId: server.id, agentRole: role },
           });
         }
-        this.logger.log(`Seeded built-in MCP server: ${def.name} → [${def.defaultRoles.join(', ')}]`);
+        this.logger.log(
+          `Seeded built-in MCP server: ${def.name} → [${def.defaultRoles.join(', ')}]`,
+        );
       } else {
         // Update existing builtin server envTemplate if it was added
         if (def.envTemplate && !existing.envTemplate) {
@@ -612,7 +677,9 @@ export class McpRegistryService implements OnModuleInit {
             where: { id: existing.id },
             data: { envTemplate: def.envTemplate },
           });
-          this.logger.log(`Updated envTemplate for built-in server: ${def.name}`);
+          this.logger.log(
+            `Updated envTemplate for built-in server: ${def.name}`,
+          );
         }
       }
     }

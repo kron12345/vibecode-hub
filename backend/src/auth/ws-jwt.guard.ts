@@ -105,8 +105,7 @@ export class WsJwtGuard {
       id: payload.sub as string,
       username: (payload.preferred_username as string) ?? '',
       email: (payload.email as string) ?? '',
-      roles:
-        (payload.realm_access as Record<string, string[]>)?.roles ?? [],
+      roles: (payload.realm_access as Record<string, string[]>)?.roles ?? [],
     };
   }
 }

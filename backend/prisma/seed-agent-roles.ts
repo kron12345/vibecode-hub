@@ -80,14 +80,14 @@ const PRESETS: Record<Preset, Record<string, ProviderOverride>> = {
   },
 
   // ── CLI Tools (Remote API via CLI subprocesses) ──
-  // Claude Code for general/review/security, Codex CLI for code/ops, Qwen3 Coder for testing
+  // Claude Code for planning/review, Codex CLI for coding/ops, Gemini CLI for UI testing
   cli: {
     INTERVIEWER:       { provider: 'CLAUDE_CODE',  model: 'claude-sonnet-4-6', temperature: 0.7, maxTokens: 8192 },
     ARCHITECT:         { provider: 'CLAUDE_CODE',  model: 'claude-sonnet-4-6', temperature: 0.5, maxTokens: 16384 },
     ISSUE_COMPILER:    { provider: 'CLAUDE_CODE',  model: 'claude-sonnet-4-6', temperature: 0.3, maxTokens: 16384 },
     CODER:             { provider: 'CODEX_CLI',    model: 'o4-mini',           temperature: 0.2, maxTokens: 8192 },
     CODE_REVIEWER:     { provider: 'CLAUDE_CODE',  model: 'claude-sonnet-4-6', temperature: 0.1, maxTokens: 16384 },
-    UI_TESTER:         { provider: 'QWEN3_CODER',  model: 'qwen3-coder',      temperature: 0.2, maxTokens: 8192 },
+    UI_TESTER:         { provider: 'GEMINI_CLI',   model: 'gemini-3.1-pro',   temperature: 0.2, maxTokens: 8192 },
     FUNCTIONAL_TESTER: { provider: 'CODEX_CLI',    model: 'o4-mini',           temperature: 0.1, maxTokens: 8192 },
     PEN_TESTER:        { provider: 'CLAUDE_CODE',  model: 'claude-sonnet-4-6', temperature: 0.1, maxTokens: 16384 },
     DOCUMENTER:        { provider: 'CLAUDE_CODE',  model: 'claude-sonnet-4-6', temperature: 0.3, maxTokens: 16384 },

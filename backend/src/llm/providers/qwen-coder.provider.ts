@@ -10,9 +10,12 @@ export class QwenCoderProvider extends CliBaseProvider {
 
   protected buildArgs(options: LlmCompletionOptions): string[] {
     const args: string[] = [
-      '--openai-base-url', 'http://localhost:11434/v1',
-      '--openai-api-key', 'ollama',
-      '--auth-type', 'openai',
+      '--openai-base-url',
+      'http://localhost:11434/v1',
+      '--openai-api-key',
+      'ollama',
+      '--auth-type',
+      'openai',
     ];
     if (options.model) {
       args.push('--model', options.model);

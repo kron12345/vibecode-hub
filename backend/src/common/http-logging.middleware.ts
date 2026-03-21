@@ -18,7 +18,10 @@ export class HttpLoggingMiddleware implements NestMiddleware {
       const { statusCode } = res;
 
       // Skip health checks and static assets from verbose logging
-      if (originalUrl === '/api/health' || originalUrl.startsWith('/api/monitor/hardware')) {
+      if (
+        originalUrl === '/api/health' ||
+        originalUrl.startsWith('/api/monitor/hardware')
+      ) {
         return;
       }
 

@@ -9,7 +9,7 @@ import { LlmCompletionOptions } from '../llm.interfaces';
  * Supports: --model, --yolo (auto-approve all tools), --sandbox,
  *           --output-format json, @file.png for image input.
  *
- * Models: gemini-3-pro, gemini-3-flash, gemini-2.5-pro, gemini-2.5-flash
+ * Models: gemini-3.1-pro (alias), gemini-3.1-pro-preview, gemini-2.5-pro, gemini-2.5-flash
  * Auth: Google Account (free tier) or Google One AI Premium (higher limits)
  *
  * Multimodal: Reference images via @path in the prompt text, e.g.:
@@ -21,15 +21,28 @@ export class GeminiCliProvider extends CliBaseProvider {
   protected readonly command = 'gemini';
   protected readonly logger = new Logger(GeminiCliProvider.name);
 
+  private resolveModel(model?: string): string {
+    const raw = (model ?? '').trim();
+    if (!raw) return 'gemini-3.1-pro-preview';
+
+    const normalized = raw.toLowerCase().replace(/\s+/g, '-');
+    const aliases: Record<string, string> = {
+      'gemini-3.1-pro': 'gemini-3.1-pro-preview',
+      'gemini-3-pro': 'gemini-3.1-pro-preview',
+      'gemini-3-pro-preview': 'gemini-3.1-pro-preview',
+      'gemini-3.1-pro-preview': 'gemini-3.1-pro-preview',
+    };
+
+    return aliases[normalized] ?? normalized;
+  }
+
   protected buildArgs(options: LlmCompletionOptions): string[] {
     // Gemini uses -p "prompt" flag — prompt goes as arg, not stdin
     const userPrompt = this.getUserPrompt(options);
 
     const args: string[] = [];
-
-    if (options.model) {
-      args.push('--model', options.model);
-    }
+    const resolvedModel = this.resolveModel(options.model);
+    args.push('--model', resolvedModel);
 
     // Auto-approve all tool calls for pipeline automation
     args.push('--yolo');
@@ -56,42 +69,64 @@ export class GeminiCliProvider extends CliBaseProvider {
    */
   async complete(options: LlmCompletionOptions) {
     const args = this.buildArgs(options);
+    const timeoutMs = options.timeoutMs ?? CliBaseProvider.DEFAULT_TIMEOUT_MS;
+    const selectedModel = this.resolveModel(options.model);
 
-    this.logger.log(`Gemini CLI request: ${args.slice(0, 6).join(' ')}...`);
-
-    return new Promise<import('../llm.interfaces').LlmCompletionResult>((resolve) => {
-      const { execFile } = require('child_process');
-
-      const child = execFile(
-        this.command,
-        args,
-        {
-          timeout: 0,
-          maxBuffer: 10 * 1024 * 1024,
-          env: { ...process.env },
-          ...(options.cwd && { cwd: options.cwd }),
-        },
-        (error: any, stdout: string, stderr: string) => {
-          if (error) {
-            this.logger.error(`Gemini CLI failed: ${error.message}`);
-            if (stderr) {
-              this.logger.debug(`stderr: ${stderr.substring(0, 500)}`);
-            }
-            resolve({ content: '', finishReason: 'error' });
-            return;
-          }
-
-          resolve({
-            content: stdout.trim(),
-            finishReason: 'stop',
-          });
-        },
+    if (options.model && selectedModel !== options.model) {
+      this.logger.log(
+        `Gemini CLI model alias applied: ${options.model} -> ${selectedModel}`,
       );
+    }
 
-      // Gemini uses -p flag, no stdin needed. Close stdin immediately.
-      if (child.stdin) {
-        child.stdin.end();
-      }
-    });
+    this.logger.log(
+      `Gemini CLI request: model=${selectedModel}, timeout=${Math.round(timeoutMs / 1000)}s`,
+    );
+
+    return new Promise<import('../llm.interfaces').LlmCompletionResult>(
+      (resolve) => {
+        const { execFile } = require('child_process');
+
+        const child = execFile(
+          this.command,
+          args,
+          {
+            timeout: timeoutMs,
+            maxBuffer: 10 * 1024 * 1024,
+            env: { ...process.env },
+            ...(options.cwd && { cwd: options.cwd }),
+          },
+          (error: any, stdout: string, stderr: string) => {
+            if (error) {
+              this.logger.error(`Gemini CLI failed: ${error.message}`);
+              if (stderr) {
+                this.logger.debug(`stderr: ${stderr.substring(0, 500)}`);
+              }
+              const isTimeout = error.killed || error.signal === 'SIGTERM';
+              const stderrSnippet = stderr?.trim()
+                ? ` — stderr: ${stderr.trim().substring(0, 300)}`
+                : '';
+              resolve({
+                content: (stdout || '').trim(),
+                finishReason: 'error',
+                errorMessage: isTimeout
+                  ? `Gemini CLI timed out after ${Math.round(timeoutMs / 1000)}s${stderrSnippet}`
+                  : `Gemini CLI failed: ${error.message}${stderrSnippet}`,
+              });
+              return;
+            }
+
+            resolve({
+              content: stdout.trim(),
+              finishReason: 'stop',
+            });
+          },
+        );
+
+        // Gemini uses -p flag, no stdin needed. Close stdin immediately.
+        if (child.stdin) {
+          child.stdin.end();
+        }
+      },
+    );
   }
 }

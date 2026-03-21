@@ -2,7 +2,10 @@ import { Global, Module } from '@nestjs/common';
 import { McpClientService } from './mcp-client.service';
 import { McpAgentLoopService } from './mcp-agent-loop.service';
 import { McpRegistryService } from './mcp-registry.service';
-import { McpRegistryController, McpProjectOverrideController } from './mcp-registry.controller';
+import {
+  McpRegistryController,
+  McpProjectOverrideController,
+} from './mcp-registry.controller';
 
 @Global()
 @Module({

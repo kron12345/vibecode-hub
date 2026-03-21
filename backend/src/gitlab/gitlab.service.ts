@@ -41,10 +41,7 @@ export type {
 
 @Injectable()
 export class GitlabService extends GitlabMrService {
-  constructor(
-    httpService: HttpService,
-    systemSettings: SystemSettingsService,
-  ) {
+  constructor(httpService: HttpService, systemSettings: SystemSettingsService) {
     super(httpService, systemSettings);
   }
 }

@@ -29,7 +29,9 @@ export class McpRegistryController {
   constructor(private readonly registry: McpRegistryService) {}
 
   @Get()
-  @ApiOperation({ summary: 'List all MCP server definitions with role assignments' })
+  @ApiOperation({
+    summary: 'List all MCP server definitions with role assignments',
+  })
   async findAll() {
     return this.registry.findAll();
   }
@@ -53,7 +55,9 @@ export class McpRegistryController {
   }
 
   @Delete(':id')
-  @ApiOperation({ summary: 'Delete a custom MCP server (built-in cannot be deleted)' })
+  @ApiOperation({
+    summary: 'Delete a custom MCP server (built-in cannot be deleted)',
+  })
   async delete(@Param('id') id: string) {
     await this.registry.delete(id);
     return { deleted: true };
@@ -87,7 +91,9 @@ export class McpProjectOverrideController {
   }
 
   @Put()
-  @ApiOperation({ summary: 'Set an MCP server override for a project (upsert)' })
+  @ApiOperation({
+    summary: 'Set an MCP server override for a project (upsert)',
+  })
   async setOverride(
     @Param('projectId') projectId: string,
     @Body() dto: SetProjectOverrideDto,
@@ -106,7 +112,11 @@ export class McpProjectOverrideController {
     @Param('projectId') projectId: string,
     @Body() dto: DeleteProjectOverrideDto,
   ) {
-    await this.registry.deleteProjectOverride(projectId, dto.mcpServerId, dto.agentRole);
+    await this.registry.deleteProjectOverride(
+      projectId,
+      dto.mcpServerId,
+      dto.agentRole,
+    );
     return { deleted: true };
   }
 }

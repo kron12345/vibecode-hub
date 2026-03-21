@@ -19,7 +19,11 @@ export class OpenAIProvider implements LlmStreamingProvider {
     const apiKey = this.settings.openaiApiKey;
     if (!apiKey) {
       this.logger.error('OpenAI API key not configured');
-      return { content: '', finishReason: 'error' };
+      return {
+        content: '',
+        finishReason: 'error',
+        errorMessage: 'OpenAI API key not configured',
+      };
     }
 
     const messages = options.messages.map((m) => ({
@@ -56,7 +60,11 @@ export class OpenAIProvider implements LlmStreamingProvider {
       if (!response.ok) {
         const errorText = await response.text();
         this.logger.error(`OpenAI error ${response.status}: ${errorText}`);
-        return { content: '', finishReason: 'error' };
+        return {
+          content: '',
+          finishReason: 'error',
+          errorMessage: `OpenAI HTTP ${response.status}: ${errorText.substring(0, 300)}`,
+        };
       }
 
       const data = await response.json();
@@ -64,8 +72,7 @@ export class OpenAIProvider implements LlmStreamingProvider {
 
       return {
         content: choice?.message?.content ?? '',
-        finishReason:
-          choice?.finish_reason === 'stop' ? 'stop' : 'length',
+        finishReason: choice?.finish_reason === 'stop' ? 'stop' : 'length',
         usage: data.usage
           ? {
               promptTokens: data.usage.prompt_tokens,
@@ -76,11 +83,17 @@ export class OpenAIProvider implements LlmStreamingProvider {
       };
     } catch (err) {
       this.logger.error(`OpenAI request failed: ${err.message}`);
-      return { content: '', finishReason: 'error' };
+      return {
+        content: '',
+        finishReason: 'error',
+        errorMessage: `OpenAI request failed: ${err.message}`,
+      };
     }
   }
 
-  async *streamComplete(options: LlmCompletionOptions): AsyncGenerator<LlmStreamChunk> {
+  async *streamComplete(
+    options: LlmCompletionOptions,
+  ): AsyncGenerator<LlmStreamChunk> {
     const apiKey = this.settings.openaiApiKey;
     if (!apiKey) {
       this.logger.error('OpenAI API key not configured');
@@ -88,35 +101,48 @@ export class OpenAIProvider implements LlmStreamingProvider {
       return;
     }
 
-    const messages = options.messages.map((m) => ({ role: m.role, content: this.formatContent(m.content) }));
+    const messages = options.messages.map((m) => ({
+      role: m.role,
+      content: this.formatContent(m.content),
+    }));
 
     const body: Record<string, unknown> = {
       model: options.model,
       messages,
       stream: true,
       ...(options.maxTokens !== undefined && { max_tokens: options.maxTokens }),
-      ...(options.temperature !== undefined && { temperature: options.temperature }),
+      ...(options.temperature !== undefined && {
+        temperature: options.temperature,
+      }),
     };
 
     try {
-      const response = await fetch('https://api.openai.com/v1/chat/completions', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: `Bearer ${apiKey}`,
+      const response = await fetch(
+        'https://api.openai.com/v1/chat/completions',
+        {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            Authorization: `Bearer ${apiKey}`,
+          },
+          body: JSON.stringify(body),
         },
-        body: JSON.stringify(body),
-      });
+      );
 
       if (!response.ok) {
         const errorText = await response.text();
-        this.logger.error(`OpenAI stream error ${response.status}: ${errorText}`);
+        this.logger.error(
+          `OpenAI stream error ${response.status}: ${errorText}`,
+        );
         yield { content: '', done: true };
         return;
       }
 
       const reader = response.body?.getReader();
-      if (!reader) { yield { content: '', done: true }; return; }
+      if (!reader) {
+        yield { content: '', done: true };
+        return;
+      }
 
       const decoder = new TextDecoder();
       let buffer = '';
@@ -132,7 +158,10 @@ export class OpenAIProvider implements LlmStreamingProvider {
         for (const line of lines) {
           if (!line.startsWith('data: ')) continue;
           const data = line.slice(6).trim();
-          if (data === '[DONE]') { yield { content: '', done: true }; return; }
+          if (data === '[DONE]') {
+            yield { content: '', done: true };
+            return;
+          }
 
           try {
             const event = JSON.parse(data);
@@ -140,7 +169,9 @@ export class OpenAIProvider implements LlmStreamingProvider {
             if (token) {
               yield { content: token, done: false };
             }
-          } catch { /* skip */ }
+          } catch {
+            /* skip */
+          }
         }
       }
       yield { content: '', done: true };

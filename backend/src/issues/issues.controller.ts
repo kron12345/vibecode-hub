@@ -10,7 +10,11 @@ import {
 } from '@nestjs/common';
 import { ApiTags, ApiQuery } from '@nestjs/swagger';
 import { IssuesService } from './issues.service';
-import { CreateIssueDto, UpdateIssueDto, CreateIssueCommentDto } from './issues.dto';
+import {
+  CreateIssueDto,
+  UpdateIssueDto,
+  CreateIssueCommentDto,
+} from './issues.dto';
 
 @ApiTags('milestones')
 @Controller('milestones')

@@ -37,12 +37,13 @@ export class McpClientService implements OnModuleDestroy {
    */
   private async loadSdk() {
     if (!this.sdkModule) {
-      const [clientMod, transportMod, httpTransportMod, typesMod] = await Promise.all([
-        import('@modelcontextprotocol/sdk/client/index.js'),
-        import('@modelcontextprotocol/sdk/client/stdio.js'),
-        import('@modelcontextprotocol/sdk/client/streamableHttp.js'),
-        import('@modelcontextprotocol/sdk/types.js'),
-      ]);
+      const [clientMod, transportMod, httpTransportMod, typesMod] =
+        await Promise.all([
+          import('@modelcontextprotocol/sdk/client/index.js'),
+          import('@modelcontextprotocol/sdk/client/stdio.js'),
+          import('@modelcontextprotocol/sdk/client/streamableHttp.js'),
+          import('@modelcontextprotocol/sdk/types.js'),
+        ]);
       this.sdkModule = { clientMod, transportMod, httpTransportMod, typesMod };
     }
     return this.sdkModule;
@@ -68,11 +69,15 @@ export class McpClientService implements OnModuleDestroy {
         if (config.transport === 'http' && config.url) {
           // HTTP/Streamable HTTP transport for remote MCP servers (e.g., Vaadin)
           const { StreamableHTTPClientTransport } = sdk.httpTransportMod;
-          this.logger.log(`Connecting to remote MCP server: ${config.name} (${config.url})`);
+          this.logger.log(
+            `Connecting to remote MCP server: ${config.name} (${config.url})`,
+          );
           transport = new StreamableHTTPClientTransport(new URL(config.url));
         } else {
           // Default: Stdio transport for local MCP servers
-          this.logger.log(`Starting MCP server: ${config.name} (${config.command} ${config.args.join(' ')})`);
+          this.logger.log(
+            `Starting MCP server: ${config.name} (${config.command} ${config.args.join(' ')})`,
+          );
           transport = new StdioClientTransport({
             command: config.command,
             args: config.args,
@@ -95,8 +100,8 @@ export class McpClientService implements OnModuleDestroy {
 
         // Filter out deprecated/unnecessary tools to reduce token overhead
         const EXCLUDED_TOOLS = new Set([
-          'read_file',               // deprecated, use read_text_file
-          'read_media_file',         // not needed for code tasks
+          'read_file', // deprecated, use read_text_file
+          'read_media_file', // not needed for code tasks
           'list_directory_with_sizes', // redundant with list_directory
         ]);
 
@@ -106,17 +111,20 @@ export class McpClientService implements OnModuleDestroy {
           .map((t: any) => ({
             name: t.name,
             description: t.description ?? '',
-            parameters: this.stripSchemaKey(t.inputSchema ?? { type: 'object', properties: {} }),
+            parameters: this.stripSchemaKey(
+              t.inputSchema ?? { type: 'object', properties: {} },
+            ),
           }));
 
         this.logger.log(
-          `MCP server "${config.name}" connected — ${tools.length} tools: ${tools.map(t => t.name).join(', ')}`,
+          `MCP server "${config.name}" connected — ${tools.length} tools: ${tools.map((t) => t.name).join(', ')}`,
         );
 
         connections.push({ name: config.name, client, transport, tools });
-
       } catch (err) {
-        this.logger.error(`Failed to start MCP server "${config.name}": ${err.message}`);
+        this.logger.error(
+          `Failed to start MCP server "${config.name}": ${err.message}`,
+        );
         // Don't fail the whole session — other servers might work
       }
     }
@@ -126,7 +134,9 @@ export class McpClientService implements OnModuleDestroy {
     }
 
     this.sessions.set(sessionId, { id: sessionId, connections });
-    this.logger.log(`MCP session ${sessionId} created — ${connections.length} server(s)`);
+    this.logger.log(
+      `MCP session ${sessionId} created — ${connections.length} server(s)`,
+    );
     return sessionId;
   }
 
@@ -177,7 +187,6 @@ export class McpClientService implements OnModuleDestroy {
         .map((c: any) => c.text);
 
       return textParts.join('\n') || '(empty result)';
-
     } catch (err) {
       this.logger.warn(`Tool "${toolName}" failed: ${err.message}`);
       return `Error executing tool "${toolName}": ${err.message}`;
@@ -188,7 +197,9 @@ export class McpClientService implements OnModuleDestroy {
    * Recursively strip $schema keys from JSON Schema objects.
    * Ollama's internal XML template parser chokes on these.
    */
-  private stripSchemaKey(schema: Record<string, unknown>): Record<string, unknown> {
+  private stripSchemaKey(
+    schema: Record<string, unknown>,
+  ): Record<string, unknown> {
     const result: Record<string, unknown> = {};
     for (const [key, value] of Object.entries(schema)) {
       if (key === '$schema') continue;
@@ -213,7 +224,9 @@ export class McpClientService implements OnModuleDestroy {
         await conn.transport.close();
         this.logger.debug(`MCP server "${conn.name}" stopped`);
       } catch (err) {
-        this.logger.warn(`Error stopping MCP server "${conn.name}": ${err.message}`);
+        this.logger.warn(
+          `Error stopping MCP server "${conn.name}": ${err.message}`,
+        );
       }
     }
 

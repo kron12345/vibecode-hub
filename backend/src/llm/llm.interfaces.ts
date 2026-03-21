@@ -22,7 +22,9 @@ export interface LlmMessage {
 export function getTextContent(content: string | LlmContentPart[]): string {
   if (typeof content === 'string') return content;
   return content
-    .filter((p): p is Extract<LlmContentPart, { type: 'text' }> => p.type === 'text')
+    .filter(
+      (p): p is Extract<LlmContentPart, { type: 'text' }> => p.type === 'text',
+    )
     .map((p) => p.text)
     .join('\n');
 }
@@ -70,6 +72,8 @@ export interface LlmCompletionOptions {
 export interface LlmCompletionResult {
   content: string;
   finishReason: 'stop' | 'length' | 'tool_calls' | 'error';
+  /** Optional provider error detail (timeout, HTTP error, CLI stderr snippet) */
+  errorMessage?: string;
   toolCalls?: LlmToolCall[];
   usage?: {
     promptTokens: number;
@@ -94,6 +98,11 @@ export interface LlmStreamingProvider extends LlmProvider {
 }
 
 /** Type guard to check if a provider supports streaming */
-export function isStreamingProvider(provider: LlmProvider): provider is LlmStreamingProvider {
-  return 'streamComplete' in provider && typeof (provider as any).streamComplete === 'function';
+export function isStreamingProvider(
+  provider: LlmProvider,
+): provider is LlmStreamingProvider {
+  return (
+    'streamComplete' in provider &&
+    typeof (provider as any).streamComplete === 'function'
+  );
 }

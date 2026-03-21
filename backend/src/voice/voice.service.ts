@@ -35,10 +35,15 @@ export class VoiceService {
     const formData = new FormData();
     formData.append(
       'file',
-      new Blob([audioBuffer.buffer.slice(
-        audioBuffer.byteOffset,
-        audioBuffer.byteOffset + audioBuffer.byteLength,
-      ) as ArrayBuffer], { type: mimeType }),
+      new Blob(
+        [
+          audioBuffer.buffer.slice(
+            audioBuffer.byteOffset,
+            audioBuffer.byteOffset + audioBuffer.byteLength,
+          ) as ArrayBuffer,
+        ],
+        { type: mimeType },
+      ),
       `audio.${ext}`,
     );
     formData.append('model', config.sttModel);
@@ -53,7 +58,9 @@ export class VoiceService {
 
     if (!response.ok) {
       const errorText = await response.text();
-      throw new Error(`STT transcription failed (${response.status}): ${errorText}`);
+      throw new Error(
+        `STT transcription failed (${response.status}): ${errorText}`,
+      );
     }
 
     const result = await response.json();
@@ -82,7 +89,9 @@ export class VoiceService {
       body: JSON.stringify({
         text,
         voice: options?.voice ?? config.ttsVoice,
-        language: options?.language ?? (config.ttsLanguage !== 'auto' ? config.ttsLanguage : undefined),
+        language:
+          options?.language ??
+          (config.ttsLanguage !== 'auto' ? config.ttsLanguage : undefined),
         speed: options?.speed ?? config.ttsSpeed,
         stream: false,
       }),
@@ -90,7 +99,9 @@ export class VoiceService {
 
     if (!response.ok) {
       const errorText = await response.text();
-      throw new Error(`TTS synthesis failed (${response.status}): ${errorText}`);
+      throw new Error(
+        `TTS synthesis failed (${response.status}): ${errorText}`,
+      );
     }
 
     const arrayBuffer = await response.arrayBuffer();
@@ -118,7 +129,10 @@ export class VoiceService {
 
     // Pipeline: start rendering next sentence while yielding current one.
     // This overlaps TTS generation with audio playback on the client.
-    let nextPromise: Promise<Buffer> | null = this.synthesize(sentences[0], options);
+    let nextPromise: Promise<Buffer> | null = this.synthesize(
+      sentences[0],
+      options,
+    );
 
     for (let i = 0; i < sentences.length; i++) {
       // Wait for current sentence's audio
@@ -221,7 +235,9 @@ export class VoiceService {
     }
   }
 
-  private async pingServiceJson(baseUrl: string): Promise<{ ok: boolean; engine?: string; voices?: number }> {
+  private async pingServiceJson(
+    baseUrl: string,
+  ): Promise<{ ok: boolean; engine?: string; voices?: number }> {
     try {
       const controller = new AbortController();
       const timeout = setTimeout(() => controller.abort(), 5000);

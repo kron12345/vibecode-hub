@@ -20,7 +20,11 @@ export class GoogleProvider implements LlmStreamingProvider {
     const apiKey = this.settings.googleApiKey;
     if (!apiKey) {
       this.logger.error('Google AI API key not configured');
-      return { content: '', finishReason: 'error' };
+      return {
+        content: '',
+        finishReason: 'error',
+        errorMessage: 'Google AI API key not configured',
+      };
     }
 
     const systemMessage = options.messages.find((m) => m.role === 'system');
@@ -34,7 +38,9 @@ export class GoogleProvider implements LlmStreamingProvider {
     const body: Record<string, unknown> = {
       contents: conversationMessages,
       ...(systemMessage && {
-        systemInstruction: { parts: [{ text: getTextContent(systemMessage.content) }] },
+        systemInstruction: {
+          parts: [{ text: getTextContent(systemMessage.content) }],
+        },
       }),
       generationConfig: {
         ...(options.temperature !== undefined && {
@@ -62,7 +68,11 @@ export class GoogleProvider implements LlmStreamingProvider {
       if (!response.ok) {
         const errorText = await response.text();
         this.logger.error(`Google AI error ${response.status}: ${errorText}`);
-        return { content: '', finishReason: 'error' };
+        return {
+          content: '',
+          finishReason: 'error',
+          errorMessage: `Google AI HTTP ${response.status}: ${errorText.substring(0, 300)}`,
+        };
       }
 
       const data = await response.json();
@@ -73,24 +83,28 @@ export class GoogleProvider implements LlmStreamingProvider {
 
       return {
         content: textPart?.text ?? '',
-        finishReason:
-          candidate?.finishReason === 'STOP' ? 'stop' : 'length',
+        finishReason: candidate?.finishReason === 'STOP' ? 'stop' : 'length',
         usage: data.usageMetadata
           ? {
               promptTokens: data.usageMetadata.promptTokenCount ?? 0,
-              completionTokens:
-                data.usageMetadata.candidatesTokenCount ?? 0,
+              completionTokens: data.usageMetadata.candidatesTokenCount ?? 0,
               totalTokens: data.usageMetadata.totalTokenCount ?? 0,
             }
           : undefined,
       };
     } catch (err) {
       this.logger.error(`Google AI request failed: ${err.message}`);
-      return { content: '', finishReason: 'error' };
+      return {
+        content: '',
+        finishReason: 'error',
+        errorMessage: `Google AI request failed: ${err.message}`,
+      };
     }
   }
 
-  async *streamComplete(options: LlmCompletionOptions): AsyncGenerator<LlmStreamChunk> {
+  async *streamComplete(
+    options: LlmCompletionOptions,
+  ): AsyncGenerator<LlmStreamChunk> {
     const apiKey = this.settings.googleApiKey;
     if (!apiKey) {
       this.logger.error('Google AI API key not configured');
@@ -109,11 +123,17 @@ export class GoogleProvider implements LlmStreamingProvider {
     const body: Record<string, unknown> = {
       contents: conversationMessages,
       ...(systemMessage && {
-        systemInstruction: { parts: [{ text: getTextContent(systemMessage.content) }] },
+        systemInstruction: {
+          parts: [{ text: getTextContent(systemMessage.content) }],
+        },
       }),
       generationConfig: {
-        ...(options.temperature !== undefined && { temperature: options.temperature }),
-        ...(options.maxTokens !== undefined && { maxOutputTokens: options.maxTokens }),
+        ...(options.temperature !== undefined && {
+          temperature: options.temperature,
+        }),
+        ...(options.maxTokens !== undefined && {
+          maxOutputTokens: options.maxTokens,
+        }),
       },
     };
 
@@ -129,13 +149,18 @@ export class GoogleProvider implements LlmStreamingProvider {
 
       if (!response.ok) {
         const errorText = await response.text();
-        this.logger.error(`Google stream error ${response.status}: ${errorText}`);
+        this.logger.error(
+          `Google stream error ${response.status}: ${errorText}`,
+        );
         yield { content: '', done: true };
         return;
       }
 
       const reader = response.body?.getReader();
-      if (!reader) { yield { content: '', done: true }; return; }
+      if (!reader) {
+        yield { content: '', done: true };
+        return;
+      }
 
       const decoder = new TextDecoder();
       let buffer = '';
@@ -158,7 +183,9 @@ export class GoogleProvider implements LlmStreamingProvider {
             if (text) {
               yield { content: text, done: false };
             }
-          } catch { /* skip */ }
+          } catch {
+            /* skip */
+          }
         }
       }
       yield { content: '', done: true };

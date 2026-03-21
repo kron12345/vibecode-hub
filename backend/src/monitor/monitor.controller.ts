@@ -16,7 +16,14 @@ export class MonitorController {
   @Public()
   @Get('hardware')
   getHardware() {
-    return this.hardwareService.getLatest() ?? { gpus: [], cpu: { temp: 0, load1: 0, load5: 0, load15: 0 }, ram: { totalMb: 0, usedMb: 0, availableMb: 0, usedPercent: 0 }, timestamp: Date.now() };
+    return (
+      this.hardwareService.getLatest() ?? {
+        gpus: [],
+        cpu: { temp: 0, load1: 0, load5: 0, load15: 0 },
+        ram: { totalMb: 0, usedMb: 0, availableMb: 0, usedPercent: 0 },
+        timestamp: Date.now(),
+      }
+    );
   }
 
   /** Hardware history for sparkline charts */
@@ -111,7 +118,11 @@ export class MonitorController {
             select: {
               type: true,
               agent: {
-                select: { role: true, projectId: true, project: { select: { name: true, slug: true } } },
+                select: {
+                  role: true,
+                  projectId: true,
+                  project: { select: { name: true, slug: true } },
+                },
               },
             },
           },
@@ -128,7 +139,12 @@ export class MonitorController {
         take: take * 2,
         include: {
           issue: {
-            select: { id: true, title: true, projectId: true, project: { select: { name: true, slug: true } } },
+            select: {
+              id: true,
+              title: true,
+              projectId: true,
+              project: { select: { name: true, slug: true } },
+            },
           },
           agentTask: {
             select: { agent: { select: { role: true } } },
@@ -151,7 +167,10 @@ export class MonitorController {
           content: true,
           createdAt: true,
           chatSession: {
-            select: { projectId: true, project: { select: { name: true, slug: true } } },
+            select: {
+              projectId: true,
+              project: { select: { name: true, slug: true } },
+            },
           },
           agentTask: {
             select: { type: true, agent: { select: { role: true } } },
@@ -177,7 +196,8 @@ export class MonitorController {
       ...comments.map((c) => ({
         type: 'comment' as const,
         id: c.id,
-        message: c.content.substring(0, 200) + (c.content.length > 200 ? '...' : ''),
+        message:
+          c.content.substring(0, 200) + (c.content.length > 200 ? '...' : ''),
         agentRole: c.agentTask?.agent?.role,
         projectName: c.issue?.project?.name,
         projectSlug: c.issue?.project?.slug,
@@ -188,7 +208,8 @@ export class MonitorController {
       ...chatMessages.map((m) => ({
         type: 'message' as const,
         id: m.id,
-        message: m.content.substring(0, 200) + (m.content.length > 200 ? '...' : ''),
+        message:
+          m.content.substring(0, 200) + (m.content.length > 200 ? '...' : ''),
         agentRole: m.agentTask?.agent?.role,
         projectName: m.chatSession?.project?.name,
         projectSlug: m.chatSession?.project?.slug,
@@ -255,7 +276,13 @@ export class MonitorController {
           role: inst.role,
           status: inst.status,
           activeProjects: isActive
-            ? [{ id: inst.project.id, name: inst.project.name, slug: inst.project.slug }]
+            ? [
+                {
+                  id: inst.project.id,
+                  name: inst.project.name,
+                  slug: inst.project.slug,
+                },
+              ]
             : [],
           currentTask: isActive ? task : null,
           totalTasks: inst._count.tasks,

@@ -10,7 +10,11 @@ import {
 } from '@nestjs/common';
 import { ApiTags } from '@nestjs/swagger';
 import { ProjectsService } from './projects.service';
-import { CreateProjectDto, CreateMinimalProjectDto, UpdateProjectDto } from './projects.dto';
+import {
+  CreateProjectDto,
+  CreateMinimalProjectDto,
+  UpdateProjectDto,
+} from './projects.dto';
 import { AgentOrchestratorService } from '../agents/agent-orchestrator.service';
 
 @ApiTags('projects')

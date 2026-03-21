@@ -23,7 +23,11 @@ export class CreateIssueDto {
   @IsString()
   description?: string;
 
-  @ApiProperty({ enum: IssuePriority, default: IssuePriority.MEDIUM, required: false })
+  @ApiProperty({
+    enum: IssuePriority,
+    default: IssuePriority.MEDIUM,
+    required: false,
+  })
   @IsOptional()
   @IsEnum(IssuePriority)
   priority?: IssuePriority;
@@ -34,27 +38,42 @@ export class CreateIssueDto {
   @IsString({ each: true })
   labels?: string[];
 
-  @ApiProperty({ required: false, description: 'Parent issue ID for sub-issues' })
+  @ApiProperty({
+    required: false,
+    description: 'Parent issue ID for sub-issues',
+  })
   @IsOptional()
   @IsString()
   parentId?: string;
 
-  @ApiProperty({ required: false, description: 'Milestone ID to assign this issue to' })
+  @ApiProperty({
+    required: false,
+    description: 'Milestone ID to assign this issue to',
+  })
   @IsOptional()
   @IsString()
   milestoneId?: string;
 
-  @ApiProperty({ required: false, description: 'GitLab milestone ID for issue sync' })
+  @ApiProperty({
+    required: false,
+    description: 'GitLab milestone ID for issue sync',
+  })
   @IsOptional()
   @IsInt()
   gitlabMilestoneId?: number;
 
-  @ApiProperty({ required: false, description: 'Sort order within milestone (lower = first)' })
+  @ApiProperty({
+    required: false,
+    description: 'Sort order within milestone (lower = first)',
+  })
   @IsOptional()
   @IsInt()
   sortOrder?: number;
 
-  @ApiProperty({ required: false, description: 'Chat session ID to link this issue to a dev session' })
+  @ApiProperty({
+    required: false,
+    description: 'Chat session ID to link this issue to a dev session',
+  })
   @IsOptional()
   @IsString()
   chatSessionId?: string;
@@ -102,7 +121,11 @@ export class CreateIssueCommentDto {
   @IsString()
   content: string;
 
-  @ApiProperty({ enum: CommentAuthorType, default: CommentAuthorType.USER, required: false })
+  @ApiProperty({
+    enum: CommentAuthorType,
+    default: CommentAuthorType.USER,
+    required: false,
+  })
   @IsOptional()
   @IsEnum(CommentAuthorType)
   authorType?: CommentAuthorType;
@@ -112,7 +135,11 @@ export class CreateIssueCommentDto {
   @IsString()
   authorName?: string;
 
-  @ApiProperty({ required: false, default: false, description: 'Also post as GitLab note' })
+  @ApiProperty({
+    required: false,
+    default: false,
+    description: 'Also post as GitLab note',
+  })
   @IsOptional()
   @IsBoolean()
   syncToGitlab?: boolean;

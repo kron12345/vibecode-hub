@@ -46,7 +46,10 @@ export class SettingsController {
     @Req() req: any,
     @Body() dto: BulkUpsertUserSettingsDto,
   ) {
-    await this.settingsService.bulkUpsertUserSettings(req.user.id, dto.settings);
+    await this.settingsService.bulkUpsertUserSettings(
+      req.user.id,
+      dto.settings,
+    );
     return this.settingsService.getUserSettings(req.user.id);
   }
 
@@ -138,7 +141,9 @@ export class SettingsController {
   async applyAgentPreset(@Param('presetId') presetId: string) {
     const preset = AGENT_PRESETS[presetId];
     if (!preset) {
-      throw new NotFoundException(`Preset "${presetId}" not found. Available: ${Object.keys(AGENT_PRESETS).join(', ')}`);
+      throw new NotFoundException(
+        `Preset "${presetId}" not found. Available: ${Object.keys(AGENT_PRESETS).join(', ')}`,
+      );
     }
 
     // Load current configs, merge preset overrides (keep prompts, permissions, meta)
@@ -193,7 +198,9 @@ export class SettingsController {
   @Get('providers/models')
   @UseGuards(RolesGuard)
   @Roles('admin')
-  @ApiOperation({ summary: 'Discover available models for all providers (admin)' })
+  @ApiOperation({
+    summary: 'Discover available models for all providers (admin)',
+  })
   async getAllProviderModels() {
     return this.providerDiscovery.discoverAllModels();
   }

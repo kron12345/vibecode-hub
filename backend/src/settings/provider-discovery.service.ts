@@ -64,7 +64,9 @@ export class ProviderDiscoveryService {
         quantization: m.details?.quantization_level,
       }));
     } catch (e) {
-      this.logger.warn(`Failed to connect to Ollama at ${ollamaUrl}: ${e.message}`);
+      this.logger.warn(
+        `Failed to connect to Ollama at ${ollamaUrl}: ${e.message}`,
+      );
       return [];
     }
   }
@@ -104,10 +106,12 @@ export class ProviderDiscoveryService {
       }
 
       const data = await response.json();
-      return (data.data ?? []).map((m: { id: string; display_name?: string }) => ({
-        name: m.id,
-        displayName: m.display_name ?? m.id,
-      }));
+      return (data.data ?? []).map(
+        (m: { id: string; display_name?: string }) => ({
+          name: m.id,
+          displayName: m.display_name ?? m.id,
+        }),
+      );
     } catch (e) {
       this.logger.warn(`Failed to fetch Anthropic models: ${e.message}`);
       return [];
@@ -138,7 +142,9 @@ export class ProviderDiscoveryService {
         .filter((m: { id: string }) =>
           /^(gpt-|o[134]-|chatgpt-|codex-)/.test(m.id),
         )
-        .sort((a: { id: string }, b: { id: string }) => a.id.localeCompare(b.id));
+        .sort((a: { id: string }, b: { id: string }) =>
+          a.id.localeCompare(b.id),
+        );
 
       return relevant.map((m: { id: string }) => ({
         name: m.id,
@@ -169,9 +175,8 @@ export class ProviderDiscoveryService {
       const data = await response.json();
       // Filter to generative models
       return (data.models ?? [])
-        .filter(
-          (m: { name: string; supportedGenerationMethods?: string[] }) =>
-            m.supportedGenerationMethods?.includes('generateContent'),
+        .filter((m: { name: string; supportedGenerationMethods?: string[] }) =>
+          m.supportedGenerationMethods?.includes('generateContent'),
         )
         .map((m: { name: string; displayName?: string }) => ({
           name: m.name.replace('models/', ''),
@@ -185,7 +190,9 @@ export class ProviderDiscoveryService {
 
   /** Get models for all providers at once */
   async discoverAllModels(): Promise<Record<string, ProviderModelsResult>> {
-    this.logger.log('discoverAllModels() called — fetching from all providers...');
+    this.logger.log(
+      'discoverAllModels() called — fetching from all providers...',
+    );
 
     const [ollama, anthropic, openai, google] = await Promise.allSettled([
       this.discoverOllamaModels(),
@@ -196,7 +203,7 @@ export class ProviderDiscoveryService {
 
     this.logger.log(
       `Discovery results — Ollama: ${ollama.status}${ollama.status === 'fulfilled' ? ` (${ollama.value.length} models)` : ''}, ` +
-      `Anthropic: ${anthropic.status}, OpenAI: ${openai.status}, Google: ${google.status}`,
+        `Anthropic: ${anthropic.status}, OpenAI: ${openai.status}, Google: ${google.status}`,
     );
 
     return {
@@ -204,25 +211,32 @@ export class ProviderDiscoveryService {
         provider: 'OLLAMA',
         available: ollama.status === 'fulfilled' && ollama.value.length > 0,
         models: ollama.status === 'fulfilled' ? ollama.value : [],
-        error: ollama.status === 'rejected' ? ollama.reason?.message : undefined,
+        error:
+          ollama.status === 'rejected' ? ollama.reason?.message : undefined,
       },
       ANTHROPIC: {
         provider: 'ANTHROPIC',
-        available: anthropic.status === 'fulfilled' && anthropic.value.length > 0,
+        available:
+          anthropic.status === 'fulfilled' && anthropic.value.length > 0,
         models: anthropic.status === 'fulfilled' ? anthropic.value : [],
-        error: anthropic.status === 'rejected' ? anthropic.reason?.message : undefined,
+        error:
+          anthropic.status === 'rejected'
+            ? anthropic.reason?.message
+            : undefined,
       },
       OPENAI: {
         provider: 'OPENAI',
         available: openai.status === 'fulfilled' && openai.value.length > 0,
         models: openai.status === 'fulfilled' ? openai.value : [],
-        error: openai.status === 'rejected' ? openai.reason?.message : undefined,
+        error:
+          openai.status === 'rejected' ? openai.reason?.message : undefined,
       },
       GOOGLE: {
         provider: 'GOOGLE',
         available: google.status === 'fulfilled' && google.value.length > 0,
         models: google.status === 'fulfilled' ? google.value : [],
-        error: google.status === 'rejected' ? google.reason?.message : undefined,
+        error:
+          google.status === 'rejected' ? google.reason?.message : undefined,
       },
       // CLI tools don't have model discovery — they use whatever model the tool supports
       CLAUDE_CODE: {
@@ -239,7 +253,10 @@ export class ProviderDiscoveryService {
         available: true,
         models: [
           { name: 'gpt-5.4', displayName: 'GPT-5.4 (Allrounder)' },
-          { name: 'gpt-5.3-codex', displayName: 'GPT-5.3-Codex (Code-Spezialist)' },
+          {
+            name: 'gpt-5.3-codex',
+            displayName: 'GPT-5.3-Codex (Code-Spezialist)',
+          },
           { name: 'codex-mini-latest', displayName: 'Codex Mini (schnell)' },
         ],
       },
@@ -247,18 +264,23 @@ export class ProviderDiscoveryService {
         provider: 'GEMINI_CLI',
         available: true,
         models: [
-          { name: 'gemini-3-pro', displayName: 'Gemini 3 Pro' },
-          { name: 'gemini-3-flash', displayName: 'Gemini 3 Flash' },
+          { name: 'gemini-3.1-pro', displayName: 'Gemini 3.1 Pro (alias)' },
+          {
+            name: 'gemini-3.1-pro-preview',
+            displayName: 'Gemini 3.1 Pro Preview',
+          },
           { name: 'gemini-2.5-pro', displayName: 'Gemini 2.5 Pro' },
           { name: 'gemini-2.5-flash', displayName: 'Gemini 2.5 Flash' },
+          {
+            name: 'gemini-2.5-flash-lite',
+            displayName: 'Gemini 2.5 Flash Lite',
+          },
         ],
       },
       QWEN3_CODER: {
         provider: 'QWEN3_CODER',
         available: true,
-        models: [
-          { name: 'qwen3-coder', displayName: 'Qwen3 Coder' },
-        ],
+        models: [{ name: 'qwen3-coder', displayName: 'Qwen3 Coder' }],
       },
     };
   }

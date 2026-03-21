@@ -167,8 +167,14 @@ export class IssuesService {
     }
 
     // Propagate terminal status to sub-issues
-    if (dto.status === IssueStatus.DONE || dto.status === IssueStatus.NEEDS_REVIEW) {
-      const targetStatus = dto.status === IssueStatus.DONE ? IssueStatus.DONE : IssueStatus.NEEDS_REVIEW;
+    if (
+      dto.status === IssueStatus.DONE ||
+      dto.status === IssueStatus.NEEDS_REVIEW
+    ) {
+      const targetStatus =
+        dto.status === IssueStatus.DONE
+          ? IssueStatus.DONE
+          : IssueStatus.NEEDS_REVIEW;
       await this.prisma.issue
         .updateMany({
           where: {

@@ -415,11 +415,19 @@ Gespeichert als `agents.pipeline` (JSON):
 
 ```typescript
 {
-  enabled: boolean;            // Pipeline aktiv
-  autoStart: boolean;          // Auto-Start nach Issue-Erstellung
-  requireApproval: boolean;    // Mensch muss jeden Schritt genehmigen
-  maxConcurrentAgents: number; // Max gleichzeitige Agenten
-  timeoutMinutes: number;      // Timeout pro Agent-Schritt
+  enabled: boolean;                // Pipeline aktiv
+  autoStart: boolean;              // Auto-Start nach Issue-Erstellung
+  requireApproval: boolean;        // Mensch muss jeden Schritt genehmigen
+  maxConcurrentAgents: number;     // Max gleichzeitige Agenten
+  timeoutMinutes: number;          // Timeout pro Agent-Schritt
+  maxParallelOllamaModels: number; // VRAM-Parallelität
+  maxFixAttempts: number;          // Max Feedback-Loop Retries
+  mcpMaxIterations?: number;       // MCP Tool-Loop Iterationen
+  maxInterviewMessages?: number;   // Auto-Stop für Interview
+  stuckCheckIntervalMinutes?: number;
+  gitTimeoutSeconds?: number;
+  cliTimeoutMinutes?: number;      // CLI timeout (Default: 90)
+  maxReviewDiffs?: number;
 }
 ```
 
@@ -439,6 +447,8 @@ Gespeichert als `agents.pipeline` (JSON):
 | `POST` | `/api/agents/pen-test/start` | Ja | Security Test für MR starten |
 | `POST` | `/api/agents/docs/start` | Ja | Documenter für MR starten |
 | `GET` | `/api/agents/status/:projectId` | Ja | Agent-Status für ein Projekt |
+| `GET` | `/api/agents/pipeline/latest-failure?projectId=...&chatSessionId=...` | Ja | Letzten fehlgeschlagenen Pipeline-Task für eine Session holen |
+| `POST` | `/api/agents/pipeline/resume` | Ja | Pipeline für eine Session ab letztem FAILED-Task fortsetzen |
 
 ### DTOs
 
@@ -476,6 +486,23 @@ Gespeichert als `agents.pipeline` (JSON):
   issueId: string;
   mrIid: number;
   gitlabProjectId: number;
+}
+```
+
+**PipelineFailureQueryDto**
+```typescript
+{
+  projectId: string;
+  chatSessionId: string;
+}
+```
+
+**ResumePipelineDto**
+```typescript
+{
+  projectId: string;
+  chatSessionId: string;
+  failedTaskId?: string; // optional, sonst latest FAILED task in session
 }
 ```
 
@@ -934,6 +961,9 @@ map $hub_project $hub_upstream {
 
 | Datum | Änderung |
 |---|---|
+| 2026-03-16 | Gemini-CLI Settings/Model-Fix: `GEMINI_CLI` ist wieder in der Agent-Provider-Auswahl sichtbar. Provider-Model-Liste auf `gemini-3.1-pro` + `gemini-3.1-pro-preview` aktualisiert (inkl. 2.5-Modelle). Gemini-CLI normalisiert veraltete Alias-Modelnamen (`gemini-3-pro`, `gemini-3.1-pro`) auf `gemini-3.1-pro-preview`, damit bestehende Konfigurationen nicht fehlschlagen. |
+| 2026-03-16 | Pipeline Failure Handling + Resume: Session-scoped stop bei `agent.codingFailed` (kein Auto-Skip aufs nächste Issue mehr), neue Endpoints `GET /api/agents/pipeline/latest-failure` + `POST /api/agents/pipeline/resume`. Resume startet je nach `AgentTaskType` den passenden Agent neu. `pipeline.cliTimeoutMinutes` Default auf 90 Minuten erhöht und MCP-Loop reicht Timeout an LLM/CLI-Provider durch. |
+| 2026-03-16 | Scope-Loop Fix: Code Reviewer + Functional/UI/Pen Tester erhalten Architect-`out of scope` Kontext im Prompt. Neue serverseitige Scope-Filterung (`agent-scope.utils.ts`) entfernt out-of-scope Findings vor APPROVE/PASS-Entscheidung, um Review/Test-Fix-Loops zu verhindern. Keine neuen REST-Endpunkte. |
 | 2026-03-13 | Voice Chat Pipeline: VoiceModule (STT/TTS), 2 REST Endpoints (/voice/health, /voice/config), 7 WebSocket Events (voiceMessage, voiceModeToggle, voiceTranscript, voiceAudioStart/Chunk/End, voiceError), 7 SystemSettings Keys (voice.*), Auto-TTS on agent messages. Frontend: VoiceService (Push-to-Talk + Web Audio playback), Settings Voice section with health check. i18n: 4 Sprachen. |
 | 2026-03-11 | Session-Scoped Pipeline with Workspace Isolation: Git worktrees for dev sessions (`.session-worktrees/{slug}--{branch}/`), all session agents use `resolveWorkspace()`. Issue Compiler reads features from FeatureInterviewResult in sessions. Architect Phase A includes session features + ENVIRONMENT.md. Architect Phase B + Coder filter issues by chatSessionId. Coder does direct commits in session (no MR). CreateIssueDto gains `chatSessionId` field. Session pipeline: Interview → Architect A → Issue Compiler → Architect B → Coder → DONE. Worktrees removed on session archive. |
 | 2026-03-11 | Pipeline Split: Infrastructure Chat (Interview → DevOps → STOP + YOLO mode for infra commands) vs Dev Session Chat (Feature Interview → Architect → Issue Compiler → full pipeline). New task types: FEATURE_INTERVIEW, INFRA_COMMAND. DevOps generates ENVIRONMENT.md. New events: session.devSessionCreated, agent.featureInterviewComplete. agent.devopsComplete no longer triggers Architect. Interviewer has startFeatureInterview/continueFeatureInterview. DevOps has handleInfraCommand() YOLO mode. No new REST endpoints (uses existing + events). |

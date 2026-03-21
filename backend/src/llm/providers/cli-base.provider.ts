@@ -133,7 +133,11 @@ export abstract class CliBaseProvider implements LlmProvider {
         this.logger.error(
           `CLI ${this.command} HARD DEADLINE: process did not exit after ${Math.round((timeoutMs + 60000) / 1000)}s — force-resolving`,
         );
-        try { child.kill('SIGKILL'); } catch { /* best effort */ }
+        try {
+          child.kill('SIGKILL');
+        } catch {
+          /* best effort */
+        }
         resolve({
           content: '',
           finishReason: 'error',

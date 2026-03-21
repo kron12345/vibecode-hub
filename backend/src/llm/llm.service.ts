@@ -45,7 +45,11 @@ export class LlmService {
     const provider = this.providers.get(options.provider);
     if (!provider) {
       this.logger.error(`Unknown LLM provider: ${options.provider}`);
-      return { content: '', finishReason: 'error' };
+      return {
+        content: '',
+        finishReason: 'error',
+        errorMessage: `Unknown LLM provider: ${options.provider}`,
+      };
     }
 
     this.logger.log(
@@ -58,7 +62,7 @@ export class LlmService {
 
     if (result.finishReason === 'error') {
       this.logger.warn(
-        `LLM failed (${durationMs}ms): ${options.provider}/${options.model}`,
+        `LLM failed (${durationMs}ms): ${options.provider}/${options.model}${result.errorMessage ? ` — ${result.errorMessage}` : ''}`,
       );
     } else {
       this.logger.log(

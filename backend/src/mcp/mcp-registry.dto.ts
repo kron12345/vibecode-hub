@@ -21,12 +21,17 @@ export class CreateMcpServerDto {
   @IsNotEmpty()
   displayName: string;
 
-  @ApiPropertyOptional({ example: 'Git operations: branch, commit, diff, merge' })
+  @ApiPropertyOptional({
+    example: 'Git operations: branch, commit, diff, merge',
+  })
   @IsOptional()
   @IsString()
   description?: string;
 
-  @ApiPropertyOptional({ example: 'coding', enum: ['coding', 'execution', 'security', 'knowledge', 'custom'] })
+  @ApiPropertyOptional({
+    example: 'coding',
+    enum: ['coding', 'execution', 'security', 'knowledge', 'custom'],
+  })
   @IsOptional()
   @IsString()
   category?: string;
@@ -93,7 +98,11 @@ export class UpdateMcpServerDto {
 }
 
 export class SetRoleAssignmentsDto {
-  @ApiProperty({ example: ['CODER', 'CODE_REVIEWER'], enum: AgentRole, isArray: true })
+  @ApiProperty({
+    example: ['CODER', 'CODE_REVIEWER'],
+    enum: AgentRole,
+    isArray: true,
+  })
   @IsArray()
   @IsEnum(AgentRole, { each: true })
   roles: AgentRole[];

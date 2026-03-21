@@ -17,16 +17,12 @@ export class AuditLogService {
 
   /** Log a project action */
   projectAction(action: string, projectId: string, userId?: string) {
-    this.logger.log(
-      `Project ${action}: ${projectId} by ${userId || 'system'}`,
-    );
+    this.logger.log(`Project ${action}: ${projectId} by ${userId || 'system'}`);
   }
 
   /** Log an agent action */
   agentAction(action: string, role: string, projectId: string) {
-    this.logger.log(
-      `Agent ${action}: ${role} on project ${projectId}`,
-    );
+    this.logger.log(`Agent ${action}: ${role} on project ${projectId}`);
   }
 
   /** Log an auth event */

@@ -25,8 +25,8 @@ export class AllExceptionsFilter implements ExceptionFilter {
     if (!response?.status) return;
 
     let status: number;
-    let message: string;       // message for the client response
-    let logMessage: string;    // detailed message for server logs only
+    let message: string; // message for the client response
+    let logMessage: string; // detailed message for server logs only
     let error: string;
 
     if (exception instanceof HttpException) {
@@ -39,14 +39,16 @@ export class AllExceptionsFilter implements ExceptionFilter {
       // For 5xx HttpExceptions, also hide internal details from clients
       if (status >= 500) {
         message = 'Internal server error';
-        logMessage = typeof extractedMsg === 'string'
-          ? extractedMsg
-          : JSON.stringify(extractedMsg);
+        logMessage =
+          typeof extractedMsg === 'string'
+            ? extractedMsg
+            : JSON.stringify(extractedMsg);
       } else {
         message = extractedMsg;
-        logMessage = typeof extractedMsg === 'string'
-          ? extractedMsg
-          : JSON.stringify(extractedMsg);
+        logMessage =
+          typeof extractedMsg === 'string'
+            ? extractedMsg
+            : JSON.stringify(extractedMsg);
       }
       error = exception.name;
     } else if (exception instanceof Error) {

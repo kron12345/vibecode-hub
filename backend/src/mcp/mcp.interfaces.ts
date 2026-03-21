@@ -29,7 +29,10 @@ export const MCP_SERVERS = {
   shell: (workspacePath: string): McpServerConfig => ({
     name: 'shell',
     command: 'node',
-    args: [path.resolve(__dirname, '..', '..', 'mcp', 'servers', 'shell-server.mjs'), workspacePath],
+    args: [
+      path.resolve(__dirname, '..', '..', 'mcp', 'servers', 'shell-server.mjs'),
+      workspacePath,
+    ],
   }),
 } as const;
 
@@ -45,6 +48,8 @@ export interface McpAgentLoopResult {
   durationMs: number;
   /** Why the loop ended */
   finishReason: 'complete' | 'max_iterations' | 'timeout' | 'error';
+  /** Optional detailed failure reason when finishReason=error/timeout */
+  errorMessage?: string;
 }
 
 /** Options for running the agent loop */
@@ -61,14 +66,18 @@ export interface McpAgentLoopOptions {
   mcpServers: McpServerConfig[];
   /** Max LLM round-trips before stopping (default: 30) */
   maxIterations?: number;
-  /** Total timeout in ms (default: 10 min) */
+  /** LLM call timeout per iteration in ms (default: derived from pipeline.cliTimeoutMinutes) */
   timeoutMs?: number;
   /** LLM temperature */
   temperature?: number;
   /** LLM max tokens per response */
   maxTokens?: number;
   /** Called on each tool execution */
-  onToolCall?: (name: string, args: Record<string, unknown>, result: string) => void;
+  onToolCall?: (
+    name: string,
+    args: Record<string, unknown>,
+    result: string,
+  ) => void;
   /** Called on each LLM iteration */
   onIteration?: (iteration: number, content: string) => void;
   /** Agent task ID — used for activity logging to prevent stuck-task cleanup */

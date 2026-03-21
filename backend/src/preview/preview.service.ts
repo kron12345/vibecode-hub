@@ -208,10 +208,7 @@ export class PreviewService implements OnModuleInit {
   /** Test nginx config then reload */
   async reloadNginx(): Promise<void> {
     // Test config first
-    const { stderr: testErr } = await execFileAsync('sudo', [
-      'nginx',
-      '-t',
-    ]);
+    const { stderr: testErr } = await execFileAsync('sudo', ['nginx', '-t']);
     if (testErr && !testErr.includes('syntax is ok')) {
       throw new Error(`Nginx config test failed: ${testErr}`);
     }

@@ -103,22 +103,34 @@ export class SessionBranchService {
           timeout: GIT_TIMEOUT_MS,
         });
 
-        this.logger.log(`Created worktree at ${worktreePath} on branch ${branch} from ${baseBranch}`);
+        this.logger.log(
+          `Created worktree at ${worktreePath} on branch ${branch} from ${baseBranch}`,
+        );
       } catch (err) {
-        this.logger.error(`Failed to create worktree for branch ${branch}: ${err.message}`);
+        this.logger.error(
+          `Failed to create worktree for branch ${branch}: ${err.message}`,
+        );
         // Cleanup: try to remove worktree if it was partially created
         try {
-          await execFileAsync('git', ['worktree', 'remove', '--force', worktreePath], {
-            cwd: mainWorkspace,
-            timeout: GIT_TIMEOUT_MS,
-          });
-        } catch { /* best effort */ }
+          await execFileAsync(
+            'git',
+            ['worktree', 'remove', '--force', worktreePath],
+            {
+              cwd: mainWorkspace,
+              timeout: GIT_TIMEOUT_MS,
+            },
+          );
+        } catch {
+          /* best effort */
+        }
         try {
           await execFileAsync('git', ['branch', '-D', branch], {
             cwd: mainWorkspace,
             timeout: GIT_TIMEOUT_MS,
           });
-        } catch { /* best effort */ }
+        } catch {
+          /* best effort */
+        }
         throw new BadRequestException(
           `Git worktree creation failed: ${err.message}`,
         );
@@ -182,8 +194,7 @@ export class SessionBranchService {
 
     // Collect open issues (closed AFTER successful merge, not before)
     const openIssues = session.issues.filter(
-      (i) =>
-        i.status !== IssueStatus.DONE && i.status !== IssueStatus.CLOSED,
+      (i) => i.status !== IssueStatus.DONE && i.status !== IssueStatus.CLOSED,
     );
 
     // Merge branch if project has GitLab
@@ -202,10 +213,14 @@ export class SessionBranchService {
       try {
         // Remove worktree first (frees the branch for merging)
         try {
-          await execFileAsync('git', ['worktree', 'remove', '--force', worktreePath], {
-            cwd: mainWorkspace,
-            timeout: GIT_TIMEOUT_MS,
-          });
+          await execFileAsync(
+            'git',
+            ['worktree', 'remove', '--force', worktreePath],
+            {
+              cwd: mainWorkspace,
+              timeout: GIT_TIMEOUT_MS,
+            },
+          );
         } catch {
           // Worktree may not exist (e.g. project without GitLab at creation time)
         }
@@ -221,7 +236,13 @@ export class SessionBranchService {
         });
         await execFileAsync(
           'git',
-          ['merge', '--no-ff', session.branch, '-m', `Merge session: ${session.title}`],
+          [
+            'merge',
+            '--no-ff',
+            session.branch,
+            '-m',
+            `Merge session: ${session.title}`,
+          ],
           { cwd: mainWorkspace, timeout: GIT_TIMEOUT_MS },
         );
         await execFileAsync('git', ['push'], {

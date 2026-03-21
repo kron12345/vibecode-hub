@@ -1,4 +1,9 @@
-import { Injectable, Logger, OnModuleInit, OnModuleDestroy } from '@nestjs/common';
+import {
+  Injectable,
+  Logger,
+  OnModuleInit,
+  OnModuleDestroy,
+} from '@nestjs/common';
 import { execFile } from 'child_process';
 import { readFile } from 'fs/promises';
 import { promisify } from 'util';
@@ -56,8 +61,7 @@ export class HardwareService implements OnModuleInit, OnModuleDestroy {
   /** RAPL energy tracking for CPU power calculation */
   private lastEnergyUj = 0;
   private lastEnergyTime = 0;
-  private readonly RAPL_PATH =
-    '/sys/class/powercap/intel-rapl:0/energy_uj';
+  private readonly RAPL_PATH = '/sys/class/powercap/intel-rapl:0/energy_uj';
 
   async onModuleInit() {
     // Take initial snapshot
@@ -149,17 +153,16 @@ export class HardwareService implements OnModuleInit, OnModuleDestroy {
   private async readCpuTemp(): Promise<number> {
     try {
       // k10temp on AMD — Tctl sensor
-      const raw = await readFile(
-        '/sys/class/hwmon/hwmon2/temp1_input',
-        'utf8',
-      );
+      const raw = await readFile('/sys/class/hwmon/hwmon2/temp1_input', 'utf8');
       return Math.round(parseInt(raw) / 1000);
     } catch {
       // Fallback: try all hwmon dirs
       try {
-        const { stdout } = await execFileAsync('cat', [
-          '/sys/class/thermal/thermal_zone0/temp',
-        ], { timeout: 2000 });
+        const { stdout } = await execFileAsync(
+          'cat',
+          ['/sys/class/thermal/thermal_zone0/temp'],
+          { timeout: 2000 },
+        );
         return Math.round(parseInt(stdout) / 1000);
       } catch {
         return 0;
@@ -229,7 +232,8 @@ export class HardwareService implements OnModuleInit, OnModuleDestroy {
       const totalMb = Math.round(totalKb / 1024);
       const availableMb = Math.round(availableKb / 1024);
       const usedMb = Math.round(usedKb / 1024);
-      const usedPercent = totalKb > 0 ? Math.round((usedKb / totalKb) * 100) : 0;
+      const usedPercent =
+        totalKb > 0 ? Math.round((usedKb / totalKb) * 100) : 0;
       return { totalMb, usedMb, availableMb, usedPercent };
     } catch {
       return { totalMb: 0, usedMb: 0, availableMb: 0, usedPercent: 0 };
