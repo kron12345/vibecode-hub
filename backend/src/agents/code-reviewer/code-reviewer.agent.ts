@@ -26,6 +26,7 @@ import {
   buildIssueSummaryWithThreadLinks,
   FindingForThread,
 } from '../finding-thread.utils';
+import { stripThinkTags, cleanJsonString, findJsonObject, extractJson, normalizeApproval, normalizeSeverity } from '../agent-result-parser';
 import { ReviewResult, ReviewFinding } from './review-result.interface';
 import {
   AgentRole,
@@ -687,7 +688,7 @@ ${
     }
 
     // Step 1: Strip <think> tags (deepseek-r1 may include them even with think:false)
-    const cleaned = content.replace(/<think>[\s\S]*?<\/think>/g, '').trim();
+    const cleaned = stripThinkTags(content);
 
     if (cleaned.length !== content.length) {
       this.logger.debug(
@@ -696,7 +697,7 @@ ${
     }
 
     // Step 2: Try to extract JSON after the completion marker
-    let jsonStr = this.extractJsonFromReview(cleaned);
+    let jsonStr = extractJson(cleaned, COMPLETION_MARKER, 'approved');
 
     if (!jsonStr) {
       this.logger.warn(
@@ -707,8 +708,7 @@ ${
 
     try {
       // Fix common JSON issues
-      jsonStr = jsonStr.replace(/,\s*([}\]])/g, '$1'); // trailing commas
-      jsonStr = jsonStr.replace(/[\x00-\x1F\x7F]/g, ' '); // control chars
+      jsonStr = cleanJsonString(jsonStr);
 
       const parsed = JSON.parse(jsonStr);
 
@@ -716,7 +716,7 @@ ${
       // Format A (expected): { approved: bool, summary: str, findings: [...] }
       // Format B (deepseek-r1): { status: "APPROVED"|"CHANGES_REQUIRED", issues: [...], summary?: str }
       // Format C: { decision: "approve"|"reject", comments: [...] }
-      const approved = this.normalizeApproval(parsed);
+      const approved = normalizeApproval(parsed);
       const findings = this.parseFindings(
         parsed.findings ||
           parsed.issues ||
@@ -841,106 +841,6 @@ ${
   }
 
   /**
-   * Extract JSON from the review content using multiple strategies.
-   */
-  private extractJsonFromReview(content: string): string | null {
-    // Strategy 1: After :::REVIEW_COMPLETE::: marker
-    if (content.includes(COMPLETION_MARKER)) {
-      const afterMarker = content
-        .substring(
-          content.indexOf(COMPLETION_MARKER) + COMPLETION_MARKER.length,
-        )
-        .trim();
-      const json = this.findJsonObject(afterMarker);
-      if (json) return json;
-    }
-
-    // Strategy 2: JSON in code fences (```json ... ```)
-    const fenceMatch = content.match(/```(?:json)?\s*\n?([\s\S]*?)\n?```/);
-    if (fenceMatch) {
-      const json = this.findJsonObject(fenceMatch[1]);
-      if (json) return json;
-    }
-
-    // Strategy 3: Last JSON object in the content (review JSON is usually at the end)
-    // Validate each candidate actually parses as JSON to avoid matching code blocks
-    const allJsonMatches = [
-      ...content.matchAll(/\{[^{}]*(?:\{[^{}]*\}[^{}]*)*\}/g),
-    ];
-    if (allJsonMatches.length > 0) {
-      for (let i = allJsonMatches.length - 1; i >= 0; i--) {
-        const candidate = allJsonMatches[i][0];
-        if (
-          candidate.includes('"approved"') ||
-          candidate.includes('"findings"') ||
-          candidate.includes('"status"') ||
-          candidate.includes('"issues"')
-        ) {
-          try {
-            JSON.parse(candidate);
-            return candidate;
-          } catch {
-            continue;
-          }
-        }
-      }
-    }
-
-    // Strategy 4: Greedy match — must also validate as parseable JSON
-    const greedyMatch = content.match(
-      /\{[\s\S]*(?:"approved"|"status")[\s\S]*\}/,
-    );
-    if (greedyMatch) {
-      try {
-        JSON.parse(greedyMatch[0]);
-        return greedyMatch[0];
-      } catch {
-        /* skip */
-      }
-    }
-
-    return null;
-  }
-
-  /**
-   * Find a valid JSON object in a string.
-   */
-  private findJsonObject(str: string): string | null {
-    // Strip markdown code fences if present
-    const stripped = str
-      .replace(/^```(?:json)?\s*\n?/, '')
-      .replace(/\n?```\s*$/, '')
-      .trim();
-    const match = stripped.match(/\{[\s\S]*\}/);
-    return match ? match[0] : null;
-  }
-
-  /**
-   * Normalize the approval field from various JSON formats.
-   */
-  private normalizeApproval(parsed: any): boolean {
-    // Direct boolean
-    if (typeof parsed.approved === 'boolean') return parsed.approved;
-    // String "true"/"false"
-    if (typeof parsed.approved === 'string')
-      return parsed.approved.toLowerCase() === 'true';
-    // Status string (deepseek-r1 format)
-    if (parsed.status) {
-      const status = String(parsed.status).toLowerCase();
-      return status === 'approved' || status === 'approve' || status === 'lgtm';
-    }
-    // Decision string
-    if (parsed.decision) {
-      const decision = String(parsed.decision).toLowerCase();
-      return (
-        decision === 'approve' || decision === 'approved' || decision === 'lgtm'
-      );
-    }
-    // Fallback: if there are critical findings, not approved
-    return false;
-  }
-
-  /**
    * Parse findings array with validation.
    * Handles multiple formats: findings, issues, comments, problems.
    */
@@ -949,7 +849,7 @@ ${
     const result = rawFindings
       .filter((f: any) => f && typeof f === 'object')
       .map((f: any) => ({
-        severity: this.normalizeSeverity(f.severity || f.type || f.level),
+        severity: normalizeSeverity(f.severity || f.type || f.level),
         file: String(f.file ?? f.path ?? f.filename ?? 'unknown'),
         line:
           typeof f.line === 'number'
@@ -988,15 +888,6 @@ ${
     }
 
     return result;
-  }
-
-  private normalizeSeverity(raw: any): 'info' | 'warning' | 'critical' {
-    if (!raw) return 'warning';
-    const s = String(raw).toLowerCase();
-    if (['critical', 'error', 'high', 'major', 'blocker'].includes(s))
-      return 'critical';
-    if (['warning', 'warn', 'medium', 'minor'].includes(s)) return 'warning';
-    return 'info';
   }
 
   /**

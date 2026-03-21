@@ -28,6 +28,7 @@ import {
   buildIssueSummaryWithThreadLinks,
   FindingForThread,
 } from '../finding-thread.utils';
+import { stripThinkTags, cleanJsonString, findJsonObject, extractJson, normalizePass, normalizeSeverity, formatDiffsForPrompt } from '../agent-result-parser';
 import {
   FunctionalTestResult,
   FunctionalTestFinding,
@@ -724,10 +725,10 @@ Do NOT omit the JSON block.`;
     if (!content.trim()) return null;
 
     // Strip <think> tags
-    const cleaned = content.replace(/<think>[\s\S]*?<\/think>/g, '').trim();
+    const cleaned = stripThinkTags(content);
 
     // Extract JSON
-    const jsonStr = this.extractJson(cleaned);
+    const jsonStr = extractJson(cleaned, COMPLETION_MARKER);
 
     if (!jsonStr) {
       this.logger.warn('No JSON found — building from text');
@@ -735,9 +736,7 @@ Do NOT omit the JSON block.`;
     }
 
     try {
-      const fixed = jsonStr
-        .replace(/,\s*([}\]])/g, '$1')
-        .replace(/[\x00-\x1F\x7F]/g, ' ');
+      const fixed = cleanJsonString(jsonStr);
 
       const parsed = JSON.parse(fixed);
       const findings = this.parseFindings(
@@ -754,7 +753,7 @@ Do NOT omit the JSON block.`;
       const hasDefinitiveFailure = definitiveFindings.some((f) => !f.passed);
 
       // Use LLM verdict as base, but override if only inconclusive failures remain
-      let passed = this.normalizePass(parsed);
+      let passed = normalizePass(parsed);
       if (!passed && !hasCritical && !hasDefinitiveFailure) {
         // All failures are inconclusive — override to pass with warnings
         passed = true;
@@ -804,77 +803,6 @@ Do NOT omit the JSON block.`;
     }
   }
 
-  private extractJson(content: string): string | null {
-    // Strategy 1: After completion marker
-    if (content.includes(COMPLETION_MARKER)) {
-      const after = content
-        .substring(
-          content.indexOf(COMPLETION_MARKER) + COMPLETION_MARKER.length,
-        )
-        .trim();
-      const json = this.findJsonObject(after);
-      if (json) return json;
-    }
-
-    // Strategy 2: Code fence
-    const fenceMatch = content.match(/```(?:json)?\s*\n?([\s\S]*?)\n?```/);
-    if (fenceMatch) {
-      const json = this.findJsonObject(fenceMatch[1]);
-      if (json) return json;
-    }
-
-    // Strategy 3: Last JSON with "passed" key — validate it actually parses
-    const allJson = [...content.matchAll(/\{[^{}]*(?:\{[^{}]*\}[^{}]*)*\}/g)];
-    for (let i = allJson.length - 1; i >= 0; i--) {
-      const candidate = allJson[i][0];
-      if (candidate.includes('"passed"') || candidate.includes('"findings"')) {
-        try {
-          JSON.parse(candidate);
-          return candidate;
-        } catch {
-          continue;
-        }
-      }
-    }
-
-    // Strategy 4: Greedy — must also validate as parseable JSON
-    const greedy = content.match(/\{[\s\S]*"passed"[\s\S]*\}/);
-    if (greedy) {
-      try {
-        JSON.parse(greedy[0]);
-        return greedy[0];
-      } catch {
-        /* skip */
-      }
-    }
-
-    return null;
-  }
-
-  private findJsonObject(str: string): string | null {
-    const stripped = str
-      .replace(/^```(?:json)?\s*\n?/, '')
-      .replace(/\n?```\s*$/, '')
-      .trim();
-    const match = stripped.match(/\{[\s\S]*\}/);
-    return match ? match[0] : null;
-  }
-
-  private normalizePass(parsed: any): boolean {
-    if (typeof parsed.passed === 'boolean') return parsed.passed;
-    if (typeof parsed.passed === 'string')
-      return parsed.passed.toLowerCase() === 'true';
-    if (parsed.status) {
-      const s = String(parsed.status).toLowerCase();
-      return s === 'pass' || s === 'passed' || s === 'success';
-    }
-    if (parsed.result) {
-      const r = String(parsed.result).toLowerCase();
-      return r === 'pass' || r === 'passed' || r === 'success';
-    }
-    return false;
-  }
-
   private parseFindings(raw: any): FunctionalTestFinding[] {
     if (!Array.isArray(raw)) return [];
     return raw
@@ -885,7 +813,7 @@ Do NOT omit the JSON block.`;
         details: String(
           f.details ?? f.description ?? f.message ?? 'No details',
         ),
-        severity: this.normalizeSeverity(f.severity),
+        severity: normalizeSeverity(f.severity),
         conclusiveness:
           f.conclusiveness === 'inconclusive' ? 'inconclusive' : 'definitive',
         expectedEvidence: f.expectedEvidence
@@ -900,15 +828,6 @@ Do NOT omit the JSON block.`;
           ? f.status
           : undefined,
       }));
-  }
-
-  private normalizeSeverity(raw: any): 'info' | 'warning' | 'critical' {
-    if (!raw) return 'warning';
-    const s = String(raw).toLowerCase();
-    if (['critical', 'error', 'high', 'major', 'blocker'].includes(s))
-      return 'critical';
-    if (['warning', 'warn', 'medium', 'minor'].includes(s)) return 'warning';
-    return 'info';
   }
 
   private buildResultFromText(
