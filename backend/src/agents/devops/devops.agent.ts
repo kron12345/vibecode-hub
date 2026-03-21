@@ -127,7 +127,6 @@ export class DevopsAgent extends BaseAgent {
         result,
         projectDir,
         gitlabProject.path_with_namespace,
-        gitlabProject.default_branch,
       );
       if (!cloneSuccess) return; // Fatal
 
@@ -294,7 +293,10 @@ export class DevopsAgent extends BaseAgent {
       const projectDir = path.resolve(basePath, slug);
 
       // Path traversal check
-      if (projectDir !== basePath && !projectDir.startsWith(basePath + path.sep)) {
+      if (
+        projectDir !== basePath &&
+        !projectDir.startsWith(basePath + path.sep)
+      ) {
         throw new Error('Path traversal detected — slug produces invalid path');
       }
 
@@ -330,7 +332,6 @@ export class DevopsAgent extends BaseAgent {
     result: DevopsSetupResult,
     projectDir: string,
     pathWithNamespace: string,
-    _defaultBranch: string,
   ): Promise<boolean> {
     const start = Date.now();
     try {

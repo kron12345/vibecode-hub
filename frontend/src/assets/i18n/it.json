@@ -85,6 +85,13 @@
     "penTesting": "Test di sicurezza in corso...",
     "documenting": "Generazione documentazione...",
     "pipelineComplete": "Pipeline completata",
+    "pipelinePausedTitle": "Pipeline in pausa per questa sessione",
+    "pipelinePausedHint": "Un task è fallito. Correggi il problema di tool/provider e riprendi dall'ultimo task fallito.",
+    "failedTask": "Task fallito",
+    "failedReason": "Motivo",
+    "resumePipeline": "Riprendi pipeline",
+    "resuming": "Ripresa in corso...",
+    "failedAt": "Fallito alle",
     "statusTesting": "In test",
     "statusDone": "Completato",
     "tabOverview": "Panoramica",
@@ -220,7 +227,7 @@
     "gitTimeout": "Git Timeout (sec)",
     "gitTimeoutHint": "Timeout per operazioni git (clone, push, merge)",
     "cliTimeout": "CLI Timeout (min)",
-    "cliTimeoutHint": "Timeout per tool CLI (Claude Code, Codex CLI, ecc.)",
+    "cliTimeoutHint": "Timeout per tool CLI (Claude Code, Codex CLI, ecc.). Predefinito: 90 minuti.",
     "maxReviewDiffs": "Max Diff Review",
     "maxReviewDiffsHint": "Max diff file analizzati per revisione",
     "provider": "Provider",
@@ -335,7 +342,8 @@
     "deleteWarning": "Questa azione non può essere annullata. Verranno eliminati:",
     "deleteGitlab": "Repository GitLab inclusi tutti i branch e il wiki",
     "deleteDb": "Tutti gli issue, milestone e log degli agenti",
-    "deleteChats": "Tutte le sessioni chat e i messaggi"
+    "deleteChats": "Tutte le sessioni chat e i messaggi",
+    "deleteError": "Eliminazione progetto non riuscita. Riprova."
   },
   "agentsPage": {
     "title": "Agenti",
@@ -371,6 +379,9 @@
     "readOnly": "Questa sessione è archiviata.",
     "openIssuesWarning": "Le issue aperte verranno annullate.",
     "noSessions": "Nessuna sessione"
+  },
+  "chat": {
+    "uploadFailed": "Caricamento file non riuscito. Riprova."
   },
   "languages": {
     "de": "Deutsch",

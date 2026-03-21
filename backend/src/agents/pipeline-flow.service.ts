@@ -1,3 +1,6 @@
+import { execFile } from 'child_process';
+import { promisify } from 'util';
+import * as path from 'path';
 import { Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { ChatService } from '../chat/chat.service';
@@ -14,6 +17,7 @@ import { FunctionalTesterAgent } from './functional-tester/functional-tester.age
 import { UiTesterAgent } from './ui-tester/ui-tester.agent';
 import { PenTesterAgent } from './pen-tester/pen-tester.agent';
 import { DocumenterAgent } from './documenter/documenter.agent';
+import { getSessionWorktreePath } from './agent-base';
 import {
   AgentRole,
   AgentStatus,
@@ -21,8 +25,9 @@ import {
   AgentTaskStatus,
   ChatSessionType,
   IssueStatus,
-  ProjectStatus,
 } from '@prisma/client';
+
+const execFileAsync = promisify(execFile);
 
 @Injectable()
 export class PipelineFlowService {
@@ -83,10 +88,7 @@ export class PipelineFlowService {
     return {};
   }
 
-  async hasActiveAgent(
-    projectId: string,
-    role: AgentRole,
-  ): Promise<boolean> {
+  async hasActiveAgent(projectId: string, role: AgentRole): Promise<boolean> {
     const existing = await this.prisma.agentInstance.findFirst({
       where: {
         projectId,
@@ -912,11 +914,6 @@ export class PipelineFlowService {
     });
     if (!project) return;
 
-    const { execFile } = require('child_process');
-    const { promisify } = require('util');
-    const pathMod = require('path');
-    const execFileAsync = promisify(execFile);
-
     const sessionInfo = await this.prisma.chatSession.findUnique({
       where: { id: chatSessionId },
       select: { type: true, branch: true },
@@ -927,7 +924,6 @@ export class PipelineFlowService {
     let baseBranch: string;
 
     if (isDevSession && sessionInfo.branch) {
-      const { getSessionWorktreePath } = require('./agent-base');
       workspace = getSessionWorktreePath(
         this.settings.devopsWorkspacePath,
         project.slug,
@@ -935,7 +931,7 @@ export class PipelineFlowService {
       );
       baseBranch = sessionInfo.branch;
     } else {
-      workspace = pathMod.resolve(
+      workspace = path.resolve(
         this.settings.devopsWorkspacePath,
         project.slug,
       );
@@ -951,9 +947,7 @@ export class PipelineFlowService {
         cwd: workspace,
         timeout: 30_000,
       });
-      this.logger.log(
-        `Pulled latest ${baseBranch} in workspace ${workspace}`,
-      );
+      this.logger.log(`Pulled latest ${baseBranch} in workspace ${workspace}`);
     } catch (pullErr) {
       this.logger.warn(
         `Failed to pull ${baseBranch} in workspace: ${pullErr.message}`,

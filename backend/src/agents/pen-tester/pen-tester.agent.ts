@@ -2,7 +2,6 @@ import { Injectable, Logger } from '@nestjs/common';
 import { EventEmitter2 } from '@nestjs/event-emitter';
 import { execFile } from 'child_process';
 import { promisify } from 'util';
-import * as path from 'path';
 import { PrismaService } from '../../prisma/prisma.service';
 import { SystemSettingsService } from '../../settings/system-settings.service';
 import { ChatService } from '../../chat/chat.service';
@@ -32,7 +31,12 @@ import {
   extractArchitectOutOfScopeItems,
   filterOutOfScopeFindings,
 } from '../agent-scope.utils';
-import { stripThinkTags, cleanJsonString, findJsonObject, extractJson, normalizePass, normalizeSeverity } from '../agent-result-parser';
+import {
+  stripThinkTags,
+  cleanJsonString,
+  extractJson,
+  normalizeSeverity,
+} from '../agent-result-parser';
 import { PenTestResult, SecurityFinding } from './pen-test-result.interface';
 import { AgentRole, AgentStatus, AgentTaskStatus } from '@prisma/client';
 
@@ -228,7 +232,8 @@ export class PenTesterAgent extends BaseAgent {
               )}\n\nFor each finding above: if fixed, report in \`resolvedFromPrevious\`. If still present, carry forward with SAME description.\n`
           : '';
 
-      const loopResolverSection = extractLoopResolverClarifications(commentHistory);
+      const loopResolverSection =
+        extractLoopResolverClarifications(commentHistory);
 
       const userPrompt = `Perform a security analysis of this merge request${previousFindings.length > 0 ? ' (Re-test after fix attempt)' : ''}:
 
@@ -432,8 +437,9 @@ Do NOT omit the JSON block.`;
               agentRole: AgentRole.PEN_TESTER,
               roundNumber: scopedMergedResult.roundNumber ?? 1,
               findings: dualFindingsForThreads,
-              confirmedResolved: scopedMergedResult.resolvedFromPrevious
-                ?.map((r: any) => ({ message: r.description })),
+              confirmedResolved: scopedMergedResult.resolvedFromPrevious?.map(
+                (r: any) => ({ message: r.description }),
+              ),
             });
 
             const testMarkdown = buildIssueSummaryWithThreadLinks({
@@ -601,8 +607,9 @@ Do NOT omit the JSON block.`;
         agentRole: AgentRole.PEN_TESTER,
         roundNumber: testResult.roundNumber ?? 1,
         findings: findingsForThreads,
-        confirmedResolved: testResult.resolvedFromPrevious
-          ?.map((r: any) => ({ message: r.description })),
+        confirmedResolved: testResult.resolvedFromPrevious?.map((r: any) => ({
+          message: r.description,
+        })),
       });
 
       const testMarkdown = buildIssueSummaryWithThreadLinks({
@@ -1109,7 +1116,9 @@ Do NOT omit the JSON block.`;
         await new Promise((resolve) => setTimeout(resolve, delayMs));
       }
     }
-    this.logger.warn(`MR !${mrIid} still has no diffs after ${maxRetries} attempts`);
+    this.logger.warn(
+      `MR !${mrIid} still has no diffs after ${maxRetries} attempts`,
+    );
     return [];
   }
 

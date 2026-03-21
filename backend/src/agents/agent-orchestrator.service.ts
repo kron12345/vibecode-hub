@@ -70,7 +70,13 @@ export class AgentOrchestratorService {
     mrIid: number,
     gitlabProjectId: number,
   ) {
-    return this.flow.startCodeReview(projectId, chatSessionId, issueId, mrIid, gitlabProjectId);
+    return this.flow.startCodeReview(
+      projectId,
+      chatSessionId,
+      issueId,
+      mrIid,
+      gitlabProjectId,
+    );
   }
 
   startFunctionalTest(
@@ -80,7 +86,13 @@ export class AgentOrchestratorService {
     mrIid: number,
     gitlabProjectId: number,
   ) {
-    return this.flow.startFunctionalTest(projectId, chatSessionId, issueId, mrIid, gitlabProjectId);
+    return this.flow.startFunctionalTest(
+      projectId,
+      chatSessionId,
+      issueId,
+      mrIid,
+      gitlabProjectId,
+    );
   }
 
   startUiTest(
@@ -90,7 +102,13 @@ export class AgentOrchestratorService {
     mrIid: number,
     gitlabProjectId: number,
   ) {
-    return this.flow.startUiTest(projectId, chatSessionId, issueId, mrIid, gitlabProjectId);
+    return this.flow.startUiTest(
+      projectId,
+      chatSessionId,
+      issueId,
+      mrIid,
+      gitlabProjectId,
+    );
   }
 
   startPenTest(
@@ -100,7 +118,13 @@ export class AgentOrchestratorService {
     mrIid: number,
     gitlabProjectId: number,
   ) {
-    return this.flow.startPenTest(projectId, chatSessionId, issueId, mrIid, gitlabProjectId);
+    return this.flow.startPenTest(
+      projectId,
+      chatSessionId,
+      issueId,
+      mrIid,
+      gitlabProjectId,
+    );
   }
 
   startDocumenter(
@@ -110,7 +134,13 @@ export class AgentOrchestratorService {
     mrIid: number,
     gitlabProjectId: number,
   ) {
-    return this.flow.startDocumenter(projectId, chatSessionId, issueId, mrIid, gitlabProjectId);
+    return this.flow.startDocumenter(
+      projectId,
+      chatSessionId,
+      issueId,
+      mrIid,
+      gitlabProjectId,
+    );
   }
 
   getProjectAgentStatus(projectId: string) {
@@ -126,7 +156,11 @@ export class AgentOrchestratorService {
     chatSessionId: string,
     failedTaskId?: string,
   ) {
-    return this.retry.resumePipelineFromFailedTask(projectId, chatSessionId, failedTaskId);
+    return this.retry.resumePipelineFromFailedTask(
+      projectId,
+      chatSessionId,
+      failedTaskId,
+    );
   }
 
   // ─── User Message Routing ──────────────────────────────────
@@ -330,7 +364,11 @@ export class AgentOrchestratorService {
       this.logger.log(
         `Dev session created for project ${projectId} — starting feature interview`,
       );
-      await this.flow.startFeatureInterview(projectId, chatSessionId, sessionTitle);
+      await this.flow.startFeatureInterview(
+        projectId,
+        chatSessionId,
+        sessionTitle,
+      );
     } catch (err) {
       this.logger.error(`Failed to start feature interview: ${err.message}`);
     } finally {
@@ -353,7 +391,8 @@ export class AgentOrchestratorService {
 
     if (!this.flow.acquireStartLock(projectId, AgentRole.ARCHITECT)) return;
     try {
-      if (await this.flow.hasActiveAgent(projectId, AgentRole.ARCHITECT)) return;
+      if (await this.flow.hasActiveAgent(projectId, AgentRole.ARCHITECT))
+        return;
       await this.flow.startArchitectDesign(projectId, chatSessionId);
     } catch (err) {
       this.logger.error(
@@ -371,7 +410,8 @@ export class AgentOrchestratorService {
   }) {
     const { projectId, chatSessionId } = payload;
 
-    if (!this.flow.acquireStartLock(projectId, AgentRole.ISSUE_COMPILER)) return;
+    if (!this.flow.acquireStartLock(projectId, AgentRole.ISSUE_COMPILER))
+      return;
     try {
       if (await this.flow.hasActiveAgent(projectId, AgentRole.ISSUE_COMPILER))
         return;
@@ -395,7 +435,8 @@ export class AgentOrchestratorService {
 
     if (!this.flow.acquireStartLock(projectId, AgentRole.ARCHITECT)) return;
     try {
-      if (await this.flow.hasActiveAgent(projectId, AgentRole.ARCHITECT)) return;
+      if (await this.flow.hasActiveAgent(projectId, AgentRole.ARCHITECT))
+        return;
       this.logger.log(
         `Issue compilation complete for project ${projectId} — starting Architect (Phase B: Grounding)`,
       );
@@ -678,7 +719,7 @@ export class AgentOrchestratorService {
 
     await this.gitlabService
       .syncStatusLabel(gitlabProjectId, gitlabIid, 'IN_PROGRESS')
-      .catch(() => {});
+      .catch(() => {}); // GitLab label sync is best-effort — failure doesn't affect pipeline
 
     const issueWithSession = await this.prisma.issue.findUnique({
       where: { id: issue.id },
@@ -747,7 +788,7 @@ export class AgentOrchestratorService {
           updatedIssue.gitlabIid,
           'IN_PROGRESS',
         )
-        .catch(() => {});
+        .catch(() => {}); // GitLab label sync is best-effort — failure doesn't affect pipeline
     }
 
     const issueWithSession = await this.prisma.issue.findUnique({
@@ -814,7 +855,13 @@ export class AgentOrchestratorService {
     feedback?: string;
   }) {
     const {
-      projectId, chatSessionId, issueId, mrIid, gitlabProjectId, passed, feedback,
+      projectId,
+      chatSessionId,
+      issueId,
+      mrIid,
+      gitlabProjectId,
+      passed,
+      feedback,
     } = payload;
 
     if (passed) {
@@ -822,7 +869,13 @@ export class AgentOrchestratorService {
         `Functional test passed for issue ${issueId} — starting UI Tester`,
       );
       try {
-        await this.flow.startUiTest(projectId, chatSessionId, issueId, mrIid, gitlabProjectId);
+        await this.flow.startUiTest(
+          projectId,
+          chatSessionId,
+          issueId,
+          mrIid,
+          gitlabProjectId,
+        );
       } catch (err) {
         this.logger.error(`Failed to start UI Tester: ${err.message}`);
       }
@@ -831,8 +884,11 @@ export class AgentOrchestratorService {
         `Functional test failed for issue ${issueId} — re-triggering Coder`,
       );
       await this.retry.retriggerCoder(
-        projectId, chatSessionId, issueId,
-        feedback || 'Functional test failed', 'functional-test',
+        projectId,
+        chatSessionId,
+        issueId,
+        feedback || 'Functional test failed',
+        'functional-test',
       );
     }
   }
@@ -848,7 +904,13 @@ export class AgentOrchestratorService {
     feedback?: string;
   }) {
     const {
-      projectId, chatSessionId, issueId, mrIid, gitlabProjectId, passed, feedback,
+      projectId,
+      chatSessionId,
+      issueId,
+      mrIid,
+      gitlabProjectId,
+      passed,
+      feedback,
     } = payload;
 
     if (passed) {
@@ -856,7 +918,13 @@ export class AgentOrchestratorService {
         `UI test passed for issue ${issueId} — starting Pen Tester`,
       );
       try {
-        await this.flow.startPenTest(projectId, chatSessionId, issueId, mrIid, gitlabProjectId);
+        await this.flow.startPenTest(
+          projectId,
+          chatSessionId,
+          issueId,
+          mrIid,
+          gitlabProjectId,
+        );
       } catch (err) {
         this.logger.error(`Failed to start Pen Tester: ${err.message}`);
       }
@@ -865,8 +933,11 @@ export class AgentOrchestratorService {
         `UI test failed for issue ${issueId} — re-triggering Coder`,
       );
       await this.retry.retriggerCoder(
-        projectId, chatSessionId, issueId,
-        feedback || 'UI test failed', 'ui-test',
+        projectId,
+        chatSessionId,
+        issueId,
+        feedback || 'UI test failed',
+        'ui-test',
       );
     }
   }
@@ -882,7 +953,13 @@ export class AgentOrchestratorService {
     feedback?: string;
   }) {
     const {
-      projectId, chatSessionId, issueId, mrIid, gitlabProjectId, passed, feedback,
+      projectId,
+      chatSessionId,
+      issueId,
+      mrIid,
+      gitlabProjectId,
+      passed,
+      feedback,
     } = payload;
 
     if (passed) {
@@ -890,7 +967,13 @@ export class AgentOrchestratorService {
         `Pen test passed for issue ${issueId} — starting Documenter`,
       );
       try {
-        await this.flow.startDocumenter(projectId, chatSessionId, issueId, mrIid, gitlabProjectId);
+        await this.flow.startDocumenter(
+          projectId,
+          chatSessionId,
+          issueId,
+          mrIid,
+          gitlabProjectId,
+        );
       } catch (err) {
         this.logger.error(`Failed to start Documenter: ${err.message}`);
       }
@@ -899,8 +982,11 @@ export class AgentOrchestratorService {
         `Pen test failed for issue ${issueId} — re-triggering Coder`,
       );
       await this.retry.retriggerCoder(
-        projectId, chatSessionId, issueId,
-        feedback || 'Security test failed', 'security',
+        projectId,
+        chatSessionId,
+        issueId,
+        feedback || 'Security test failed',
+        'security',
       );
     }
   }

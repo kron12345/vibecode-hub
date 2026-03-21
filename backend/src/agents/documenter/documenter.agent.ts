@@ -11,7 +11,12 @@ import { ChatGateway } from '../../chat/chat.gateway';
 import { LlmService } from '../../llm/llm.service';
 import { GitlabService } from '../../gitlab/gitlab.service';
 import { LlmMessage } from '../../llm/llm.interfaces';
-import { BaseAgent, AgentContext, KNOWLEDGE_BASE_FILE, sanitizeJsonOutput } from '../agent-base';
+import {
+  BaseAgent,
+  AgentContext,
+  KNOWLEDGE_BASE_FILE,
+  sanitizeJsonOutput,
+} from '../agent-base';
 import { loadPrompt } from '../prompt-loader';
 import { MonitorGateway } from '../../monitor/monitor.gateway';
 import { DualTestService } from '../dual-test.service';
@@ -90,7 +95,9 @@ export class DocumenterAgent extends BaseAgent {
       const project = issue.project;
 
       if (!issue.gitlabIid) {
-        this.logger.warn(`Issue ${issueId} has no GitLab IID — skipping GitLab operations`);
+        this.logger.warn(
+          `Issue ${issueId} has no GitLab IID — skipping GitLab operations`,
+        );
       }
 
       // Check if this issue belongs to a dev session
@@ -134,10 +141,16 @@ export class DocumenterAgent extends BaseAgent {
             const matchIdx = existingDocs.findIndex(
               (d) => d.path.toUpperCase().replace(/\.md$/i, '') === wikiSlug,
             );
-            if (matchIdx >= 0 && wikiContent.length > existingDocs[matchIdx].content.length) {
+            if (
+              matchIdx >= 0 &&
+              wikiContent.length > existingDocs[matchIdx].content.length
+            ) {
               existingDocs[matchIdx].content = wikiContent;
             } else if (matchIdx < 0) {
-              existingDocs.push({ path: `${wikiSlug}.md`, content: wikiContent });
+              existingDocs.push({
+                path: `${wikiSlug}.md`,
+                content: wikiContent,
+              });
             }
           }
         } catch {
@@ -234,7 +247,7 @@ For code-level docs (README, API, JSDoc), keep \`wikiPage: false\` or omit it.`;
       }
 
       // Parse result
-      const docResult = await this.parseDocResult(result.content, issueId);
+      const docResult = await this.parseDocResult(result.content);
 
       if (!docResult || docResult.files.length === 0) {
         await this.sendAgentMessage(ctx, 'No documentation changes needed');
@@ -253,7 +266,10 @@ For code-level docs (README, API, JSDoc), keep \`wikiPage: false\` or omit it.`;
           const filePath = path.resolve(workspace, file.path);
 
           // Security: ensure path stays within workspace
-          if (filePath !== workspace && !filePath.startsWith(workspace + path.sep)) {
+          if (
+            filePath !== workspace &&
+            !filePath.startsWith(workspace + path.sep)
+          ) {
             this.logger.warn(`Skipping file outside workspace: ${file.path}`);
             continue;
           }
@@ -402,7 +418,7 @@ For code-level docs (README, API, JSDoc), keep \`wikiPage: false\` or omit it.`;
     if (doneIssue.gitlabIid) {
       await this.gitlabService
         .syncStatusLabel(gitlabProjectId, doneIssue.gitlabIid, 'DONE')
-        .catch(() => {});
+        .catch(() => {}); // GitLab label sync is best-effort — failure doesn't affect pipeline
     }
 
     // Cleanup screenshots — images have been uploaded to GitLab, no longer needed locally
@@ -513,7 +529,6 @@ For code-level docs (README, API, JSDoc), keep \`wikiPage: false\` or omit it.`;
 
   private async parseDocResult(
     content: string,
-    _issueId: string,
   ): Promise<{ summary: string; files: DocFile[] } | null> {
     this.logger.debug(`Parsing documenter result (${content.length} chars)`);
 
@@ -837,7 +852,9 @@ For code-level docs (README, API, JSDoc), keep \`wikiPage: false\` or omit it.`;
         await new Promise((resolve) => setTimeout(resolve, delayMs));
       }
     }
-    this.logger.warn(`MR !${mrIid} still has no diffs after ${maxRetries} attempts`);
+    this.logger.warn(
+      `MR !${mrIid} still has no diffs after ${maxRetries} attempts`,
+    );
     return [];
   }
 

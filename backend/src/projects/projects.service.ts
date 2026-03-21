@@ -1,4 +1,4 @@
-import { Injectable, Logger, ConflictException } from '@nestjs/common';
+import { Injectable, Logger } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { GitlabService } from '../gitlab/gitlab.service';
 import { PreviewService } from '../preview/preview.service';
@@ -100,7 +100,9 @@ export class ProjectsService {
       where: { id },
       data: {
         ...scalarFields,
-        ...(mergedTechStack !== undefined ? { techStack: mergedTechStack as Prisma.InputJsonValue } : {}),
+        ...(mergedTechStack !== undefined
+          ? { techStack: mergedTechStack as Prisma.InputJsonValue }
+          : {}),
       },
       include: {
         issues: { where: { parentId: null }, orderBy: { createdAt: 'desc' } },
@@ -172,7 +174,9 @@ export class ProjectsService {
     try {
       await this.gitlab.addProjectMember(gitlabProjectId, ownerUserId, 40);
     } catch (err) {
-      this.logger.warn(`Could not auto-add owner (user ${ownerUserId}) to GitLab project: ${err.message}`);
+      this.logger.warn(
+        `Could not auto-add owner (user ${ownerUserId}) to GitLab project: ${err.message}`,
+      );
     }
   }
 }

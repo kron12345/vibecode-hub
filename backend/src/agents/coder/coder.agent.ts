@@ -20,18 +20,11 @@ import {
   AgentRole,
   AgentStatus,
   AgentTaskStatus,
-  AgentTaskType,
   ChatSessionType,
   IssueStatus,
 } from '@prisma/client';
 
 const execFileAsync = promisify(execFile);
-
-/** Timeout for MCP agent loop (10 minutes) */
-// No timeout — LLMs get unlimited time (only maxIterations limits the loop)
-/** Fallback git timeout (overridden by pipeline config gitTimeoutSeconds) */
-/** Fallback git timeout — overridden by pipeline config gitTimeoutSeconds */
-const _FALLBACK_GIT_TIMEOUT_MS = 60_000;
 
 @Injectable()
 export class CoderAgent extends BaseAgent {
@@ -725,7 +718,11 @@ export class CoderAgent extends BaseAgent {
         where: { id: agentTask.id },
         data: {
           status: AgentTaskStatus.COMPLETED,
-          output: sanitizeJsonOutput({ changedFiles, feedbackSource, commitSha }) as any,
+          output: sanitizeJsonOutput({
+            changedFiles,
+            feedbackSource,
+            commitSha,
+          }) as any,
           completedAt: new Date(),
         },
       });
@@ -1168,7 +1165,7 @@ export class CoderAgent extends BaseAgent {
                     'git',
                     ['worktree', 'remove', '--force', wtPath],
                     { cwd, timeout: this.getGitTimeoutMs() },
-                  ).catch(() => {});
+                  ).catch((err) => { this.logger.warn(`Failed to remove stale worktree ${wtPath}: ${err.message}`); });
                   await execFileAsync('git', ['checkout', branch], {
                     cwd,
                     timeout: this.getGitTimeoutMs(),

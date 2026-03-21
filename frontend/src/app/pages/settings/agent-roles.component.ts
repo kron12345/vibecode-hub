@@ -979,12 +979,10 @@ export class AgentRolesComponent implements OnInit {
 
     this.api.getProviderModels().subscribe({
       next: (results) => {
-        console.log('[Settings] Provider models loaded:', Object.keys(results).map(k => `${k}: ${results[k]?.models?.length ?? 0} models`));
         this.providerResults.set(results);
         this.modelsLoading.set(false);
       },
-      error: (err) => {
-        console.error('[Settings] Failed to load provider models:', err?.status, err?.message || err);
+      error: () => {
         this.modelsLoading.set(false);
       },
     });

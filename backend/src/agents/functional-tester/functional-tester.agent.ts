@@ -29,7 +29,13 @@ import {
   buildIssueSummaryWithThreadLinks,
   FindingForThread,
 } from '../finding-thread.utils';
-import { stripThinkTags, cleanJsonString, findJsonObject, extractJson, normalizePass, normalizeSeverity, formatDiffsForPrompt } from '../agent-result-parser';
+import {
+  stripThinkTags,
+  cleanJsonString,
+  extractJson,
+  normalizePass,
+  normalizeSeverity,
+} from '../agent-result-parser';
 import {
   FunctionalTestResult,
   FunctionalTestFinding,
@@ -199,7 +205,8 @@ export class FunctionalTesterAgent extends BaseAgent {
           : '';
 
       // Extract Loop Resolver clarifications (if any) — must be respected by tester
-      const loopResolverSection = extractLoopResolverClarifications(commentHistory);
+      const loopResolverSection =
+        extractLoopResolverClarifications(commentHistory);
 
       const userPrompt = `Verify the following merge request${previousFindings.length > 0 ? ' (Re-test after fix attempt)' : ''} implements the issue requirements:
 
@@ -852,7 +859,9 @@ Do NOT omit the JSON block.`;
         await new Promise((resolve) => setTimeout(resolve, delayMs));
       }
     }
-    this.logger.warn(`MR !${mrIid} still has no diffs after ${maxRetries} attempts`);
+    this.logger.warn(
+      `MR !${mrIid} still has no diffs after ${maxRetries} attempts`,
+    );
     return [];
   }
 

@@ -29,12 +29,17 @@ import {
   extractArchitectOutOfScopeItems,
   filterOutOfScopeFindings,
 } from '../agent-scope.utils';
-import { stripThinkTags, cleanJsonString, findJsonObject, extractJson, normalizePass, normalizeSeverity } from '../agent-result-parser';
+import {
+  stripThinkTags,
+  cleanJsonString,
+  extractJson,
+  normalizePass,
+  normalizeSeverity,
+} from '../agent-result-parser';
 import {
   UiTestResult,
   UiTestFinding,
   ScreenshotManifest,
-  ScreenshotEntry,
 } from './ui-test-result.interface';
 import { PlaywrightRunner, PageCapture, A11yResult } from './playwright-runner';
 import * as fs from 'fs/promises';
@@ -321,7 +326,8 @@ export class UiTesterAgent extends BaseAgent {
               )}\n\nFor each finding above: if fixed, report in \`resolvedFromPrevious\`. If still present, carry forward with SAME description.\n`
           : '';
 
-      const loopResolverSection = extractLoopResolverClarifications(commentHistory);
+      const loopResolverSection =
+        extractLoopResolverClarifications(commentHistory);
 
       const userPrompt = `Analyze the UI changes in this merge request${previousFindings.length > 0 ? ' (Re-test after fix attempt)' : ''}:
 
@@ -502,8 +508,9 @@ Do NOT omit the JSON block.`;
               agentRole: AgentRole.UI_TESTER,
               roundNumber: scopedMergedResult.roundNumber ?? 1,
               findings: dualFindingsForThreads,
-              confirmedResolved: scopedMergedResult.resolvedFromPrevious
-                ?.map((r: any) => ({ message: r.description })),
+              confirmedResolved: scopedMergedResult.resolvedFromPrevious?.map(
+                (r: any) => ({ message: r.description }),
+              ),
             });
 
             const testMarkdown = buildIssueSummaryWithThreadLinks({
@@ -642,8 +649,9 @@ Do NOT omit the JSON block.`;
         agentRole: AgentRole.UI_TESTER,
         roundNumber: testResult.roundNumber ?? 1,
         findings: findingsForThreads,
-        confirmedResolved: testResult.resolvedFromPrevious
-          ?.map((r: any) => ({ message: r.description })),
+        confirmedResolved: testResult.resolvedFromPrevious?.map((r: any) => ({
+          message: r.description,
+        })),
       });
 
       const testMarkdown = buildIssueSummaryWithThreadLinks({
@@ -1214,7 +1222,9 @@ Use this exact format for each:
         await new Promise((resolve) => setTimeout(resolve, delayMs));
       }
     }
-    this.logger.warn(`MR !${mrIid} still has no diffs after ${maxRetries} attempts`);
+    this.logger.warn(
+      `MR !${mrIid} still has no diffs after ${maxRetries} attempts`,
+    );
     return [];
   }
 

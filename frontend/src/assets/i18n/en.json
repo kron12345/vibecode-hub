@@ -85,6 +85,13 @@
     "penTesting": "Running security tests...",
     "documenting": "Generating documentation...",
     "pipelineComplete": "Pipeline complete",
+    "pipelinePausedTitle": "Pipeline paused for this session",
+    "pipelinePausedHint": "A task failed. Fix the underlying tool/provider problem and resume from the last failed task.",
+    "failedTask": "Failed task",
+    "failedReason": "Reason",
+    "resumePipeline": "Resume pipeline",
+    "resuming": "Resuming...",
+    "failedAt": "Failed at",
     "statusTesting": "Testing",
     "statusDone": "Done",
     "tabOverview": "Overview",
@@ -220,7 +227,7 @@
     "gitTimeout": "Git Timeout (sec)",
     "gitTimeoutHint": "Timeout for git operations (clone, push, merge)",
     "cliTimeout": "CLI Timeout (min)",
-    "cliTimeoutHint": "Timeout for CLI tools (Claude Code, Codex CLI, etc.)",
+    "cliTimeoutHint": "Timeout for CLI tools (Claude Code, Codex CLI, etc.). Default: 90 minutes.",
     "maxReviewDiffs": "Max Review Diffs",
     "maxReviewDiffsHint": "Max file diffs analyzed per review run",
     "provider": "Provider",
@@ -335,7 +342,8 @@
     "deleteWarning": "This action cannot be undone. The following will be deleted:",
     "deleteGitlab": "GitLab repository including all branches and wiki",
     "deleteDb": "All issues, milestones, and agent logs",
-    "deleteChats": "All chat sessions and messages"
+    "deleteChats": "All chat sessions and messages",
+    "deleteError": "Failed to delete project. Please try again."
   },
   "agentsPage": {
     "title": "Agents",
@@ -371,6 +379,9 @@
     "readOnly": "This session is archived.",
     "openIssuesWarning": "Open issues will be cancelled.",
     "noSessions": "No sessions yet"
+  },
+  "chat": {
+    "uploadFailed": "File upload failed. Please try again."
   },
   "languages": {
     "de": "Deutsch",

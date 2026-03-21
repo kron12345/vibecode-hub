@@ -202,9 +202,12 @@ const STATUS_ICONS: Record<string, string> = {
             <li class="flex items-center gap-2"><app-icon name="database" [size]="12" class="text-red-400" /> {{ 'projectsList.deleteDb' | translate }}</li>
             <li class="flex items-center gap-2"><app-icon name="message-circle" [size]="12" class="text-red-400" /> {{ 'projectsList.deleteChats' | translate }}</li>
           </ul>
+          @if (deleteError()) {
+            <p class="text-sm text-red-400 mb-4">{{ 'projectsList.deleteError' | translate }}</p>
+          }
           <div class="flex justify-end gap-3">
             <button
-              (click)="deleteTarget.set(null)"
+              (click)="deleteTarget.set(null); deleteError.set(false)"
               class="px-4 py-2 rounded-xl text-sm text-slate-400 hover:text-white bg-slate-800/50 hover:bg-slate-700/50 border border-white/10 transition-all"
             >
               {{ 'common.cancel' | translate }}
@@ -234,6 +237,7 @@ export class ProjectsPage implements OnInit {
   projects = signal<Project[]>([]);
   deleteTarget = signal<Project | null>(null);
   deleting = signal(false);
+  deleteError = signal(false);
   searchQuery = '';
   filterStatus = '';
   sortField: 'updatedAt' | 'name' | 'createdAt' = 'updatedAt';
@@ -291,14 +295,15 @@ export class ProjectsPage implements OnInit {
     if (!project) return;
 
     this.deleting.set(true);
+    this.deleteError.set(false);
     this.api.deleteProject(project.id).subscribe({
       next: () => {
         this.projects.update((list) => list.filter((p) => p.id !== project.id));
         this.deleteTarget.set(null);
         this.deleting.set(false);
       },
-      error: (err) => {
-        console.error('Delete failed:', err);
+      error: () => {
+        this.deleteError.set(true);
         this.deleting.set(false);
       },
     });

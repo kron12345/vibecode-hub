@@ -3,7 +3,10 @@ import { PrismaService } from '../../prisma/prisma.service';
 import { GitlabService } from '../../gitlab/gitlab.service';
 import { LlmService } from '../../llm/llm.service';
 import { SystemSettingsService } from '../../settings/system-settings.service';
-import { postAgentComment, getAgentCommentHistory } from '../agent-comment.utils';
+import {
+  postAgentComment,
+  getAgentCommentHistory,
+} from '../agent-comment.utils';
 import {
   AgentRole,
   AgentTaskType,
@@ -83,14 +86,15 @@ export class LoopResolverService {
       });
 
       // 5. Build LLM prompt
-      const findingSummary = unresolvedFindings.length > 0
-        ? unresolvedFindings
-            .map(
-              (f, i) =>
-                `${i + 1}. [${f.severity}] ${f.message} (round ${f.roundNumber}, fingerprint: ${f.fingerprint})`,
-            )
-            .join('\n')
-        : 'No tracked findings in DB (findings may be in agent comments only).';
+      const findingSummary =
+        unresolvedFindings.length > 0
+          ? unresolvedFindings
+              .map(
+                (f, i) =>
+                  `${i + 1}. [${f.severity}] ${f.message} (round ${f.roundNumber}, fingerprint: ${f.fingerprint})`,
+              )
+              .join('\n')
+          : 'No tracked findings in DB (findings may be in agent comments only).';
 
       const systemPrompt = `You are the Loop Resolver for VibCode Hub's AI development pipeline.
 
@@ -257,7 +261,7 @@ Analyze the root cause of this loop and produce a JSON response.`;
               where: { issueId, fingerprint, resolved: false },
               data: { resolved: true },
             })
-            .catch(() => {});
+            .catch((err) => { this.logger.warn(`Failed to resolve finding '${fingerprint}': ${err.message}`); });
         }
         this.logger.log(
           `Loop Resolver: Resolved ${analysis.findingsToResolve.length} findings for ${issueId}`,
@@ -346,10 +350,15 @@ Analyze the root cause of this loop and produce a JSON response.`;
     if (start !== -1 && end !== -1) {
       try {
         const parsed = JSON.parse(stripped.substring(start, end + 1));
-        if (typeof parsed.loopDetected === 'boolean' || typeof parsed.action === 'string') {
+        if (
+          typeof parsed.loopDetected === 'boolean' ||
+          typeof parsed.action === 'string'
+        ) {
           return parsed;
         }
-      } catch { /* try next strategy */ }
+      } catch {
+        /* try next strategy */
+      }
     }
 
     // Strategy 2: Greedy regex (fallback)

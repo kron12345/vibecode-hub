@@ -695,13 +695,15 @@ export class ProjectPage implements OnInit, OnDestroy {
           if (p) this.loadSessions(p.id);
           this.closeSession();
         } else if (result.error) {
-          console.error('Archive failed:', result.error);
+          this.toast.set('error');
+          setTimeout(() => this.toast.set(null), 3000);
           const p = this.project();
           if (p) this.loadSessions(p.id);
         }
       },
-      error: (err) => {
-        console.error('Archive request failed:', err);
+      error: () => {
+        this.toast.set('error');
+        setTimeout(() => this.toast.set(null), 3000);
       },
     });
   }
@@ -719,8 +721,9 @@ export class ProjectPage implements OnInit, OnDestroy {
         this.sessions.update(s => [session, ...s]);
         this.openSession(session);
       },
-      error: (err) => {
-        console.error('Failed to create dev session:', err);
+      error: () => {
+        this.toast.set('error');
+        setTimeout(() => this.toast.set(null), 3000);
       },
     });
   }

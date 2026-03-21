@@ -85,6 +85,13 @@
     "penTesting": "Tests de sécurité en cours...",
     "documenting": "Génération de la documentation...",
     "pipelineComplete": "Pipeline terminé",
+    "pipelinePausedTitle": "Pipeline en pause pour cette session",
+    "pipelinePausedHint": "Une tâche a échoué. Corrige le problème d'outil/fournisseur puis reprends depuis la dernière tâche en échec.",
+    "failedTask": "Tâche échouée",
+    "failedReason": "Raison",
+    "resumePipeline": "Reprendre le pipeline",
+    "resuming": "Reprise...",
+    "failedAt": "Échec à",
     "statusTesting": "En test",
     "statusDone": "Terminé",
     "tabOverview": "Vue d'ensemble",
@@ -220,7 +227,7 @@
     "gitTimeout": "Git Timeout (sec)",
     "gitTimeoutHint": "Timeout pour opérations git (clone, push, merge)",
     "cliTimeout": "CLI Timeout (min)",
-    "cliTimeoutHint": "Timeout pour outils CLI (Claude Code, Codex CLI, etc.)",
+    "cliTimeoutHint": "Timeout pour outils CLI (Claude Code, Codex CLI, etc.). Par défaut : 90 minutes.",
     "maxReviewDiffs": "Max Diffs Revue",
     "maxReviewDiffsHint": "Max diffs de fichiers analysés par revue",
     "provider": "Fournisseur",
@@ -335,7 +342,8 @@
     "deleteWarning": "Cette action est irréversible. Les éléments suivants seront supprimés :",
     "deleteGitlab": "Dépôt GitLab y compris toutes les branches et le wiki",
     "deleteDb": "Tous les issues, jalons et journaux d'agents",
-    "deleteChats": "Toutes les sessions de chat et les messages"
+    "deleteChats": "Toutes les sessions de chat et les messages",
+    "deleteError": "Impossible de supprimer le projet. Veuillez réessayer."
   },
   "agentsPage": {
     "title": "Agents",
@@ -371,6 +379,9 @@
     "readOnly": "Cette session est archivée.",
     "openIssuesWarning": "Les issues ouvertes seront annulées.",
     "noSessions": "Aucune session"
+  },
+  "chat": {
+    "uploadFailed": "Echec du transfert de fichier. Veuillez réessayer."
   },
   "languages": {
     "de": "Deutsch",

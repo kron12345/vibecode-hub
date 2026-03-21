@@ -39,7 +39,12 @@ export class McpAgentLoopService {
   async run(options: McpAgentLoopOptions): Promise<McpAgentLoopResult> {
     const start = Date.now();
     const pipelineCfg = this.settings.getPipelineConfig();
-    const maxIterations = options.maxIterations ?? pipelineCfg.mcpMaxIterations ?? FALLBACK_MAX_ITERATIONS;
+    const maxIterations =
+      options.maxIterations ??
+      pipelineCfg.mcpMaxIterations ??
+      FALLBACK_MAX_ITERATIONS;
+    const llmTimeoutMs =
+      options.timeoutMs ?? (pipelineCfg.cliTimeoutMinutes ?? 90) * 60 * 1000;
     let sessionId: string | null = null;
 
     try {
@@ -64,17 +69,21 @@ export class McpAgentLoopService {
       // Agent loop
       while (iterations < maxIterations) {
         iterations++;
-        this.logger.debug(`Agent loop iteration ${iterations}/${maxIterations}`);
+        this.logger.debug(
+          `Agent loop iteration ${iterations}/${maxIterations}`,
+        );
 
         // Write activity log every 5 iterations to prevent stuck-task cleanup
         if (options.agentTaskId && iterations % 5 === 1) {
-          this.prisma.agentLog.create({
-            data: {
-              agentTaskId: options.agentTaskId,
-              level: 'INFO',
-              message: `MCP agent loop active — iteration ${iterations}/${maxIterations}, ${totalToolCalls} tool calls`,
-            },
-          }).catch(() => {}); // Fire-and-forget, don't block the loop
+          this.prisma.agentLog
+            .create({
+              data: {
+                agentTaskId: options.agentTaskId,
+                level: 'INFO',
+                message: `MCP agent loop active — iteration ${iterations}/${maxIterations}, ${totalToolCalls} tool calls`,
+              },
+            })
+            .catch((err) => { this.logger.debug(`Activity log write failed (non-critical): ${err.message}`); });
         }
 
         // Call LLM with tools
@@ -86,8 +95,24 @@ export class McpAgentLoopService {
           temperature: options.temperature,
           maxTokens: options.maxTokens,
           cwd: options.cwd,
-          // No timeout — LLMs get unlimited time per iteration (only maxIterations limits the loop)
+          timeoutMs: llmTimeoutMs,
         });
+
+        if (result.finishReason === 'error') {
+          const errorMessage =
+            result.errorMessage || 'LLM provider call failed';
+          this.logger.warn(
+            `Agent loop LLM error on iteration ${iterations}: ${errorMessage}`,
+          );
+          return this.buildResult(
+            '',
+            iterations,
+            totalToolCalls,
+            start,
+            'error',
+            errorMessage,
+          );
+        }
 
         options.onIteration?.(iterations, result.content);
 
@@ -102,7 +127,9 @@ export class McpAgentLoopService {
 
           // Execute each tool call
           for (const toolCall of result.toolCalls) {
-            this.logger.debug(`Executing tool: ${toolCall.name}(${JSON.stringify(toolCall.arguments).substring(0, 200)})`);
+            this.logger.debug(
+              `Executing tool: ${toolCall.name}(${JSON.stringify(toolCall.arguments).substring(0, 200)})`,
+            );
 
             const toolResult = await this.mcpClient.callTool(
               sessionId,
@@ -131,7 +158,13 @@ export class McpAgentLoopService {
           this.logger.log(
             `Agent loop complete after ${iterations} iterations, ${totalToolCalls} tool calls, ${result.content.length} chars`,
           );
-          return this.buildResult(finalContent, iterations, totalToolCalls, start, 'complete');
+          return this.buildResult(
+            finalContent,
+            iterations,
+            totalToolCalls,
+            start,
+            'complete',
+          );
         }
 
         // Case 3: Empty response — if we already executed tools, treat as "complete" (files were written)
@@ -141,21 +174,37 @@ export class McpAgentLoopService {
           );
           return this.buildResult(
             `(Agent completed ${totalToolCalls} tool operations)`,
-            iterations, totalToolCalls, start, 'complete',
+            iterations,
+            totalToolCalls,
+            start,
+            'complete',
           );
         }
-        this.logger.warn(`Agent loop: LLM returned empty response on iteration ${iterations}`);
-        return this.buildResult('', iterations, totalToolCalls, start, 'error');
+        this.logger.warn(
+          `Agent loop: LLM returned empty response on iteration ${iterations}`,
+        );
+        return this.buildResult(
+          '',
+          iterations,
+          totalToolCalls,
+          start,
+          'error',
+          'LLM returned empty response',
+        );
       }
 
       // Max iterations reached
       this.logger.warn(`Agent loop hit max iterations (${maxIterations})`);
-      return this.buildResult(finalContent, iterations, totalToolCalls, start, 'max_iterations');
-
+      return this.buildResult(
+        finalContent,
+        iterations,
+        totalToolCalls,
+        start,
+        'max_iterations',
+      );
     } catch (err) {
       this.logger.error(`Agent loop error: ${err.message}`, err.stack);
-      return this.buildResult('', 0, 0, start, 'error');
-
+      return this.buildResult('', 0, 0, start, 'error', err.message);
     } finally {
       // Always clean up MCP servers
       if (sessionId) {
@@ -170,6 +219,7 @@ export class McpAgentLoopService {
     toolCallsExecuted: number,
     startMs: number,
     finishReason: McpAgentLoopResult['finishReason'],
+    errorMessage?: string,
   ): McpAgentLoopResult {
     return {
       content,
@@ -177,6 +227,7 @@ export class McpAgentLoopService {
       toolCallsExecuted,
       durationMs: Date.now() - startMs,
       finishReason,
+      ...(errorMessage && { errorMessage }),
     };
   }
 }

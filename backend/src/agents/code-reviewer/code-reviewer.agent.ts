@@ -27,7 +27,13 @@ import {
   buildIssueSummaryWithThreadLinks,
   FindingForThread,
 } from '../finding-thread.utils';
-import { stripThinkTags, cleanJsonString, findJsonObject, extractJson, normalizeApproval, normalizeSeverity } from '../agent-result-parser';
+import {
+  stripThinkTags,
+  cleanJsonString,
+  extractJson,
+  normalizeApproval,
+  normalizeSeverity,
+} from '../agent-result-parser';
 import { ReviewResult, ReviewFinding } from './review-result.interface';
 import {
   AgentRole,
@@ -204,7 +210,8 @@ export class CodeReviewerAgent extends BaseAgent {
               )}\n\nFor each finding above: check if it is now fixed in the current code. Report fixed items in \`resolvedFromPrevious\`. Carry unfixed items forward in \`findings\` with the SAME message text.\n`
           : '';
 
-      const loopResolverSection = extractLoopResolverClarifications(commentHistory);
+      const loopResolverSection =
+        extractLoopResolverClarifications(commentHistory);
 
       const userPrompt = `Review the following merge request${previousFindings.length > 0 ? ' (Re-review after fix attempt)' : ''}:
 
@@ -248,7 +255,8 @@ ${
 
       // If parsing returned 0 findings but the response was substantial, retry JSON extraction
       // Skip retry when secondary timed out — trust primary as-is to avoid phantom findings
-      const secondaryTimedOut = this.dualTestService.isDualConfigured(config) && !dualResult.secondary;
+      const secondaryTimedOut =
+        this.dualTestService.isDualConfigured(config) && !dualResult.secondary;
       if (
         reviewResult &&
         reviewResult.findings.length === 0 &&
@@ -398,21 +406,28 @@ ${
       }
     } catch (err) {
       // Enhanced error logging with stack trace for crash-site identification
-      const isJsonError = err.message?.includes('json') || err.message?.includes('Json');
+      const isJsonError =
+        err.message?.includes('json') || err.message?.includes('Json');
       const stack = err.stack?.split('\n').slice(1, 6).join('\n') ?? '';
 
-      this.logger.error(`Review failed [${isJsonError ? 'JSONB' : 'other'}]: ${err.message}`);
+      this.logger.error(
+        `Review failed [${isJsonError ? 'JSONB' : 'other'}]: ${err.message}`,
+      );
       if (stack) this.logger.error(`Stack trace:\n${stack}`);
 
       // Save stack trace to agent logs for DB-level debugging
       try {
         const debugMsg = `Review failed: ${err.message?.substring(0, 300) ?? 'unknown'}\nStack: ${stack.substring(0, 400)}`;
         await this.log(ctx.agentTaskId, 'ERROR', debugMsg);
-      } catch { /* best effort */ }
+      } catch {
+        /* best effort */
+      }
 
       // For JSONB errors: try to complete the task with a raw SQL fallback
       if (isJsonError) {
-        this.logger.warn('JSONB error detected — attempting raw SQL status update to rescue the task');
+        this.logger.warn(
+          'JSONB error detected — attempting raw SQL status update to rescue the task',
+        );
         try {
           await this.prisma.$executeRaw`
             UPDATE agent_tasks SET status = 'COMPLETED', "completedAt" = NOW(),
@@ -438,8 +453,11 @@ ${
       await this.sendAgentMessage(
         ctx,
         `❌ **Code Reviewer** error: ${err.message}`,
-      ).catch(() => {});
-      await this.markFailed(ctx, err.message?.substring(0, 500) ?? 'unknown error');
+      ).catch((msgErr) => { this.logger.warn(`Failed to send error message to chat: ${msgErr.message}`); });
+      await this.markFailed(
+        ctx,
+        err.message?.substring(0, 500) ?? 'unknown error',
+      );
     }
   }
 
@@ -467,7 +485,7 @@ ${
     if (approvedIssue.gitlabIid) {
       await this.gitlabService
         .syncStatusLabel(gitlabProjectId, approvedIssue.gitlabIid, 'TESTING')
-        .catch(() => {});
+        .catch(() => {}); // GitLab label sync is best-effort — failure doesn't affect pipeline
     }
 
     // Complete task — with diagnostic logging if JSONB save fails
@@ -483,15 +501,25 @@ ${
       });
     } catch (saveErr) {
       // Log the EXACT data that failed to save for debugging
-      this.logger.error(`JSONB save failed in handleApproved: ${saveErr.message}`);
-      this.logger.error(`Sanitized output type: ${typeof sanitizedOutput}, JSON.stringify length: ${JSON.stringify(sanitizedOutput ?? null).length}`);
-      this.logger.error(`Sanitized output sample: ${JSON.stringify(sanitizedOutput ?? null).substring(0, 500)}`);
+      this.logger.error(
+        `JSONB save failed in handleApproved: ${saveErr.message}`,
+      );
+      this.logger.error(
+        `Sanitized output type: ${typeof sanitizedOutput}, JSON.stringify length: ${JSON.stringify(sanitizedOutput ?? null).length}`,
+      );
+      this.logger.error(
+        `Sanitized output sample: ${JSON.stringify(sanitizedOutput ?? null).substring(0, 500)}`,
+      );
       // Retry with a minimal safe output
       await this.prisma.agentTask.update({
         where: { id: ctx.agentTaskId },
         data: {
           status: AgentTaskStatus.COMPLETED,
-          output: { summary: reviewResult.summary?.substring(0, 200) ?? 'Save failed', approved: reviewResult.approved, findings: [] } as any,
+          output: {
+            summary: reviewResult.summary?.substring(0, 200) ?? 'Save failed',
+            approved: reviewResult.approved,
+            findings: [],
+          } as any,
           completedAt: new Date(),
         },
       });
@@ -537,7 +565,7 @@ ${
     if (changedIssue.gitlabIid) {
       await this.gitlabService
         .syncStatusLabel(gitlabProjectId, changedIssue.gitlabIid, 'IN_PROGRESS')
-        .catch(() => {});
+        .catch(() => {}); // GitLab label sync is best-effort — failure doesn't affect pipeline
     }
 
     // Complete review task — with fallback if JSONB save fails
@@ -552,8 +580,12 @@ ${
         },
       });
     } catch (saveErr) {
-      this.logger.error(`JSONB save failed in handleChangesRequested: ${saveErr.message}`);
-      this.logger.error(`Output sample: ${JSON.stringify(sanitizedChangesOutput ?? null).substring(0, 500)}`);
+      this.logger.error(
+        `JSONB save failed in handleChangesRequested: ${saveErr.message}`,
+      );
+      this.logger.error(
+        `Output sample: ${JSON.stringify(sanitizedChangesOutput ?? null).substring(0, 500)}`,
+      );
       // Retry with minimal safe output — preserve findings count + summary for pipeline logic
       await this.prisma.agentTask.update({
         where: { id: ctx.agentTaskId },
@@ -562,7 +594,11 @@ ${
           output: {
             summary: reviewResult.summary?.substring(0, 200) ?? 'Save failed',
             approved: reviewResult.approved,
-            findings: reviewResult.findings.map(f => ({ severity: f.severity, file: f.file, message: (f.message ?? '').substring(0, 200) })),
+            findings: reviewResult.findings.map((f) => ({
+              severity: f.severity,
+              file: f.file,
+              message: (f.message ?? '').substring(0, 200),
+            })),
           } as any,
           completedAt: new Date(),
         },
@@ -672,42 +708,79 @@ ${
 
       // Repair "No details" findings by extracting info from the summary or raw text
       // Some LLMs (gpt-5.3-codex) put finding details in summary instead of finding objects
-      const noDetailFindings = findings.filter(f => f.message === 'No details');
+      const noDetailFindings = findings.filter(
+        (f) => f.message === 'No details',
+      );
       if (noDetailFindings.length > 0) {
         // Strategy 1: Parse numbered items from summary: "1. 🔴 Description (file:line)"
         if (summary && summary.length > 20) {
-          const summaryItems = summary.match(/\d+\.\s*[🔴🟡🔵⚠️]?\s*\*?\*?(?:critical|warning|info)?:?\*?\*?\s*(.+?)(?=\d+\.\s*[🔴🟡🔵⚠️]|$)/gi) || [];
-          for (let i = 0; i < noDetailFindings.length && i < summaryItems.length; i++) {
-            const item = summaryItems[i].replace(/^\d+\.\s*[🔴🟡🔵⚠️]?\s*\*?\*?(?:critical|warning|info)?:?\*?\*?\s*/i, '').trim();
+          const summaryItems =
+            summary.match(
+              /\d+\.\s*[🔴🟡🔵⚠️]?\s*\*?\*?(?:critical|warning|info)?:?\*?\*?\s*(.+?)(?=\d+\.\s*[🔴🟡🔵⚠️]|$)/gi,
+            ) || [];
+          for (
+            let i = 0;
+            i < noDetailFindings.length && i < summaryItems.length;
+            i++
+          ) {
+            const item = summaryItems[i]
+              .replace(
+                /^\d+\.\s*[🔴🟡🔵⚠️]?\s*\*?\*?(?:critical|warning|info)?:?\*?\*?\s*/i,
+                '',
+              )
+              .trim();
             if (item.length > 5) {
               noDetailFindings[i].message = item.substring(0, 300);
-              this.logger.debug(`Repaired "No details" finding ${i + 1} from summary: ${item.substring(0, 80)}`);
+              this.logger.debug(
+                `Repaired "No details" finding ${i + 1} from summary: ${item.substring(0, 80)}`,
+              );
             }
           }
         }
 
         // Strategy 2: Try extracting from the raw text before the JSON
         // Look for bullet points, numbered lists, or severity markers in the pre-JSON text
-        const stillEmpty = findings.filter(f => f.message === 'No details');
+        const stillEmpty = findings.filter((f) => f.message === 'No details');
         if (stillEmpty.length > 0) {
           const markerPos = cleaned.indexOf(COMPLETION_MARKER);
-          const beforeJson = markerPos > 0 ? cleaned.substring(0, markerPos) : cleaned.substring(0, cleaned.lastIndexOf('{'));
+          const beforeJson =
+            markerPos > 0
+              ? cleaned.substring(0, markerPos)
+              : cleaned.substring(0, cleaned.lastIndexOf('{'));
           if (beforeJson.length > 50) {
             // Find severity-tagged lines: **critical**, **warning**, 🔴, etc.
-            const detailLines = beforeJson.match(/(?:^|\n)\s*(?:\d+\.\s*)?(?:[🔴🟡🔵]\s*)?(?:\*\*(?:critical|warning|info)\*\*[:\s—–-]*)?(.{10,200}?)(?=\n\s*(?:\d+\.|\*\*|[🔴🟡🔵]|$))/gim) || [];
+            const detailLines =
+              beforeJson.match(
+                /(?:^|\n)\s*(?:\d+\.\s*)?(?:[🔴🟡🔵]\s*)?(?:\*\*(?:critical|warning|info)\*\*[:\s—–-]*)?(.{10,200}?)(?=\n\s*(?:\d+\.|\*\*|[🔴🟡🔵]|$))/gim,
+              ) || [];
             const cleanLines = detailLines
-              .map(l => l.replace(/^\s*\d+\.\s*/, '').replace(/[🔴🟡🔵]\s*/, '').replace(/\*\*/g, '').trim())
-              .filter(l => l.length > 10 && !l.startsWith('```') && !l.startsWith('##'));
-            for (let i = 0; i < stillEmpty.length && i < cleanLines.length; i++) {
+              .map((l) =>
+                l
+                  .replace(/^\s*\d+\.\s*/, '')
+                  .replace(/[🔴🟡🔵]\s*/, '')
+                  .replace(/\*\*/g, '')
+                  .trim(),
+              )
+              .filter(
+                (l) =>
+                  l.length > 10 && !l.startsWith('```') && !l.startsWith('##'),
+              );
+            for (
+              let i = 0;
+              i < stillEmpty.length && i < cleanLines.length;
+              i++
+            ) {
               stillEmpty[i].message = cleanLines[i].substring(0, 300);
-              this.logger.debug(`Repaired "No details" finding ${i + 1} from raw text: ${cleanLines[i].substring(0, 80)}`);
+              this.logger.debug(
+                `Repaired "No details" finding ${i + 1} from raw text: ${cleanLines[i].substring(0, 80)}`,
+              );
             }
           }
         }
 
         // Strategy 3: If ALL findings are STILL "No details" after repair,
         // this review is useless — don't send empty findings to the Coder
-        const finallyEmpty = findings.filter(f => f.message === 'No details');
+        const finallyEmpty = findings.filter((f) => f.message === 'No details');
         if (finallyEmpty.length === findings.length && findings.length > 0) {
           this.logger.warn(
             `All ${findings.length} findings have "No details" after repair attempts — treating as parse failure`,
@@ -806,13 +879,20 @@ ${
 
     // Post-validation: detect field-mixing (expectedFix text in message field)
     for (const finding of result) {
-      if (finding.message && /^(Erwarteter Fix|Expected Fix|Fix:|Suggestion:|Empfehlung:)/i.test(finding.message)) {
+      if (
+        finding.message &&
+        /^(Erwarteter Fix|Expected Fix|Fix:|Suggestion:|Empfehlung:)/i.test(
+          finding.message,
+        )
+      ) {
         // Move the fix text to expectedFix if not already set
         if (!finding.expectedFix) {
           finding.expectedFix = finding.message;
         }
         // Try to use suggestion as the real message, or mark as needs-detail
-        finding.message = finding.suggestion ?? `Finding in ${finding.file}${finding.line ? `:${finding.line}` : ''} (see expectedFix for details)`;
+        finding.message =
+          finding.suggestion ??
+          `Finding in ${finding.file}${finding.line ? `:${finding.line}` : ''} (see expectedFix for details)`;
       }
     }
 

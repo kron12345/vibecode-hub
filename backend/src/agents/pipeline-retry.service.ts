@@ -12,7 +12,6 @@ import {
   AgentStatus,
   AgentTaskType,
   AgentTaskStatus,
-  ChatSessionType,
   IssueStatus,
 } from '@prisma/client';
 
@@ -109,7 +108,7 @@ export class PipelineRetryService {
             },
             data: { status: IssueStatus.NEEDS_REVIEW },
           })
-          .catch(() => {});
+          .catch((err) => { this.logger.warn(`Failed to update sub-issue statuses: ${err.message}`); });
 
         if (stoppedIssue.gitlabIid && stoppedIssue.project.gitlabProjectId) {
           await this.gitlabService
@@ -118,7 +117,7 @@ export class PipelineRetryService {
               stoppedIssue.gitlabIid,
               'NEEDS_REVIEW',
             )
-            .catch(() => {});
+            .catch(() => {}); // GitLab label sync is best-effort — failure doesn't affect pipeline
           await this.gitlabService
             .createIssueNote(
               stoppedIssue.project.gitlabProjectId,
@@ -128,12 +127,13 @@ export class PipelineRetryService {
                 `(last source: ${feedbackSource}). The MR was auto-merged so subsequent issues have access to this code.\n\n` +
                 `Last feedback:\n> ${feedback.substring(0, 500)}`,
             )
-            .catch(() => {});
+            .catch(() => {}); // GitLab issue note is best-effort — failure doesn't affect pipeline
         }
 
         await this.autoMergeForNeedsReview(issueId, projectId, chatSessionId);
 
-        const chatSessionFilter = await this.flow.getSessionFilter(chatSessionId);
+        const chatSessionFilter =
+          await this.flow.getSessionFilter(chatSessionId);
         const nextOpen = await this.prisma.issue.findFirst({
           where: {
             projectId,
@@ -168,7 +168,11 @@ export class PipelineRetryService {
       // Loop Resolver
       const loopThreshold = pipelineCfg.loopResolverThreshold ?? 3;
       const loopEnabled = pipelineCfg.loopResolverEnabled !== false;
-      if (loopEnabled && fixCount >= loopThreshold && fixCount % loopThreshold === 0) {
+      if (
+        loopEnabled &&
+        fixCount >= loopThreshold &&
+        fixCount % loopThreshold === 0
+      ) {
         this.logger.log(
           `Loop threshold reached (${fixCount}/${loopThreshold}) for issue ${issueId} — running Loop Resolver`,
         );

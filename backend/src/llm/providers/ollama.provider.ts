@@ -7,7 +7,6 @@ import {
   LlmCompletionResult,
   LlmStreamChunk,
   LlmToolCall,
-  LlmContentPart,
   getTextContent,
   getImageParts,
 } from '../llm.interfaces';
@@ -24,8 +23,8 @@ export class OllamaProvider implements LlmStreamingProvider {
    */
   private readonly dispatcher = new Agent({
     headersTimeout: 30 * 60_000, // 30 min — model loading + first token
-    bodyTimeout: 30 * 60_000,    // 30 min — full generation
-    connectTimeout: 60_000,      // 60s connect
+    bodyTimeout: 30 * 60_000, // 30 min — full generation
+    connectTimeout: 60_000, // 60s connect
   });
 
   constructor(private readonly settings: SystemSettingsService) {}
@@ -42,7 +41,10 @@ export class OllamaProvider implements LlmStreamingProvider {
     const body: Record<string, unknown> = {
       model: options.model,
       messages: options.messages.map((m) => {
-        const msg: Record<string, unknown> = { role: m.role, content: getTextContent(m.content) };
+        const msg: Record<string, unknown> = {
+          role: m.role,
+          content: getTextContent(m.content),
+        };
         // Ollama multimodal: images as base64 array on the message
         const images = getImageParts(m.content);
         if (images.length > 0) {
@@ -100,6 +102,7 @@ export class OllamaProvider implements LlmStreamingProvider {
         return {
           content: '',
           finishReason: 'error',
+          errorMessage: `Ollama HTTP ${response.status}: ${errorText.substring(0, 300)}`,
         };
       }
 
@@ -108,7 +111,7 @@ export class OllamaProvider implements LlmStreamingProvider {
       // qwen3/qwen3.5 models use a 'thinking' field for chain-of-thought.
       // Sometimes content is empty while thinking has the full reasoning.
       // If content is empty but the model produced tokens, log a warning.
-      let content: string = data.message?.content ?? '';
+      const content: string = data.message?.content ?? '';
       const thinking: string = data.message?.thinking ?? '';
 
       if (!content && thinking) {
@@ -124,11 +127,14 @@ export class OllamaProvider implements LlmStreamingProvider {
         toolCalls = rawToolCalls.map((tc: any, i: number) => ({
           id: tc.id ?? `call_${Date.now()}_${i}`,
           name: tc.function?.name ?? '',
-          arguments: typeof tc.function?.arguments === 'string'
-            ? JSON.parse(tc.function.arguments)
-            : tc.function?.arguments ?? {},
+          arguments:
+            typeof tc.function?.arguments === 'string'
+              ? JSON.parse(tc.function.arguments)
+              : (tc.function?.arguments ?? {}),
         }));
-        this.logger.debug(`Ollama tool_calls: ${toolCalls.map(t => t.name).join(', ')}`);
+        this.logger.debug(
+          `Ollama tool_calls: ${toolCalls.map((t) => t.name).join(', ')}`,
+        );
       }
 
       const hasToolCalls = toolCalls && toolCalls.length > 0;
@@ -138,7 +144,11 @@ export class OllamaProvider implements LlmStreamingProvider {
 
       return {
         content,
-        finishReason: hasToolCalls ? 'tool_calls' : (data.done ? 'stop' : 'length'),
+        finishReason: hasToolCalls
+          ? 'tool_calls'
+          : data.done
+            ? 'stop'
+            : 'length',
         toolCalls,
         usage: data.eval_count
           ? {
@@ -150,8 +160,14 @@ export class OllamaProvider implements LlmStreamingProvider {
           : undefined,
       };
     } catch (err) {
-      this.logger.error(`Ollama request failed: ${err.message} (${err.cause?.code ?? err.code ?? 'unknown'})`);
-      return { content: '', finishReason: 'error' };
+      this.logger.error(
+        `Ollama request failed: ${err.message} (${err.cause?.code ?? err.code ?? 'unknown'})`,
+      );
+      return {
+        content: '',
+        finishReason: 'error',
+        errorMessage: `Ollama request failed: ${err.message} (${err.cause?.code ?? err.code ?? 'unknown'})`,
+      };
     }
   }
 
@@ -159,7 +175,9 @@ export class OllamaProvider implements LlmStreamingProvider {
    * Strip $schema and other JSON-Schema meta keys that confuse Ollama's
    * internal XML template parser. Recursively cleans nested objects.
    */
-  private cleanSchema(schema: Record<string, unknown>): Record<string, unknown> {
+  private cleanSchema(
+    schema: Record<string, unknown>,
+  ): Record<string, unknown> {
     const cleaned: Record<string, unknown> = {};
     for (const [key, value] of Object.entries(schema)) {
       if (key === '$schema') continue;
@@ -178,7 +196,9 @@ export class OllamaProvider implements LlmStreamingProvider {
     return cleaned;
   }
 
-  async *streamComplete(options: LlmCompletionOptions): AsyncGenerator<LlmStreamChunk> {
+  async *streamComplete(
+    options: LlmCompletionOptions,
+  ): AsyncGenerator<LlmStreamChunk> {
     const baseUrl = this.settings.ollamaUrl;
     const url = `${baseUrl}/api/chat`;
 
@@ -188,7 +208,10 @@ export class OllamaProvider implements LlmStreamingProvider {
     const body = {
       model: options.model,
       messages: options.messages.map((m) => {
-        const msg: Record<string, unknown> = { role: m.role, content: getTextContent(m.content) };
+        const msg: Record<string, unknown> = {
+          role: m.role,
+          content: getTextContent(m.content),
+        };
         const images = getImageParts(m.content);
         if (images.length > 0) {
           msg.images = images.map((img) => img.base64);
@@ -222,7 +245,9 @@ export class OllamaProvider implements LlmStreamingProvider {
 
       if (!response.ok) {
         const errorText = await response.text();
-        this.logger.error(`Ollama stream error ${response.status}: ${errorText}`);
+        this.logger.error(
+          `Ollama stream error ${response.status}: ${errorText}`,
+        );
         yield { content: '', done: true };
         return;
       }

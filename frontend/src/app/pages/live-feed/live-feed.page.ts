@@ -90,8 +90,8 @@ const LEVEL_COLORS: Record<string, string> = {
         </select>
         <select
           class="glass px-3 py-2 rounded-xl text-sm text-slate-300 bg-transparent border border-white/5 focus:border-indigo-500/50 outline-none"
-          [(ngModel)]="filterRole"
-          (ngModelChange)="applyFilter()"
+          [ngModel]="filterRole()"
+          (ngModelChange)="filterRole.set($event)"
         >
           <option value="">{{ 'liveFeed.allAgents' | translate }}</option>
           @for (role of agentRoles; track role) {
@@ -100,8 +100,8 @@ const LEVEL_COLORS: Record<string, string> = {
         </select>
         <select
           class="glass px-3 py-2 rounded-xl text-sm text-slate-300 bg-transparent border border-white/5 focus:border-indigo-500/50 outline-none"
-          [(ngModel)]="filterLevel"
-          (ngModelChange)="applyFilter()"
+          [ngModel]="filterLevel()"
+          (ngModelChange)="filterLevel.set($event)"
         >
           <option value="">{{ 'liveFeed.allLevels' | translate }}</option>
           <option value="INFO">INFO</option>
@@ -200,8 +200,8 @@ export class LiveFeedPage implements OnInit, OnDestroy {
   Math = Math;
 
   filterProject = '';
-  filterRole = '';
-  filterLevel = '';
+  filterRole = signal('');
+  filterLevel = signal('');
   private offset = 0;
 
   readonly agentRoles = [
@@ -212,11 +212,13 @@ export class LiveFeedPage implements OnInit, OnDestroy {
 
   filteredItems = computed(() => {
     let items = this.allItems();
-    if (this.filterRole) {
-      items = items.filter((i) => i.agentRole === this.filterRole);
+    const role = this.filterRole();
+    const level = this.filterLevel();
+    if (role) {
+      items = items.filter((i) => i.agentRole === role);
     }
-    if (this.filterLevel) {
-      items = items.filter((i) => i.level === this.filterLevel);
+    if (level) {
+      items = items.filter((i) => i.level === level);
     }
     // Merge live entries from socket
     const live = this.monitorSocket.logEntries();
@@ -260,10 +262,6 @@ export class LiveFeedPage implements OnInit, OnDestroy {
       this.allItems.update((prev) => [...prev, ...res.items]);
       this.hasMore.set(this.offset + 50 < res.total);
     });
-  }
-
-  applyFilter() {
-    // Client-side filter — filteredItems computed handles it
   }
 
   agentColor(role: string): string {

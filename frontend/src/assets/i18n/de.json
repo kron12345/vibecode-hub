@@ -85,6 +85,13 @@
     "penTesting": "Sicherheitstest läuft...",
     "documenting": "Dokumentation wird erstellt...",
     "pipelineComplete": "Pipeline abgeschlossen",
+    "pipelinePausedTitle": "Pipeline für diese Session pausiert",
+    "pipelinePausedHint": "Ein Task ist fehlgeschlagen. Behebe das Tool-/Provider-Problem und setze ab dem letzten Fehl-Task fort.",
+    "failedTask": "Fehlgeschlagener Task",
+    "failedReason": "Grund",
+    "resumePipeline": "Pipeline fortsetzen",
+    "resuming": "Setze fort...",
+    "failedAt": "Fehlgeschlagen am",
     "statusTesting": "Im Test",
     "statusDone": "Fertig",
     "tabOverview": "Übersicht",
@@ -220,7 +227,7 @@
     "gitTimeout": "Git-Timeout (Sek)",
     "gitTimeoutHint": "Timeout für Git-Operationen (clone, push, merge)",
     "cliTimeout": "CLI-Timeout (Min)",
-    "cliTimeoutHint": "Timeout für CLI-Tools (Claude Code, Codex CLI, etc.)",
+    "cliTimeoutHint": "Timeout für CLI-Tools (Claude Code, Codex CLI, etc.). Standard: 90 Minuten.",
     "maxReviewDiffs": "Max. Review-Diffs",
     "maxReviewDiffsHint": "Max. Datei-Diffs die pro Review analysiert werden",
     "provider": "Provider",
@@ -335,7 +342,8 @@
     "deleteWarning": "Diese Aktion ist nicht rückgängig zu machen. Folgendes wird gelöscht:",
     "deleteGitlab": "GitLab-Repository inkl. aller Branches und Wiki",
     "deleteDb": "Alle Issues, Milestones und Agent-Logs",
-    "deleteChats": "Alle Chat-Sessions und Nachrichten"
+    "deleteChats": "Alle Chat-Sessions und Nachrichten",
+    "deleteError": "Projekt konnte nicht gelöscht werden. Bitte erneut versuchen."
   },
   "agentsPage": {
     "title": "Agenten",
@@ -371,6 +379,9 @@
     "readOnly": "Diese Session ist archiviert.",
     "openIssuesWarning": "Offene Issues werden abgebrochen.",
     "noSessions": "Noch keine Sessions"
+  },
+  "chat": {
+    "uploadFailed": "Datei-Upload fehlgeschlagen. Bitte erneut versuchen."
   },
   "languages": {
     "de": "Deutsch",

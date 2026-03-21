@@ -14,7 +14,6 @@ import { MonitorGateway } from '../../monitor/monitor.gateway';
 import {
   InterviewResult,
   FeatureInterviewResult,
-  InterviewFeature,
 } from '../interviewer/interview-result.interface';
 import {
   CompiledIssue,

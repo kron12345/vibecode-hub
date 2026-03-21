@@ -1,6 +1,5 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { EventEmitter2 } from '@nestjs/event-emitter';
-import * as path from 'path';
 import * as fs from 'fs';
 import { PrismaService } from '../../prisma/prisma.service';
 import { SystemSettingsService } from '../../settings/system-settings.service';
@@ -15,10 +14,7 @@ import { BaseAgent, AgentContext, sanitizeJsonOutput } from '../agent-base';
 import { loadPrompt } from '../prompt-loader';
 import { MonitorGateway } from '../../monitor/monitor.gateway';
 import { postAgentComment } from '../agent-comment.utils';
-import {
-  FeatureInterviewResult,
-  InterviewResult,
-} from '../interviewer/interview-result.interface';
+import { FeatureInterviewResult } from '../interviewer/interview-result.interface';
 import {
   AgentRole,
   AgentStatus,

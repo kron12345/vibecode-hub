@@ -10,7 +10,7 @@ import {
 } from '@nestjs/websockets';
 import { Logger } from '@nestjs/common';
 import { Server, Socket } from 'socket.io';
-import { HardwareService, HardwareSnapshot } from './hardware.service';
+import { HardwareService } from './hardware.service';
 import { WsJwtGuard } from '../auth/ws-jwt.guard';
 
 @WebSocketGateway({

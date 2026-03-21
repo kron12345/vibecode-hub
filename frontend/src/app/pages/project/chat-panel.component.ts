@@ -657,8 +657,8 @@ export class ChatPanelComponent implements OnInit, OnDestroy {
       next: (msg) => {
         this.messages.update((msgs) => [...msgs, msg]);
       },
-      error: (err) => {
-        console.error('Upload failed:', err);
+      error: () => {
+        alert(this.i18n.t('chat.uploadFailed'));
       },
     });
 
