@@ -139,6 +139,58 @@ Security ist kein Nice-to-have, sondern Pflicht bei JEDER Änderung:
 - KEINE destruktiven DB-Operationen (`migrate reset`, `drop`) ohne explizite User-Bestätigung
 - Nur freigegebene Tools nutzen
 
+### Auto Quality Checks (PFLICHT — bei JEDER Code-Änderung)
+
+Diese Checks laufen AUTOMATISCH mit, nicht erst auf Nachfrage. Jede Datei die ich anfasse wird sofort geprüft.
+
+#### Beim Schreiben von Code — IMMER beachten:
+
+1. **Keine ungenutzten Imports** — Jede Import-Zeile muss verwendet werden. Nach Refactoring/Löschen prüfen ob Imports verwaist sind.
+2. **Keine `console.log/error/warn`** im Frontend — Stattdessen: `toast`-Signal, `alert()`, oder Error-Signal für UI-Feedback. `console.debug` in Voice-Services ist OK.
+3. **Keine leeren `.catch(() => {})`** — Entweder `this.logger.warn()` ODER erklärender Kommentar warum Swallow OK ist (z.B. `// GitLab label sync is best-effort`).
+4. **Keine dynamischen `require()`** — Immer Top-Level `import` verwenden. Kein `const x = require('y')` in Methodenbodies.
+5. **Kein `as any` ohne Grund** — Wenn Cast nötig: kurzer Kommentar warum (z.B. `// Prisma JSON field`). Besser: korrekten Type definieren.
+6. **Keine Magic Numbers** — Timeouts, Limits, Thresholds → `PipelineConfig` oder Konstante mit sprechendem Namen.
+7. **Shared Types nutzen** — `@vibcode/shared` für alle Frontend↔Backend Types. NICHT lokal duplizieren.
+8. **Shared Parsing nutzen** — `agent-result-parser.ts` für JSON-Extraction, Severity-Normalisierung etc. NICHT in jedem Agent neu implementieren.
+9. **Prompts in Markdown** — Agent System-Prompts gehören in `backend/prompts/*.md`, NICHT als Inline-Strings.
+
+#### Vor jedem Commit — IMMER ausführen:
+
+```bash
+# 1. Build MUSS grün sein
+npx nx run-many -t build
+
+# 2. Tests MÜSSEN grün sein
+cd backend && npx jest src/agents/ --passWithNoTests
+
+# 3. Auf ungenutzte Imports prüfen (stichprobenartig)
+# Wenn eine Datei refactored wurde: Imports der Datei durchgehen
+```
+
+#### Bei größeren Änderungen (>5 Dateien) — zusätzlich:
+
+```bash
+# Codex CLI Review der Diff
+codex review --uncommitted
+
+# Alle gefundenen Bugs SOFORT fixen, nicht aufschieben
+```
+
+#### Bekannte Patterns die VERMIEDEN werden müssen:
+
+| Anti-Pattern | Stattdessen |
+|---|---|
+| `provider: config.provider as any` | Korrekter Type oder `as LLMProvider` |
+| `this.settings.getAgentRoleConfig('CODER')` | `this.settings.getAgentRoleConfig(AgentRole.CODER)` |
+| `role: 'SYSTEM' as any` | `role: MessageRole.SYSTEM` (Prisma Enum) |
+| `const { execFile } = require(...)` | `import { execFile } from 'child_process'` |
+| `console.error(err)` (Frontend) | `this.toast.set('error')` oder `this.errorSignal.set(msg)` |
+| `payload: any` (Controller) | Typisiertes DTO mit class-validator |
+| Inline-Prompt (Template Literal) | `loadPrompt('agent-name')` aus `backend/prompts/` |
+| Duplizierter JSON-Parser | `extractJson()` aus `agent-result-parser.ts` |
+| Hardcoded `60000` Timeout | `this.getAuditTimeoutMs()` oder `pipelineCfg.auditTimeoutMs` |
+
 ### Output
 - Tool-Logs nur gekürzt: relevante Fehler + betroffene Dateien/Zeilen
 - Keine kompletten Logs in den Chat
@@ -147,7 +199,8 @@ Security ist kein Nice-to-have, sondern Pflicht bei JEDER Änderung:
 Jede Aufgabe endet mit einer kurzen Zusammenfassung:
 - Was wurde geändert
 - Welche Commands/Tools liefen
-- Status (alles grün / offene Punkte)
+- Quality Check Status (Builds grün / Tests grün / Codex Review clean)
+- Offene Punkte (falls vorhanden)
 
 ## Auto-Commits
 
@@ -183,12 +236,13 @@ Diese Dokumentation wird NICHT auf Nachfrage gepflegt, sondern AUTOMATISCH nach 
 | Datei | Inhalt | Wann aktualisieren |
 |---|---|---|
 | `README.md` | GitHub-Startseite, Installation, Features, Security | Bei neuen Features / Breaking Changes |
+| `docs/USAGE.md` | Bedienungsanleitung für Endbenutzer | Bei UI-Änderungen oder neuen Features |
 | `docs/API.md` | Alle Endpunkte, DTOs, Auth, Changelog | Bei jedem Controller/Route-Change |
 | `docs/SPEC.md` | Anforderungen, Phasenplan | Bei Feature-Fortschritt |
 | `docs/ARCHITECTURE.md` | Technik, Datenmodell, Diagramme | Bei strukturellen Änderungen |
 | `docs/DEVELOPMENT.md` | Arbeitsregeln, MCP-Pflicht | Bei neuen Konventionen |
 | `docs/PROMPTS.md` | Alle Prompts + Ergebnisse | Am Ende jeder Session |
-| `CLAUDE.md` | Kompakt-Anleitung | Bei neuen Patterns/Commands |
+| `CLAUDE.md` | Kompakt-Anleitung + Quality Gates | Bei neuen Patterns/Commands |
 
 ## i18n (Mehrsprachigkeit)
 
