@@ -64,11 +64,64 @@ cd backend && npx prisma studio                       # DB GUI
 
 ## Key Patterns
 
-- Auth: Keycloak JWT validation via `passport-jwt` + `jwks-rsa`. Global AuthGuard, `@Public()` decorator for open endpoints.
+- Auth: Keycloak JWT validation via `passport-jwt` + `jwks-rsa`. Global AuthGuard, `@Public()` decorator for open endpoints. WebSocket: `WsJwtGuard`.
 - Prisma: Global module, inject `PrismaService` anywhere.
 - API prefix: `/api/` — Swagger docs at `/api/docs`.
 - Frontend environments: `src/environments/environment.ts` (dev) / `environment.prod.ts`.
 - Angular uses standalone components, signals, and `@for`/`@if` template syntax.
+- Rate Limiting: `@nestjs/throttler` global (10/s burst, 60/min sustained). `@SkipThrottle()` für Webhooks.
+
+## Coding Conventions (PFLICHT)
+
+### Error Handling — klare Regeln wann was
+
+| Situation | Pattern | Beispiel |
+|---|---|---|
+| Fataler Fehler, Caller muss reagieren | `throw new Error()` / `throw new NotFoundException()` | DB nicht erreichbar, Projekt nicht gefunden |
+| Nicht-kritisch, Pipeline soll weiterlaufen | `this.logger.warn()` + weiterarbeiten | GitLab Label-Sync fehlgeschlagen |
+| Best-Effort Nebeneffekt | `.catch(() => { /* best-effort: reason */ })` mit Kommentar | Status-Badge Update |
+| Parse-Fehler mit Fallback | `return fallbackResult` | JSON kaputt → Text-basiertes Parsing |
+| **VERBOTEN** | Leeres `.catch(() => {})` ohne Kommentar | — |
+| **VERBOTEN** | `try { } catch { }` ohne Logging | — |
+
+### Angular (Frontend)
+
+- **Standalone Components** — KEINE NgModules. Jede Component ist `standalone: true`.
+- **Signals statt BehaviorSubject** — `signal()`, `computed()`, `effect()` für State. NICHT `BehaviorSubject` oder plain Properties für reaktive Daten.
+- **`input()` / `output()`** — Signal-basierte Inputs/Outputs (Angular 21+). NICHT `@Input()` / `@Output()` Decorators.
+- **`@for` / `@if`** — Control Flow Syntax. NICHT `*ngFor` / `*ngIf`.
+- **Template-Typsicherheit** — Kein `$any()` in Templates. Types so definieren dass der Compiler zufrieden ist.
+- **Fehler-Feedback** — Kein `console.error` → Signal/Toast für User-sichtbare Fehler, `this.logger` im Backend.
+- **i18n-Pflicht** — JEDER sichtbare Text via `{{ 'key' | translate }}`. Kein Hardcoded-Text in Templates. Neue Keys in ALLEN 4 Sprachen (de/en/it/fr) gleichzeitig anlegen.
+
+### NestJS (Backend)
+
+- **DTOs für alle Controller-Methoden** — Jeder `@Body()`, `@Query()`, `@Param()` mit typisiertem DTO + `class-validator` Decorators.
+- **Guards auf allen Endpoints** — Global `AuthGuard` aktiv. `@Public()` nur mit Begründung. `@UseGuards(RolesGuard)` wo Rollen-Check nötig.
+- **Events statt direkte Aufrufe** — Agents kommunizieren über `EventEmitter2`, nicht durch direkte Service-Injection.
+- **Thin Controllers** — Controller validiert Input, delegiert an Service, gibt Result zurück. Keine Business-Logik im Controller.
+
+### Prisma (Datenbank)
+
+- **`select` statt `include`** — Nur die Felder laden die gebraucht werden. `include` nur wenn Relations wirklich nötig.
+- **Kein `findMany` ohne Limit** — Immer `take:` setzen oder Pagination verwenden. Unbegrenzte Queries sind Zeitbomben.
+- **Transactions bei Multi-Step Writes** — Wenn mehrere DB-Operationen zusammengehören: `prisma.$transaction()`.
+- **NIEMALS `migrate reset`** ohne explizite Bestätigung vom User — löscht alle Daten!
+
+### Tests
+
+- **Jede neue Utility-Datei bekommt Tests** — Neue `{name}.ts` → `{name}.spec.ts` mit den wichtigsten Cases.
+- **Edge Cases testen** — null/undefined Input, leere Arrays, kaputtes JSON, Boundary Values.
+- **Tests müssen grün sein vor Commit** — Kein "fix ich später".
+
+### Git
+
+- **Ein logischer Change pro Commit** — Feature, Fix, oder Refactor — nicht alles zusammen. Wenn 15 Dateien geändert wurden, prüfen ob es 2-3 separate Commits sein sollten.
+- **Conventional Commits** — `feat:`, `fix:`, `refactor:`, `docs:`, `chore:`, `test:`, `security:`.
+- **Breaking Changes** — Wenn API-Endpunkte, DTOs oder DB-Schema sich ändern:
+  1. `docs/API.md` Changelog-Zeile mit `BREAKING:` Prefix
+  2. Migration erstellen (Prisma)
+  3. Im Commit-Body erwähnen: `BREAKING CHANGE: renamed /api/old to /api/new`
 
 ## Infrastructure
 
