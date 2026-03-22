@@ -18,51 +18,22 @@ const DEFAULTS: AppConfig = {
   },
 };
 
-/**
- * Runtime configuration loaded from /assets/config.json.
- *
- * This file is NOT part of the build — it can be changed after deployment
- * without rebuilding the frontend. Config is loaded BEFORE Angular bootstraps
- * (in main.ts), so Keycloak and API URLs are available immediately.
- *
- * The config.json is in .gitignore — only config.example.json is committed.
- */
+/** Read config from window (set by main.ts before bootstrap) */
+export function getAppConfig(): AppConfig {
+  const raw = (window as any).__VIBCODE_CONFIG__;
+  if (raw && typeof raw === 'object' && raw.apiUrl) {
+    return raw as AppConfig;
+  }
+  return DEFAULTS;
+}
+
 @Injectable({ providedIn: 'root' })
 export class AppConfigService {
-  private config: AppConfig | null = null;
-
-  constructor() {
-    // Pick up pre-loaded config from main.ts (loaded before Angular bootstrap)
-    const preloaded = (window as any).__APP_CONFIG__;
-    if (preloaded instanceof AppConfigService) {
-      this.config = (preloaded as any).config;
-    }
-  }
-
   get apiUrl(): string {
-    return this.config?.apiUrl ?? DEFAULTS.apiUrl;
+    return getAppConfig().apiUrl;
   }
 
   get keycloak() {
-    return this.config?.keycloak ?? DEFAULTS.keycloak;
-  }
-
-  /**
-   * Load config from /assets/config.json.
-   * Called in main.ts BEFORE Angular bootstrap.
-   */
-  async load(): Promise<void> {
-    try {
-      const response = await fetch('/assets/config.json');
-      if (!response.ok) {
-        console.warn(
-          `Failed to load config.json (${response.status}) — using defaults`,
-        );
-        return;
-      }
-      this.config = await response.json();
-    } catch (err) {
-      console.warn('Could not load config.json — using defaults:', err);
-    }
+    return getAppConfig().keycloak;
   }
 }

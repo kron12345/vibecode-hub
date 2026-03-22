@@ -1,14 +1,17 @@
 import { bootstrapApplication } from '@angular/platform-browser';
-import { appConfig } from './app/app.config';
 import { App } from './app/app';
-import { AppConfigService } from './app/services/app-config.service';
 
-// Load runtime config BEFORE Angular bootstraps
-// This ensures Keycloak URLs are available when provideKeycloak() runs
-const configService = new AppConfigService();
-configService.load().then(() => {
-  // Store the loaded config globally so Angular DI can pick it up
-  (window as any).__APP_CONFIG__ = configService;
+// Load runtime config BEFORE Angular bootstraps.
+fetch('/assets/config.json')
+  .then((r) => (r.ok ? r.json() : null))
+  .then(async (config) => {
+    // Store config globally — must happen BEFORE any Angular code reads it
+    (window as any).__VIBCODE_CONFIG__ = config ?? {};
 
-  bootstrapApplication(App, appConfig).catch((err) => console.error(err));
-});
+    // Dynamic import so app.config.ts evaluates AFTER config is set
+    const { appConfig } = await import('./app/app.config');
+    return bootstrapApplication(App, appConfig);
+  })
+  .catch((err) => {
+    console.error('Bootstrap failed:', err);
+  });

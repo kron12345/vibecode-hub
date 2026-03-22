@@ -13,15 +13,11 @@ import {
   includeBearerTokenInterceptor,
 } from 'keycloak-angular';
 import { routes } from './app.routes';
-import { AppConfigService } from './services/app-config.service';
+import { getAppConfig } from './services/app-config.service';
 
-// Read pre-loaded config (loaded in main.ts before bootstrap)
-const preloaded = (window as any).__APP_CONFIG__ as AppConfigService | undefined;
-const keycloakConfig = preloaded?.keycloak ?? {
-  url: 'http://localhost:8081',
-  realm: 'vibcodehub',
-  clientId: 'vibcodehub-frontend',
-};
+// This is called AFTER main.ts has loaded config.json and set window.__VIBCODE_CONFIG__
+// because main.ts awaits the fetch before calling bootstrapApplication.
+const cfg = getAppConfig();
 
 export const appConfig: ApplicationConfig = {
   providers: [
@@ -30,9 +26,9 @@ export const appConfig: ApplicationConfig = {
     provideHttpClient(withInterceptors([includeBearerTokenInterceptor])),
     provideKeycloak({
       config: {
-        url: keycloakConfig.url,
-        realm: keycloakConfig.realm,
-        clientId: keycloakConfig.clientId,
+        url: cfg.keycloak.url,
+        realm: cfg.keycloak.realm,
+        clientId: cfg.keycloak.clientId,
       },
       initOptions: {
         onLoad: 'login-required',
