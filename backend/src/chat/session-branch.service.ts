@@ -225,6 +225,34 @@ export class SessionBranchService {
           // Worktree may not exist (e.g. project without GitLab at creation time)
         }
 
+        // Auto-commit any dirty workspace state before merge
+        // (agents may leave uncommitted generated files, docs, configs)
+        try {
+          const { stdout: statusOut } = await execFileAsync(
+            'git',
+            ['status', '--porcelain'],
+            { cwd: mainWorkspace, timeout: GIT_TIMEOUT_MS },
+          );
+          if (statusOut.trim().length > 0) {
+            this.logger.log(
+              `Workspace has uncommitted changes — auto-committing before merge`,
+            );
+            await execFileAsync('git', ['add', '-A'], {
+              cwd: mainWorkspace,
+              timeout: GIT_TIMEOUT_MS,
+            });
+            await execFileAsync(
+              'git',
+              ['commit', '-m', 'chore: auto-commit workspace state before session merge'],
+              { cwd: mainWorkspace, timeout: GIT_TIMEOUT_MS },
+            );
+          }
+        } catch (commitErr) {
+          this.logger.warn(
+            `Auto-commit before merge failed (non-fatal): ${commitErr.message}`,
+          );
+        }
+
         // Checkout base, pull, merge session branch in main workspace
         await execFileAsync('git', ['checkout', baseBranch], {
           cwd: mainWorkspace,
@@ -278,7 +306,12 @@ export class SessionBranchService {
         const errMsg = [err.message, err.stdout, err.stderr]
           .filter(Boolean)
           .join(' ');
-        if (errMsg.includes('CONFLICT') || errMsg.includes('conflict')) {
+        if (
+          errMsg.includes('CONFLICT') ||
+          errMsg.includes('conflict') ||
+          errMsg.includes('überschrieben') ||
+          errMsg.includes('Merge-Konflikt')
+        ) {
           // Merge conflict
           await this.prisma.chatSession.update({
             where: { id: sessionId },
