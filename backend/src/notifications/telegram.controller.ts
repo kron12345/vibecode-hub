@@ -2,6 +2,7 @@ import { Controller, Post, Get, Body, UseGuards } from '@nestjs/common';
 import { ApiTags, ApiOperation } from '@nestjs/swagger';
 import { IsString, IsOptional, IsBoolean } from 'class-validator';
 import { RolesGuard } from '../common/guards/roles.guard';
+import { Roles } from '../common/decorators/roles.decorator';
 import { TelegramService } from './telegram.service';
 
 export class ValidateTokenDto {
@@ -40,6 +41,7 @@ export class SaveTelegramConfigDto {
 @ApiTags('telegram')
 @Controller('telegram')
 @UseGuards(RolesGuard)
+@Roles('admin')
 export class TelegramController {
   constructor(private readonly telegram: TelegramService) {}
 
