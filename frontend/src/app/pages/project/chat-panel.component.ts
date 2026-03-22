@@ -165,23 +165,67 @@ export interface InterviewProgress {
         <!-- Messages -->
         <div class="flex-1 overflow-y-auto p-5 font-mono text-sm space-y-1.5" #messageContainer>
           @for (msg of filteredMessages(); track msg.id) {
-            <div class="flex gap-2">
-              <span class="text-slate-700 shrink-0">[{{ formatTime(msg.createdAt) }}]</span>
-              @switch (msg.role) {
-                @case ('USER') {
-                  <span class="text-white"><span class="text-indigo-500">></span> {{ msg.content }}</span>
-                }
-                @case ('ASSISTANT') {
-                  <span class="text-indigo-400">{{ msg.content }}</span>
-                }
-                @case ('AGENT') {
-                  <span class="text-emerald-400">{{ msg.content }}</span>
-                }
-                @case ('SYSTEM') {
-                  <span class="text-slate-500 italic">{{ msg.content }}</span>
+            @switch (msg.role) {
+              @case ('USER') {
+                <!-- User message: white text, indigo prefix, clean -->
+                <div class="flex gap-2 py-0.5">
+                  <span class="text-slate-700 shrink-0 text-xs">[{{ formatTime(msg.createdAt) }}]</span>
+                  <span class="text-white"><span class="text-indigo-500 font-bold">></span> {{ msg.content }}</span>
+                </div>
+              }
+              @case ('SYSTEM') {
+                <!-- System message: slate italic, subtle -->
+                <div class="flex gap-2 py-1 px-2 rounded bg-slate-800/30 my-1">
+                  <span class="text-slate-700 shrink-0 text-xs">[{{ formatTime(msg.createdAt) }}]</span>
+                  <span class="text-slate-500 italic text-xs">{{ msg.content }}</span>
+                </div>
+              }
+              @case ('AGENT') {
+                @if (isClarification(msg)) {
+                  <!-- CLARIFICATION: Prominent amber card with pulse -->
+                  <div class="my-3 border-l-4 border-amber-500 bg-amber-500/5 backdrop-blur-sm p-3 rounded-r-lg relative overflow-hidden">
+                    <div class="flex items-center gap-2 mb-2">
+                      <span class="px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-widest border rounded-sm" [class]="getAgentRoleColor(msg).badge">
+                        {{ getRoleBadge(msg) }}
+                      </span>
+                      <span class="text-amber-400 text-[10px] font-bold uppercase tracking-wider">Needs your input</span>
+                      <div class="flex gap-0.5 ml-auto">
+                        <span class="w-1.5 h-1.5 rounded-full bg-amber-400 animate-bounce"></span>
+                        <span class="w-1.5 h-1.5 rounded-full bg-amber-400 animate-bounce" style="animation-delay: 0.15s"></span>
+                        <span class="w-1.5 h-1.5 rounded-full bg-amber-400 animate-bounce" style="animation-delay: 0.3s"></span>
+                      </div>
+                    </div>
+                    <p class="text-amber-50 text-sm leading-relaxed">{{ msg.content }}</p>
+                  </div>
+                } @else if (isResult(msg)) {
+                  <!-- RESULT: Pass/Fail with colored header -->
+                  <div class="my-2 border-l-[3px] rounded-r-lg overflow-hidden" [class]="getAgentRoleColor(msg).border">
+                    <div class="flex items-center gap-2 px-3 py-1.5" [class]="getAgentRoleColor(msg).bg">
+                      <span class="px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-widest border rounded-sm" [class]="getAgentRoleColor(msg).badge">
+                        {{ getRoleBadge(msg) }}
+                      </span>
+                      <span class="text-slate-600 text-[10px]">{{ formatTime(msg.createdAt) }}</span>
+                    </div>
+                    <div class="px-3 py-2 text-sm" [class]="getAgentRoleColor(msg).text">{{ msg.content }}</div>
+                  </div>
+                } @else {
+                  <!-- STANDARD agent message: left border + role badge -->
+                  <div class="my-1 flex items-start gap-0 border-l-2 pl-3 py-1 hover:bg-white/[0.02] transition-colors" [class]="getAgentRoleColor(msg).border">
+                    <span class="text-slate-700 shrink-0 text-xs mr-2">[{{ formatTime(msg.createdAt) }}]</span>
+                    <span class="px-1 py-0 text-[8px] font-bold uppercase tracking-widest rounded-sm mr-2 shrink-0 border opacity-70" [class]="getAgentRoleColor(msg).badge">
+                      {{ getRoleBadge(msg) }}
+                    </span>
+                    <span class="text-sm" [class]="getAgentRoleColor(msg).text">{{ msg.content }}</span>
+                  </div>
                 }
               }
-            </div>
+              @default {
+                <div class="flex gap-2 py-0.5">
+                  <span class="text-slate-700 shrink-0 text-xs">[{{ formatTime(msg.createdAt) }}]</span>
+                  <span class="text-indigo-400 text-sm">{{ msg.content }}</span>
+                </div>
+              }
+            }
           }
           @if (messages().length === 0 && !isStreaming()) {
             <p class="text-indigo-500">> {{ 'project.systemReady' | translate }}</p>
@@ -808,6 +852,72 @@ export class ChatPanelComponent implements OnInit, OnDestroy {
       hour: '2-digit',
       minute: '2-digit',
     });
+  }
+
+  /** Get agent role color classes based on role name in message metadata or content */
+  getAgentRoleColor(msg: any): { border: string; text: string; bg: string; badge: string } {
+    const content = (msg.content || '').toLowerCase();
+    const meta = msg.metadata as any;
+    const role = meta?.agentRole || '';
+
+    const colors: Record<string, { border: string; text: string; bg: string; badge: string }> = {
+      'INTERVIEWER':       { border: 'border-l-sky-500', text: 'text-sky-400', bg: 'bg-sky-500/5', badge: 'bg-sky-500/20 text-sky-400 border-sky-500/30' },
+      'ARCHITECT':         { border: 'border-l-violet-500', text: 'text-violet-400', bg: 'bg-violet-500/5', badge: 'bg-violet-500/20 text-violet-400 border-violet-500/30' },
+      'ISSUE_COMPILER':    { border: 'border-l-amber-500', text: 'text-amber-400', bg: 'bg-amber-500/5', badge: 'bg-amber-500/20 text-amber-400 border-amber-500/30' },
+      'CODER':             { border: 'border-l-indigo-500', text: 'text-indigo-400', bg: 'bg-indigo-500/5', badge: 'bg-indigo-500/20 text-indigo-400 border-indigo-500/30' },
+      'CODE_REVIEWER':     { border: 'border-l-emerald-500', text: 'text-emerald-400', bg: 'bg-emerald-500/5', badge: 'bg-emerald-500/20 text-emerald-400 border-emerald-500/30' },
+      'UI_TESTER':         { border: 'border-l-pink-500', text: 'text-pink-400', bg: 'bg-pink-500/5', badge: 'bg-pink-500/20 text-pink-400 border-pink-500/30' },
+      'FUNCTIONAL_TESTER': { border: 'border-l-teal-500', text: 'text-teal-400', bg: 'bg-teal-500/5', badge: 'bg-teal-500/20 text-teal-400 border-teal-500/30' },
+      'PEN_TESTER':        { border: 'border-l-red-500', text: 'text-red-400', bg: 'bg-red-500/5', badge: 'bg-red-500/20 text-red-400 border-red-500/30' },
+      'DOCUMENTER':        { border: 'border-l-cyan-500', text: 'text-cyan-400', bg: 'bg-cyan-500/5', badge: 'bg-cyan-500/20 text-cyan-400 border-cyan-500/30' },
+      'DEVOPS':            { border: 'border-l-orange-500', text: 'text-orange-400', bg: 'bg-orange-500/5', badge: 'bg-orange-500/20 text-orange-400 border-orange-500/30' },
+    };
+
+    // Try role from metadata first
+    if (role && colors[role]) return colors[role];
+
+    // Auto-detect from content
+    if (content.includes('**code review')) return colors['CODE_REVIEWER'];
+    if (content.includes('**functional test')) return colors['FUNCTIONAL_TESTER'];
+    if (content.includes('**ui test')) return colors['UI_TESTER'];
+    if (content.includes('**pen test')) return colors['PEN_TESTER'];
+    if (content.includes('**documentation')) return colors['DOCUMENTER'];
+    if (content.includes('devops') || content.includes('setup complete')) return colors['DEVOPS'];
+    if (content.includes('architect')) return colors['ARCHITECT'];
+    if (content.includes('interviewer') || content.includes('requirements')) return colors['INTERVIEWER'];
+
+    return { border: 'border-l-emerald-500', text: 'text-emerald-400', bg: 'bg-emerald-500/5', badge: 'bg-emerald-500/20 text-emerald-400 border-emerald-500/30' };
+  }
+
+  /** Detect if message is a clarification question */
+  isClarification(msg: any): boolean {
+    return !!(msg.metadata as any)?.clarificationRequest;
+  }
+
+  /** Detect if message is a result (pass/fail) */
+  isResult(msg: any): boolean {
+    const c = (msg.content || '').toLowerCase();
+    return c.includes('approved') || c.includes('passed') || c.includes('failed') || c.includes('changes requested');
+  }
+
+  /** Get short role name for badge */
+  getRoleBadge(msg: any): string {
+    const meta = msg.metadata as any;
+    const role = meta?.agentRole || '';
+    const names: Record<string, string> = {
+      'INTERVIEWER': 'Interviewer', 'ARCHITECT': 'Architect', 'ISSUE_COMPILER': 'Issues',
+      'CODER': 'Coder', 'CODE_REVIEWER': 'Reviewer', 'UI_TESTER': 'UI Test',
+      'FUNCTIONAL_TESTER': 'Func Test', 'PEN_TESTER': 'Security', 'DOCUMENTER': 'Docs', 'DEVOPS': 'DevOps',
+    };
+    if (role && names[role]) return names[role];
+    // Auto-detect
+    const c = (msg.content || '').toLowerCase();
+    if (c.includes('code review')) return 'Reviewer';
+    if (c.includes('functional test')) return 'Func Test';
+    if (c.includes('ui test')) return 'UI Test';
+    if (c.includes('pen test')) return 'Security';
+    if (c.includes('documentation')) return 'Docs';
+    return 'Agent';
   }
 
   private scrollToBottom() {
