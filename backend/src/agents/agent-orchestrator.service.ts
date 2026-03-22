@@ -8,6 +8,7 @@ import { GitlabService } from '../gitlab/gitlab.service';
 import { PipelineFlowService } from './pipeline-flow.service';
 import { PipelineRetryService } from './pipeline-retry.service';
 import { PipelineCleanupService } from './pipeline-cleanup.service';
+import { ClarificationService } from './clarification.service';
 import { FeatureInterviewResult } from './interviewer/interview-result.interface';
 import {
   AgentRole,
@@ -40,6 +41,7 @@ export class AgentOrchestratorService {
     private readonly flow: PipelineFlowService,
     private readonly retry: PipelineRetryService,
     private readonly cleanup: PipelineCleanupService,
+    private readonly clarification: ClarificationService,
   ) {}
 
   // ─── Public API (delegated) ─────────────────────────────────
@@ -169,6 +171,42 @@ export class AgentOrchestratorService {
   @OnEvent('chat.userMessage')
   async handleUserMessage(payload: { chatSessionId: string; content: string }) {
     const { chatSessionId, content } = payload;
+
+    // Priority: check if an agent is waiting for user input (clarification)
+    const waitingTask = await this.clarification.findWaitingTask(chatSessionId);
+    if (waitingTask) {
+      const chatSession = await this.prisma.chatSession.findUnique({
+        where: { id: chatSessionId },
+        select: { projectId: true },
+      });
+      if (chatSession) {
+        const result = await this.clarification.handleUserAnswer(
+          chatSession.projectId,
+          chatSessionId,
+          content,
+          waitingTask,
+        );
+        if (result.handled) {
+          // Resume the pipeline from the agent that asked
+          this.logger.log(
+            `Clarification answered — resuming ${result.resumeAction} for issue ${result.issueId}`,
+          );
+          try {
+            await this.retry.resumePipelineFromFailedTask(
+              chatSession.projectId,
+              chatSessionId,
+              waitingTask.id,
+            );
+          } catch {
+            // resumePipelineFromFailedTask may not find CANCELLED task — restart coding
+            await this.flow.startCoding(chatSession.projectId, chatSessionId).catch((err) => {
+              this.logger.error(`Failed to resume after clarification: ${err.message}`);
+            });
+          }
+          return;
+        }
+      }
+    }
 
     const chatSession = await this.prisma.chatSession.findUnique({
       where: { id: chatSessionId },

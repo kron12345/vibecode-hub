@@ -216,6 +216,7 @@ model ChatMessage {
   role          MessageRole
   content       String
   metadata      Json?
+  visibility    MessageVisibility @default(USER_FACING)
 
   issueId       String?
   issue         Issue?      @relation(fields: [issueId], references: [id])
@@ -226,6 +227,11 @@ model ChatMessage {
   createdAt     DateTime @default(now())
 
   @@map("chat_messages")
+}
+
+enum MessageVisibility {
+  USER_FACING      // Questions, summaries, results — always shown
+  AGENT_INTERNAL   // Status updates, findings, fix details — hidden by default
 }
 
 enum MessageRole {
@@ -341,6 +347,7 @@ enum AgentTaskStatus {
   COMPLETED
   FAILED
   CANCELLED
+  WAITING_FOR_INPUT  // Agent needs user clarification before continuing
 }
 
 // ─── Agent-Logs (Live-Ansicht) ──────────────────────────────

@@ -186,6 +186,41 @@ export abstract class BaseAgent {
     return cfg.maxWarningsForApproval ?? 3;
   }
 
+  /**
+   * Check if LLM response contains a clarification request.
+   * If yes, posts the question to the user and pauses the pipeline.
+   * Returns true if clarification was requested (caller should return/exit).
+   *
+   * @param clarificationService - inject from the agent's constructor
+   */
+  protected async checkForClarification(
+    ctx: AgentContext,
+    content: string,
+    clarificationService: { askUser: (ctx: AgentContext, role: AgentRole, req: any) => Promise<boolean> },
+    issueId?: string,
+  ): Promise<boolean> {
+    const {
+      hasClarificationRequest,
+      parseClarificationRequest,
+    } = require('./clarification-parser');
+
+    if (!hasClarificationRequest(content)) return false;
+
+    const parsed = parseClarificationRequest(content);
+    if (!parsed) return false;
+
+    this.logger.log(`Agent requested clarification: ${parsed.question.substring(0, 100)}`);
+
+    await clarificationService.askUser(ctx, this.role, {
+      question: parsed.question,
+      options: parsed.options.length > 0 ? parsed.options : undefined,
+      context: parsed.context || undefined,
+      issueId,
+    });
+
+    return true;
+  }
+
   /** Call the LLM with the configured provider/model for this role */
   protected async callLlm(
     messages: LlmMessage[],

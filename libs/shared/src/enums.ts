@@ -54,7 +54,10 @@ export type AgentTaskType =
   | 'INFRA_COMMAND'
   | 'RESOLVE_LOOP';
 
-export type AgentTaskStatus = 'PENDING' | 'RUNNING' | 'COMPLETED' | 'FAILED' | 'CANCELLED';
+export type AgentTaskStatus = 'PENDING' | 'RUNNING' | 'COMPLETED' | 'FAILED' | 'CANCELLED' | 'WAITING_FOR_INPUT';
+
+// ─── Message Visibility ───────────────────────────────────────
+export type MessageVisibility = 'USER_FACING' | 'AGENT_INTERNAL';
 
 // ─── LLM ──────────────────────────────────────────────────────
 export type LLMProvider =

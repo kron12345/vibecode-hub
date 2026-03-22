@@ -6,6 +6,7 @@ import type {
   ChatSessionType,
   SessionStatus,
   MessageRole,
+  MessageVisibility,
   AgentRole,
   AgentStatus,
 } from './enums';
@@ -134,6 +135,7 @@ export interface ChatMessage {
   chatSessionId: string;
   role: MessageRole;
   content: string;
+  visibility?: MessageVisibility;
   issueId?: string | null;
   agentTaskId?: string | null;
   createdAt: string;

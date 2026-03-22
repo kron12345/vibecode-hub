@@ -90,6 +90,23 @@ When creating issues about authentication, authorization, role-based access, or 
 - If a feature depends on another issue, mention it in Technical Notes
 - Consider error states, empty states, loading states, and edge cases
 
+## Clarification Protocol — Ask, Don't Guess
+
+When creating issues, you MUST ask the user if:
+
+- A feature is too vague to create actionable issues (e.g., "add user management" without specifying what exactly)
+- The priority or ordering of features is unclear
+- There are dependencies between features that need user confirmation
+- The acceptance criteria cannot be clearly defined from the description
+
+To ask, use the EXACT marker format:
+```
+[CLARIFICATION_NEEDED]
+Question: <your specific question>
+Context: <which feature/issue this affects>
+[/CLARIFICATION_NEEDED]
+```
+
 ## Completion Format
 When done, end your message with exactly this format:
 

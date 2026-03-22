@@ -8,6 +8,7 @@ import { AgentOrchestratorService } from './agent-orchestrator.service';
 import { PipelineFlowService } from './pipeline-flow.service';
 import { PipelineRetryService } from './pipeline-retry.service';
 import { PipelineCleanupService } from './pipeline-cleanup.service';
+import { ClarificationService } from './clarification.service';
 import { AgentsController } from './agents.controller';
 import { InterviewerAgent } from './interviewer/interviewer.agent';
 import { DevopsAgent } from './devops/devops.agent';
@@ -36,6 +37,7 @@ import { LoopResolverService } from './loop-resolver/loop-resolver.service';
     PipelineFlowService,
     PipelineRetryService,
     PipelineCleanupService,
+    ClarificationService,
     DualTestService,
     LoopResolverService,
     InterviewerAgent,

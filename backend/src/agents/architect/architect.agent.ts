@@ -11,6 +11,7 @@ import { McpAgentLoopService } from '../../mcp/mcp-agent-loop.service';
 import { McpRegistryService } from '../../mcp/mcp-registry.service';
 import { LlmMessage } from '../../llm/llm.interfaces';
 import { BaseAgent, AgentContext, sanitizeJsonOutput } from '../agent-base';
+import { ClarificationService } from '../clarification.service';
 import { loadPrompt } from '../prompt-loader';
 import { MonitorGateway } from '../../monitor/monitor.gateway';
 import { postAgentComment } from '../agent-comment.utils';
@@ -47,6 +48,7 @@ export class ArchitectAgent extends BaseAgent {
     private readonly mcpAgentLoop: McpAgentLoopService,
     private readonly mcpRegistry: McpRegistryService,
     private readonly eventEmitter: EventEmitter2,
+    private readonly clarificationService: ClarificationService,
   ) {
     super(
       prisma,
@@ -175,6 +177,17 @@ export class ArchitectAgent extends BaseAgent {
 
       if (!architectureOverview) {
         await this.markFailed(ctx, 'No architecture output from LLM');
+        return;
+      }
+
+      // Check if the LLM requested clarification from the user
+      const needsClarification = await this.checkForClarification(
+        ctx,
+        architectureOverview,
+        this.clarificationService,
+      );
+      if (needsClarification) {
+        this.logger.log('Architecture design paused — waiting for user clarification');
         return;
       }
 
@@ -521,6 +534,18 @@ export class ArchitectAgent extends BaseAgent {
         });
 
         if (result.content) {
+          // Check if the LLM requested clarification from the user
+          const needsClarification = await this.checkForClarification(
+            ctx,
+            result.content,
+            this.clarificationService,
+            issue.id,
+          );
+          if (needsClarification) {
+            this.logger.log(`Grounding paused for issue "${issue.title}" — waiting for user clarification`);
+            return '';
+          }
+
           return this.formatGroundingComment(result.content, issue.title);
         }
       }
@@ -534,6 +559,18 @@ export class ArchitectAgent extends BaseAgent {
 
     const result = await this.callLlm(messages);
     if (result.finishReason === 'error' || !result.content) return '';
+
+    // Check if the LLM requested clarification from the user
+    const needsClarification = await this.checkForClarification(
+      ctx,
+      result.content,
+      this.clarificationService,
+      issue.id,
+    );
+    if (needsClarification) {
+      this.logger.log(`Grounding paused for issue "${issue.title}" — waiting for user clarification`);
+      return '';
+    }
 
     return this.formatGroundingComment(result.content, issue.title);
   }

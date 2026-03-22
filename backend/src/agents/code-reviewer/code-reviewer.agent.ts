@@ -8,6 +8,7 @@ import { LlmService } from '../../llm/llm.service';
 import { GitlabService } from '../../gitlab/gitlab.service';
 import { LlmMessage } from '../../llm/llm.interfaces';
 import { BaseAgent, AgentContext, sanitizeJsonOutput } from '../agent-base';
+import { ClarificationService } from '../clarification.service';
 import { loadPrompt } from '../prompt-loader';
 import { MonitorGateway } from '../../monitor/monitor.gateway';
 import { DualTestService } from '../dual-test.service';
@@ -56,6 +57,7 @@ export class CodeReviewerAgent extends BaseAgent {
     monitorGateway: MonitorGateway,
     private readonly eventEmitter: EventEmitter2,
     private readonly dualTestService: DualTestService,
+    private readonly clarificationService: ClarificationService,
   ) {
     super(
       prisma,
@@ -237,6 +239,18 @@ ${
           ctx,
           `LLM call failed: ${dualResult.primary.errorMessage ?? 'unknown error'}`,
         );
+        return;
+      }
+
+      // Check if the LLM requested clarification from the user
+      const needsClarification = await this.checkForClarification(
+        ctx,
+        dualResult.primary.content,
+        this.clarificationService,
+        issueId,
+      );
+      if (needsClarification) {
+        this.logger.log(`Code review paused for MR !${mrIid} — waiting for user clarification`);
         return;
       }
 

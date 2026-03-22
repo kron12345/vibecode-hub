@@ -9,6 +9,7 @@ import { GitlabService } from '../../gitlab/gitlab.service';
 import { IssuesService } from '../../issues/issues.service';
 import { LlmMessage } from '../../llm/llm.interfaces';
 import { BaseAgent, AgentContext, sanitizeJsonOutput } from '../agent-base';
+import { ClarificationService } from '../clarification.service';
 import { loadPrompt } from '../prompt-loader';
 import { MonitorGateway } from '../../monitor/monitor.gateway';
 import {
@@ -48,6 +49,7 @@ export class IssueCompilerAgent extends BaseAgent {
     private readonly issuesService: IssuesService,
     monitorGateway: MonitorGateway,
     private readonly eventEmitter: EventEmitter2,
+    private readonly clarificationService: ClarificationService,
   ) {
     super(
       prisma,
@@ -283,6 +285,17 @@ IMPORTANT: Respond with ONLY the JSON object. No prose, no explanation, no markd
           '❌ Could not connect to the LLM. Please check the Issue Compiler provider configuration in Settings.',
         );
         await this.markFailed(ctx, 'LLM call failed');
+        return null;
+      }
+
+      // Check if the LLM requested clarification from the user
+      const needsClarification = await this.checkForClarification(
+        ctx,
+        result.content,
+        this.clarificationService,
+      );
+      if (needsClarification) {
+        this.logger.log('Issue compilation paused — waiting for user clarification');
         return null;
       }
 
