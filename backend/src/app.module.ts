@@ -18,6 +18,7 @@ import { PreviewModule } from './preview/preview.module';
 import { MonitorModule } from './monitor/monitor.module';
 import { VoiceModule } from './voice/voice.module';
 import { HealthModule } from './health/health.module';
+import { NotificationModule } from './notifications/notification.module';
 import { HttpLoggingMiddleware } from './common/http-logging.middleware';
 import { AuditLogService } from './common/audit-log.service';
 
@@ -51,6 +52,7 @@ import { AuditLogService } from './common/audit-log.service';
     MonitorModule,
     VoiceModule,
     HealthModule,
+    NotificationModule,
   ],
   providers: [
     {

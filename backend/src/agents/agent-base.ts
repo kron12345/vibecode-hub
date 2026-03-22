@@ -106,18 +106,71 @@ export abstract class BaseAgent {
     return this.settings.getAgentRoleConfig(this.role);
   }
 
-  /** Send a message as AGENT and broadcast via WebSocket */
-  protected async sendAgentMessage(ctx: AgentContext, content: string) {
+  /**
+   * Send a message as AGENT and broadcast via WebSocket.
+   * @param visibility - USER_FACING for results/questions shown to user,
+   *                     AGENT_INTERNAL for status/findings hidden by default.
+   *                     Auto-detected if not specified: messages with result keywords → USER_FACING.
+   */
+  protected async sendAgentMessage(
+    ctx: AgentContext,
+    content: string,
+    visibility?: 'USER_FACING' | 'AGENT_INTERNAL',
+  ) {
+    // Auto-detect visibility: summaries, results, errors → user-facing
+    const autoVisibility = visibility ?? this.detectVisibility(content);
+
     const message = await this.chatService.addMessage({
       chatSessionId: ctx.chatSessionId,
       role: MessageRole.AGENT,
       content,
       agentTaskId: ctx.agentTaskId,
+      metadata: { visibility: autoVisibility },
     });
 
-    this.chatGateway.emitToSession(ctx.chatSessionId, 'newMessage', message);
+    // Update the DB visibility field
+    await this.prisma.chatMessage.update({
+      where: { id: message.id },
+      data: { visibility: autoVisibility as any },
+    }).catch(() => {}); // best-effort: visibility column may not exist in old DBs
+
+    this.chatGateway.emitToSession(ctx.chatSessionId, 'newMessage', {
+      ...message,
+      visibility: autoVisibility,
+    });
 
     return message;
+  }
+
+  /**
+   * Auto-detect message visibility based on content.
+   * Results, summaries, errors, and questions → USER_FACING
+   * Status updates, findings details, MCP logs → AGENT_INTERNAL
+   */
+  private detectVisibility(content: string): 'USER_FACING' | 'AGENT_INTERNAL' {
+    const lower = content.toLowerCase();
+    // User-facing: results, approvals, failures, questions, summaries
+    const userFacingPatterns = [
+      '**code review approved**',
+      '**code review: changes requested**',
+      '**functional test',
+      '**ui test',
+      '**pen test',
+      '**documentation complete**',
+      'needs your input',
+      'pipeline paused',
+      'pipeline resumed',
+      'all issues done',
+      'setup complete',
+      'error:',
+      'failed:',
+      'merged',
+    ];
+    if (userFacingPatterns.some((p) => lower.includes(p))) {
+      return 'USER_FACING';
+    }
+    // Agent-internal: status updates, MCP details, tool calls
+    return 'AGENT_INTERNAL';
   }
 
   /** Build LlmMessage array from chat history */

@@ -382,8 +382,8 @@
   },
   "chat": {
     "uploadFailed": "Caricamento file non riuscito. Riprova.",
-    "showAgentDetails": "Mostra messaggi interni dell'agente",
-    "hideAgentDetails": "Nascondi messaggi interni dell'agente",
+    "tabChat": "Chat",
+    "tabAgentLog": "Log Agente",
     "waitingForInput": "L'agente è in attesa della tua risposta",
     "clarificationFrom": "Domanda da {agent}"
   },

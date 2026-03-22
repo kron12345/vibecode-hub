@@ -382,8 +382,8 @@
   },
   "chat": {
     "uploadFailed": "Datei-Upload fehlgeschlagen. Bitte erneut versuchen.",
-    "showAgentDetails": "Interne Agent-Nachrichten anzeigen",
-    "hideAgentDetails": "Interne Agent-Nachrichten ausblenden",
+    "tabChat": "Chat",
+    "tabAgentLog": "Agent-Log",
     "waitingForInput": "Agent wartet auf deine Antwort",
     "clarificationFrom": "Frage von {agent}"
   },

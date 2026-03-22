@@ -1,4 +1,5 @@
 import { Injectable, Logger } from '@nestjs/common';
+import { EventEmitter2 } from '@nestjs/event-emitter';
 import { PrismaService } from '../prisma/prisma.service';
 import { ChatService } from '../chat/chat.service';
 import { ChatGateway } from '../chat/chat.gateway';
@@ -35,6 +36,7 @@ export class ClarificationService {
 
   constructor(
     private readonly prisma: PrismaService,
+    private readonly eventEmitter: EventEmitter2,
     private readonly chatService: ChatService,
     private readonly chatGateway: ChatGateway,
     private readonly gitlabService: GitlabService,
@@ -125,6 +127,15 @@ export class ClarificationService {
       },
     );
     this.chatGateway.emitToSession(ctx.chatSessionId, 'newMessage', msg);
+
+    // Emit event for external notification channels (Telegram, etc.)
+    this.eventEmitter.emit('clarification.requested', {
+      chatSessionId: ctx.chatSessionId,
+      agentRole: roleName,
+      question,
+      options,
+      issueId,
+    });
 
     this.logger.log(
       `${roleName} asked for clarification (task ${ctx.agentTaskId}): ${question.substring(0, 100)}`,

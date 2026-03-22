@@ -84,14 +84,27 @@ export interface InterviewProgress {
         </div>
         <div class="flex items-center gap-2 shrink-0">
           @if (activeSession()) {
-            <button
-              (click)="showAgentDetails.set(!showAgentDetails())"
-              class="transition-colors"
-              [class]="showAgentDetails() ? 'text-indigo-400 hover:text-indigo-300' : 'text-slate-600 hover:text-slate-400'"
-              [title]="(showAgentDetails() ? 'chat.hideAgentDetails' : 'chat.showAgentDetails') | translate"
-            >
-              <app-icon [name]="showAgentDetails() ? 'eye' : 'eye-off'" [size]="14" />
-            </button>
+            <!-- Chat Tabs -->
+            <div class="flex gap-1 bg-black/30 rounded-lg p-0.5">
+              <button
+                (click)="activeTab.set('chat')"
+                class="px-3 py-1 rounded-md text-[10px] font-mono uppercase tracking-wider transition-all"
+                [class]="activeTab() === 'chat'
+                  ? 'bg-indigo-500/20 text-indigo-400 border border-indigo-500/30'
+                  : 'text-slate-600 hover:text-slate-400'"
+              >
+                {{ 'chat.tabChat' | translate }}
+              </button>
+              <button
+                (click)="activeTab.set('log')"
+                class="px-3 py-1 rounded-md text-[10px] font-mono uppercase tracking-wider transition-all"
+                [class]="activeTab() === 'log'
+                  ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/30'
+                  : 'text-slate-600 hover:text-slate-400'"
+              >
+                {{ 'chat.tabAgentLog' | translate }}
+              </button>
+            </div>
           }
           @if (activeSession()?.type === 'DEV_SESSION' && activeSession()?.status === 'ACTIVE') {
             <button
@@ -568,12 +581,19 @@ export class ChatPanelComponent implements OnInit, OnDestroy {
   isStreaming = signal(false);
   suggestions = signal<string[]>([]);
   interviewProgress = signal<InterviewProgress | null>(null);
-  showAgentDetails = signal(false);
+  activeTab = signal<'chat' | 'log'>('chat');
   waitingForInput = signal<{ question: string; options?: string[]; agentRole: string } | null>(null);
 
   filteredMessages = computed(() => {
     const msgs = this.messages();
-    if (this.showAgentDetails()) return msgs;
+    if (this.activeTab() === 'log') {
+      // Agent Log: only internal agent messages (findings, status, MCP details)
+      return msgs.filter(m =>
+        m.visibility === 'AGENT_INTERNAL' ||
+        (m.role === 'AGENT' && m.visibility && m.visibility !== 'USER_FACING')
+      );
+    }
+    // Chat: only user-facing messages (user questions, agent results, summaries, clarifications)
     return msgs.filter(m =>
       m.role === 'USER' || m.role === 'SYSTEM' ||
       !m.visibility || m.visibility === 'USER_FACING'

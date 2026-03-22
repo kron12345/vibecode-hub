@@ -382,8 +382,8 @@
   },
   "chat": {
     "uploadFailed": "Echec du transfert de fichier. Veuillez réessayer.",
-    "showAgentDetails": "Afficher les messages internes de l'agent",
-    "hideAgentDetails": "Masquer les messages internes de l'agent",
+    "tabChat": "Chat",
+    "tabAgentLog": "Journal Agent",
     "waitingForInput": "L'agent attend votre réponse",
     "clarificationFrom": "Question de {agent}"
   },
