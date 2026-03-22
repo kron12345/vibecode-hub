@@ -5,12 +5,13 @@ import { TranslatePipe } from '../../pipes/translate.pipe';
 import { UserSettingsComponent } from './user-settings.component';
 import { SystemSettingsComponent } from './system-settings.component';
 import { AgentRolesComponent } from './agent-roles.component';
+import { TelegramSettingsComponent } from './telegram-settings.component';
 
-type Tab = 'user' | 'system' | 'agents';
+type Tab = 'user' | 'system' | 'agents' | 'telegram';
 
 @Component({
   selector: 'app-settings',
-  imports: [IconComponent, TranslatePipe, UserSettingsComponent, SystemSettingsComponent, AgentRolesComponent],
+  imports: [IconComponent, TranslatePipe, UserSettingsComponent, SystemSettingsComponent, AgentRolesComponent, TelegramSettingsComponent],
   template: `
     <!-- Header -->
     <div class="mb-8 animate-in stagger-1">
@@ -64,6 +65,18 @@ type Tab = 'user' | 'system' | 'agents';
           <app-icon name="bot" [size]="16" />
           {{ 'settings.tabAgents' | translate }}
         </button>
+        <button
+          (click)="activeTab.set('telegram')"
+          class="px-5 py-2.5 rounded-xl text-sm font-medium transition-all flex items-center gap-2"
+          [class]="
+            activeTab() === 'telegram'
+              ? 'bg-indigo-600 text-white shadow-lg shadow-indigo-500/20'
+              : 'text-slate-400 hover:text-white hover:bg-white/5'
+          "
+        >
+          <app-icon name="send" [size]="16" />
+          {{ 'settings.telegramTab' | translate }}
+        </button>
       }
     </div>
 
@@ -94,6 +107,11 @@ type Tab = 'user' | 'system' | 'agents';
     <!-- Agent Roles Tab (Admin only) -->
     @if (activeTab() === 'agents' && authInfo.isAdmin) {
       <app-agent-roles (saved)="showToast($event.type, $event.message)" />
+    }
+
+    <!-- Telegram Tab (Admin only) -->
+    @if (activeTab() === 'telegram' && authInfo.isAdmin) {
+      <app-telegram-settings (saved)="showToast($event.type, $event.message)" />
     }
   `,
 })

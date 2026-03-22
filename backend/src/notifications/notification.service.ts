@@ -1,27 +1,24 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { OnEvent } from '@nestjs/event-emitter';
 import { SystemSettingsService } from '../settings/system-settings.service';
+import { TelegramService } from './telegram.service';
 
 /**
- * NotificationService — sends notifications to external channels
- * when agents need user attention.
+ * NotificationService — routes pipeline events to external notification channels.
+ * Currently supports: Telegram. Extensible for Slack, email, push.
  *
- * Currently supports: (none — interface ready for Telegram, Slack, etc.)
- * Future: Telegram Bot, Slack, Email, Push Notifications
- *
- * Listens for 'clarificationRequired' events and routes them to
- * configured notification channels.
+ * Respects user preferences (which notification types to send).
+ * Only sends to configured channels.
  */
 @Injectable()
 export class NotificationService {
   private readonly logger = new Logger(NotificationService.name);
 
-  constructor(private readonly settings: SystemSettingsService) {}
+  constructor(
+    private readonly settings: SystemSettingsService,
+    private readonly telegram: TelegramService,
+  ) {}
 
-  /**
-   * Send notification when an agent needs user input.
-   * Routes to all configured channels (Telegram, etc.)
-   */
   @OnEvent('clarification.requested')
   async onClarificationRequested(payload: {
     chatSessionId: string;
@@ -31,25 +28,19 @@ export class NotificationService {
     issueId?: string;
     projectName?: string;
   }) {
-    const channels = this.getActiveChannels();
-    if (channels.length === 0) return;
+    if (!this.shouldNotify('clarification')) return;
 
-    const message = this.formatClarificationMessage(payload);
-
-    for (const channel of channels) {
-      try {
-        await this.sendToChannel(channel, message);
-      } catch (err) {
-        this.logger.warn(
-          `Failed to send notification via ${channel}: ${err.message}`,
-        );
-      }
+    let msg = `*${payload.agentRole} needs your input*`;
+    if (payload.projectName) msg += ` (${payload.projectName})`;
+    msg += `\n\n${payload.question}`;
+    if (payload.options?.length) {
+      msg += '\n\n*Options:*\n' + payload.options.map((o, i) => `${i + 1}. ${o}`).join('\n');
     }
+    msg += '\n\n_Reply in VibCode Hub to continue the pipeline._';
+
+    await this.send(msg);
   }
 
-  /**
-   * Send notification for pipeline completion or failure.
-   */
   @OnEvent('notification.pipeline')
   async onPipelineEvent(payload: {
     type: 'completed' | 'failed' | 'needs_review';
@@ -57,113 +48,29 @@ export class NotificationService {
     issueTitle?: string;
     message: string;
   }) {
-    const channels = this.getActiveChannels();
-    if (channels.length === 0) return;
+    const notifType = payload.type === 'completed' ? 'result'
+      : payload.type === 'failed' ? 'error' : 'result';
 
-    const prefix =
-      payload.type === 'completed'
-        ? 'Pipeline Complete'
-        : payload.type === 'failed'
-          ? 'Pipeline Failed'
-          : 'Manual Review Needed';
+    if (!this.shouldNotify(notifType)) return;
 
-    const message = `[${prefix}] ${payload.projectName}\n${payload.message}`;
+    const icon = payload.type === 'completed' ? 'Done'
+      : payload.type === 'failed' ? 'FAILED' : 'Needs Review';
 
-    for (const channel of channels) {
-      try {
-        await this.sendToChannel(channel, message);
-      } catch (err) {
-        this.logger.warn(
-          `Failed to send pipeline notification via ${channel}: ${err.message}`,
-        );
-      }
-    }
+    await this.send(`*[${icon}]* ${payload.projectName}\n${payload.message}`);
   }
 
-  private getActiveChannels(): string[] {
-    const channels: string[] = [];
-
-    // Telegram
-    const telegramToken = this.settings.get(
-      'notifications.telegram.botToken',
-      '',
-      '',
-    );
-    const telegramChatId = this.settings.get(
-      'notifications.telegram.chatId',
-      '',
-      '',
-    );
-    if (telegramToken && telegramChatId) {
-      channels.push('telegram');
-    }
-
-    return channels;
+  private shouldNotify(type: 'clarification' | 'result' | 'error' | 'status'): boolean {
+    if (this.settings.get('notifications.telegram.notifyAll', '', 'false') === 'true') return true;
+    const key = `notifications.telegram.notify${type.charAt(0).toUpperCase() + type.slice(1)}s`;
+    const defaultVal = type === 'status' ? 'false' : 'true';
+    return this.settings.get(key, '', defaultVal) === 'true';
   }
 
-  private async sendToChannel(channel: string, message: string) {
-    switch (channel) {
-      case 'telegram':
-        return this.sendTelegram(message);
-      default:
-        this.logger.warn(`Unknown notification channel: ${channel}`);
+  private async send(message: string): Promise<void> {
+    try {
+      await this.telegram.sendNotification(message);
+    } catch (err) {
+      this.logger.warn(`Notification send failed: ${err.message}`);
     }
-  }
-
-  private async sendTelegram(message: string) {
-    const token = this.settings.get(
-      'notifications.telegram.botToken',
-      '',
-      '',
-    );
-    const chatId = this.settings.get(
-      'notifications.telegram.chatId',
-      '',
-      '',
-    );
-
-    if (!token || !chatId) return;
-
-    const url = `https://api.telegram.org/bot${token}/sendMessage`;
-    const response = await fetch(url, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        chat_id: chatId,
-        text: message,
-        parse_mode: 'Markdown',
-      }),
-      signal: AbortSignal.timeout(10_000),
-    });
-
-    if (!response.ok) {
-      const body = await response.text();
-      throw new Error(`Telegram API ${response.status}: ${body}`);
-    }
-
-    this.logger.debug(`Telegram notification sent to chat ${chatId}`);
-  }
-
-  private formatClarificationMessage(payload: {
-    agentRole: string;
-    question: string;
-    options?: string[];
-    projectName?: string;
-  }): string {
-    let msg = `*${payload.agentRole} needs your input*`;
-    if (payload.projectName) {
-      msg += ` (${payload.projectName})`;
-    }
-    msg += `\n\n${payload.question}`;
-
-    if (payload.options && payload.options.length > 0) {
-      msg += '\n\n*Options:*\n';
-      payload.options.forEach((opt, i) => {
-        msg += `${i + 1}. ${opt}\n`;
-      });
-    }
-
-    msg += '\n_Reply in VibCode Hub to continue the pipeline._';
-    return msg;
   }
 }

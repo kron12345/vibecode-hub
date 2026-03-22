@@ -368,6 +368,36 @@ export class ApiService {
     );
   }
 
+  // ─── Telegram ────────────────────────────────────────────
+
+  validateTelegramToken(token: string) {
+    return this.http.post<{ valid: boolean; botName?: string; botUsername?: string; error?: string }>(
+      `${this.baseUrl}/telegram/validate-token`, { token },
+    );
+  }
+
+  detectTelegramChatId(token: string) {
+    return this.http.post<{ found: boolean; chatId?: string; firstName?: string; username?: string; error?: string }>(
+      `${this.baseUrl}/telegram/detect-chat-id`, { token },
+    );
+  }
+
+  sendTelegramTest(botToken: string, chatId: string) {
+    return this.http.post<{ success: boolean; error?: string }>(
+      `${this.baseUrl}/telegram/send-test`, { botToken, chatId },
+    );
+  }
+
+  saveTelegramConfig(config: any) {
+    return this.http.post<{ saved: boolean }>(
+      `${this.baseUrl}/telegram/save`, config,
+    );
+  }
+
+  getTelegramConfig() {
+    return this.http.get<any>(`${this.baseUrl}/telegram/config`);
+  }
+
   // ─── Monitor ──────────────────────────────────────────────
 
   getLatestPipelineFailure(projectId: string, chatSessionId: string) {
