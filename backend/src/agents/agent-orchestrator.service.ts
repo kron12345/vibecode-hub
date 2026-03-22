@@ -508,6 +508,16 @@ export class AgentOrchestratorService {
         where: { id: issueId },
         data: { status: IssueStatus.NEEDS_REVIEW },
       });
+      // Propagate to sub-issues
+      await this.prisma.issue
+        .updateMany({
+          where: {
+            parentId: issueId,
+            status: { in: [IssueStatus.OPEN, IssueStatus.IN_PROGRESS] },
+          },
+          data: { status: IssueStatus.NEEDS_REVIEW },
+        })
+        .catch(() => {}); // best-effort: sub-issue status propagation
 
       const chatSessionFilter = await this.flow.getSessionFilter(chatSessionId);
       const nextOpen = await this.prisma.issue.findFirst({

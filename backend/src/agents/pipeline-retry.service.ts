@@ -326,6 +326,19 @@ export class PipelineRetryService {
 
       if (!merged) return;
 
+      // Set sub-issues to DONE (they were set to NEEDS_REVIEW earlier)
+      await this.prisma.issue
+        .updateMany({
+          where: {
+            parentId: issueId,
+            status: { notIn: [IssueStatus.DONE, IssueStatus.CLOSED] },
+          },
+          data: { status: IssueStatus.DONE },
+        })
+        .catch((err) => {
+          this.logger.warn(`Failed to set sub-issues to DONE after auto-merge: ${err.message}`);
+        });
+
       await this.flow.pullLatestInWorkspace(projectId, chatSessionId);
     } catch (err) {
       this.logger.error(`autoMergeForNeedsReview error: ${err.message}`);
