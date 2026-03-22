@@ -2,7 +2,7 @@ import { Injectable, OnDestroy, inject } from '@angular/core';
 import { Subject } from 'rxjs';
 import { io, Socket } from 'socket.io-client';
 import Keycloak from 'keycloak-js';
-import { environment } from '../../environments/environment';
+import { AppConfigService } from './app-config.service';
 import { ChatMessage } from './api.service';
 
 export interface AgentStatusEvent {
@@ -90,6 +90,7 @@ export interface VoiceErrorEvent {
 @Injectable({ providedIn: 'root' })
 export class ChatSocketService implements OnDestroy {
   private readonly keycloak = inject(Keycloak);
+  private readonly appConfig = inject(AppConfigService);
   private socket: Socket | null = null;
   private currentSessionId: string | null = null;
 
@@ -119,7 +120,7 @@ export class ChatSocketService implements OnDestroy {
   private connect() {
     if (this.socket) return;
 
-    const wsUrl = environment.apiUrl.replace('/api', '');
+    const wsUrl = this.appConfig.apiUrl.replace('/api', '');
     this.socket = io(`${wsUrl}/chat`, {
       transports: ['websocket'],
       withCredentials: true,

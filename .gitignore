@@ -11,6 +11,13 @@ backend/dist/
 .env.local
 .env.*.local
 
+# Runtime config (contains deployment-specific URLs)
+frontend/src/assets/config.json
+
+# Legacy Angular environment files (replaced by runtime config)
+frontend/src/environments/environment.ts
+frontend/src/environments/environment.prod.ts
+
 # IDE
 .idea/
 .vscode/

@@ -1,6 +1,6 @@
 import { Injectable, inject } from '@angular/core';
 import { HttpClient } from '@angular/common/http';
-import { environment } from '../../environments/environment';
+import { AppConfigService } from './app-config.service';
 
 // Re-export shared types so existing imports from this file continue to work
 export type {
@@ -68,7 +68,8 @@ import type {
 @Injectable({ providedIn: 'root' })
 export class ApiService {
   private http = inject(HttpClient);
-  private baseUrl = environment.apiUrl;
+  private config = inject(AppConfigService);
+  private get baseUrl() { return this.config.apiUrl; }
 
   // ─── Projects ──────────────────────────────────────────────
 

@@ -1,7 +1,6 @@
 import {
   ApplicationConfig,
   provideBrowserGlobalErrorListeners,
-  provideAppInitializer,
 } from '@angular/core';
 import { provideRouter } from '@angular/router';
 import { provideHttpClient, withInterceptors } from '@angular/common/http';
@@ -14,7 +13,15 @@ import {
   includeBearerTokenInterceptor,
 } from 'keycloak-angular';
 import { routes } from './app.routes';
-import { environment } from '../environments/environment';
+import { AppConfigService } from './services/app-config.service';
+
+// Read pre-loaded config (loaded in main.ts before bootstrap)
+const preloaded = (window as any).__APP_CONFIG__ as AppConfigService | undefined;
+const keycloakConfig = preloaded?.keycloak ?? {
+  url: 'http://localhost:8081',
+  realm: 'vibcodehub',
+  clientId: 'vibcodehub-frontend',
+};
 
 export const appConfig: ApplicationConfig = {
   providers: [
@@ -23,9 +30,9 @@ export const appConfig: ApplicationConfig = {
     provideHttpClient(withInterceptors([includeBearerTokenInterceptor])),
     provideKeycloak({
       config: {
-        url: environment.keycloak.url,
-        realm: environment.keycloak.realm,
-        clientId: environment.keycloak.clientId,
+        url: keycloakConfig.url,
+        realm: keycloakConfig.realm,
+        clientId: keycloakConfig.clientId,
       },
       initOptions: {
         onLoad: 'login-required',

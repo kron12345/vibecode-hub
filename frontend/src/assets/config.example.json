@@ -1,0 +1,8 @@
+{
+  "apiUrl": "http://localhost:3100/api",
+  "keycloak": {
+    "url": "https://your-keycloak.example.com",
+    "realm": "vibcodehub",
+    "clientId": "vibcodehub-frontend"
+  }
+}
