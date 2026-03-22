@@ -381,7 +381,11 @@
     "noSessions": "No sessions yet"
   },
   "chat": {
-    "uploadFailed": "File upload failed. Please try again."
+    "uploadFailed": "File upload failed. Please try again.",
+    "showAgentDetails": "Show agent internal messages",
+    "hideAgentDetails": "Hide agent internal messages",
+    "waitingForInput": "Agent is waiting for your answer",
+    "clarificationFrom": "Question from {agent}"
   },
   "languages": {
     "de": "Deutsch",

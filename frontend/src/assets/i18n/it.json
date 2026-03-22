@@ -381,7 +381,11 @@
     "noSessions": "Nessuna sessione"
   },
   "chat": {
-    "uploadFailed": "Caricamento file non riuscito. Riprova."
+    "uploadFailed": "Caricamento file non riuscito. Riprova.",
+    "showAgentDetails": "Mostra messaggi interni dell'agente",
+    "hideAgentDetails": "Nascondi messaggi interni dell'agente",
+    "waitingForInput": "L'agente è in attesa della tua risposta",
+    "clarificationFrom": "Domanda da {agent}"
   },
   "languages": {
     "de": "Deutsch",

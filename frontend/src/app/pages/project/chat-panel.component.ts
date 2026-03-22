@@ -1,5 +1,6 @@
 import {
   Component,
+  computed,
   inject,
   input,
   output,
@@ -44,6 +45,13 @@ export interface InterviewProgress {
       from { transform: translateX(100%); }
       to { transform: translateX(0); }
     }
+    .animate-pulse-slow {
+      animation: pulseSlow 2s ease-in-out infinite;
+    }
+    @keyframes pulseSlow {
+      0%, 100% { border-color: rgb(245 158 11 / 0.3); }
+      50% { border-color: rgb(245 158 11 / 0.6); }
+    }
   `],
   template: `
     <!-- Chat Terminal -->
@@ -75,6 +83,16 @@ export interface InterviewProgress {
           }
         </div>
         <div class="flex items-center gap-2 shrink-0">
+          @if (activeSession()) {
+            <button
+              (click)="showAgentDetails.set(!showAgentDetails())"
+              class="transition-colors"
+              [class]="showAgentDetails() ? 'text-indigo-400 hover:text-indigo-300' : 'text-slate-600 hover:text-slate-400'"
+              [title]="(showAgentDetails() ? 'chat.hideAgentDetails' : 'chat.showAgentDetails') | translate"
+            >
+              <app-icon [name]="showAgentDetails() ? 'eye' : 'eye-off'" [size]="14" />
+            </button>
+          }
           @if (activeSession()?.type === 'DEV_SESSION' && activeSession()?.status === 'ACTIVE') {
             <button
               (click)="openArchiveModal()"
@@ -133,7 +151,7 @@ export interface InterviewProgress {
 
         <!-- Messages -->
         <div class="flex-1 overflow-y-auto p-5 font-mono text-sm space-y-1.5" #messageContainer>
-          @for (msg of messages(); track msg.id) {
+          @for (msg of filteredMessages(); track msg.id) {
             <div class="flex gap-2">
               <span class="text-slate-700 shrink-0">[{{ formatTime(msg.createdAt) }}]</span>
               @switch (msg.role) {
@@ -183,6 +201,31 @@ export interface InterviewProgress {
               >
                 {{ s }}
               </button>
+            }
+          </div>
+        }
+
+        <!-- Clarification Banner -->
+        @if (waitingForInput()) {
+          <div class="mx-5 mb-1 rounded-xl border border-amber-500/30 bg-amber-500/10 p-3 animate-pulse-slow">
+            <div class="flex items-center gap-2 mb-1.5">
+              <app-icon name="message-circle-question" [size]="14" class="text-amber-400 shrink-0" />
+              <span class="text-[10px] font-mono text-amber-400 uppercase tracking-wider">
+                {{ 'chat.clarificationFrom' | translate:{ agent: waitingForInput()!.agentRole } }}
+              </span>
+            </div>
+            <p class="text-sm text-slate-300 mb-2">{{ waitingForInput()!.question }}</p>
+            @if (waitingForInput()!.options && waitingForInput()!.options!.length > 0) {
+              <div class="flex flex-wrap gap-2">
+                @for (opt of waitingForInput()!.options!; track opt) {
+                  <button
+                    (click)="useClarificationOption(opt)"
+                    class="px-3 py-1 rounded-full bg-amber-500/10 text-amber-300 text-xs font-medium border border-amber-500/30 hover:bg-amber-500/20 hover:border-amber-500/50 transition-all cursor-pointer"
+                  >
+                    {{ opt }}
+                  </button>
+                }
+              </div>
             }
           </div>
         }
@@ -525,6 +568,17 @@ export class ChatPanelComponent implements OnInit, OnDestroy {
   isStreaming = signal(false);
   suggestions = signal<string[]>([]);
   interviewProgress = signal<InterviewProgress | null>(null);
+  showAgentDetails = signal(false);
+  waitingForInput = signal<{ question: string; options?: string[]; agentRole: string } | null>(null);
+
+  filteredMessages = computed(() => {
+    const msgs = this.messages();
+    if (this.showAgentDetails()) return msgs;
+    return msgs.filter(m =>
+      m.role === 'USER' || m.role === 'SYSTEM' ||
+      !m.visibility || m.visibility === 'USER_FACING'
+    );
+  });
 
   showNewSessionModal = signal(false);
   showArchiveModal = signal(false);
@@ -539,6 +593,7 @@ export class ChatPanelComponent implements OnInit, OnDestroy {
   private streamEndSub: Subscription | null = null;
   private suggestionsSub: Subscription | null = null;
   private progressSub: Subscription | null = null;
+  private clarificationSub: Subscription | null = null;
 
   constructor() {
     // Auto-scroll when messages change
@@ -575,6 +630,14 @@ export class ChatPanelComponent implements OnInit, OnDestroy {
     this.progressSub = this.chatSocket.interviewProgress$.subscribe((event) => {
       this.interviewProgress.set(event.progress);
     });
+
+    this.clarificationSub = this.chatSocket.clarificationRequired$.subscribe((event) => {
+      this.waitingForInput.set({
+        question: event.question,
+        options: event.options,
+        agentRole: event.agentRole,
+      });
+    });
   }
 
   ngOnDestroy() {
@@ -584,6 +647,7 @@ export class ChatPanelComponent implements OnInit, OnDestroy {
     this.streamEndSub?.unsubscribe();
     this.suggestionsSub?.unsubscribe();
     this.progressSub?.unsubscribe();
+    this.clarificationSub?.unsubscribe();
   }
 
   /** Load messages for the given session */
@@ -599,6 +663,7 @@ export class ChatPanelComponent implements OnInit, OnDestroy {
   clearMessages() {
     this.chatSocket.leaveSession();
     this.messages.set([]);
+    this.waitingForInput.set(null);
   }
 
   /** Called from parent when new session modal should open */
@@ -617,6 +682,7 @@ export class ChatPanelComponent implements OnInit, OnDestroy {
     if (!session || !content) return;
 
     this.suggestions.set([]);
+    this.waitingForInput.set(null);
 
     this.api
       .sendChatMessage({
@@ -638,6 +704,11 @@ export class ChatPanelComponent implements OnInit, OnDestroy {
       return;
     }
     this.messageInput = text;
+    this.sendMessage();
+  }
+
+  useClarificationOption(option: string) {
+    this.messageInput = option;
     this.sendMessage();
   }
 

@@ -51,6 +51,15 @@ export interface InterviewProgressEvent {
 
 // ─── Voice Event Interfaces ─────────────────────────────────
 
+export interface ClarificationRequiredEvent {
+  chatSessionId: string;
+  agentRole: string;
+  question: string;
+  taskId: string;
+  issueId?: string;
+  options?: string[];
+}
+
 export interface VoiceTranscriptEvent {
   chatSessionId: string;
   text: string;
@@ -97,6 +106,8 @@ export class ChatSocketService implements OnDestroy {
   /** Interview-specific events */
   readonly chatSuggestions$ = new Subject<ChatSuggestionsEvent>();
   readonly interviewProgress$ = new Subject<InterviewProgressEvent>();
+  /** Emits when an agent needs clarification from the user */
+  readonly clarificationRequired$ = new Subject<ClarificationRequiredEvent>();
 
   // ─── Voice Events ──────────────────────────────────────────
   readonly voiceTranscript$ = new Subject<VoiceTranscriptEvent>();
@@ -155,6 +166,10 @@ export class ChatSocketService implements OnDestroy {
 
     this.socket.on('interviewProgress', (event: InterviewProgressEvent) => {
       this.interviewProgress$.next(event);
+    });
+
+    this.socket.on('clarificationRequired', (event: ClarificationRequiredEvent) => {
+      this.clarificationRequired$.next(event);
     });
 
     // ─── Voice Socket Listeners ────────────────────────────

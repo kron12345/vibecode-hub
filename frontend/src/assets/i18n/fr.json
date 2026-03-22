@@ -381,7 +381,11 @@
     "noSessions": "Aucune session"
   },
   "chat": {
-    "uploadFailed": "Echec du transfert de fichier. Veuillez réessayer."
+    "uploadFailed": "Echec du transfert de fichier. Veuillez réessayer.",
+    "showAgentDetails": "Afficher les messages internes de l'agent",
+    "hideAgentDetails": "Masquer les messages internes de l'agent",
+    "waitingForInput": "L'agent attend votre réponse",
+    "clarificationFrom": "Question de {agent}"
   },
   "languages": {
     "de": "Deutsch",
